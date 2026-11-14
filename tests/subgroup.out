@@ -125,18 +125,18 @@ subgroup.ucas:64:12: error: sg_add reads c in every lane, and c has a value in e
                ^
 > qv(c: u32 in 0..15, a: u32, b: u32) = sg_any(c > 3) ? a * b : a + b
 > cost qv
-cost of qv under gt1030: 136 (6 operations, shared subterms counted once)
+cost of qv under gt1030: 138 (6 operations, shared subterms counted once)
   iadd             1 x 1     = 1
   imul             1 x 3     = 3
   cmp              1 x 2.375 = 2.375
   select           1 x 1.625 = 1.625
-  sg_vote          1 x 0     = 0
+  sg_vote          1 x 2     = 2
   sg_shuffle       1 x 128   = 128
   c read in the other lanes (a value per lane, not known there): at the worst, each of its 32 lanes read through a shuffle, and a ?: on what it gives priced as divergent
   ?: on sg_any(c > 3)  (arms cost 3 and 1)
       select: +1.625   uniform branch: +5.25   divergent branch: +20.625
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
-  estimate with the best form per ?: : 136
+  estimate with the best form per ?: : 138
 > qc(y: u32 uniform) = q(y) + 1
 > show qc(6)
 _() = 7
@@ -165,20 +165,20 @@ cost of s8 under gt1030: 63.25 (3 operations, shared subterms counted once)
   sg_scan          1 x 60.25 = 60.25
 > v(x: u32 uniform, a: u32, c: u32) = sg_any(((x >> lane) & 1) != 0) ? a * c : a + c
 > cost v
-cost of v under gt1030: 11 (7 operations, shared subterms counted once)
+cost of v under gt1030: 13 (7 operations, shared subterms counted once)
   iadd             1 x 1     = 1
   logic            1 x 1     = 1
   shift            1 x 2     = 2
   imul             1 x 3     = 3
   cmp              1 x 2.375 = 2.375
   select           1 x 1.625 = 1.625
-  sg_vote          1 x 0     = 0
+  sg_vote          1 x 2     = 2
   ?: on sg_any(x >> lane & 1 != 0)  (arms cost 3 and 1)
       select: +1.625   uniform branch: +5.25   divergent branch: +20.625  (condition is uniform)
       -> select
-  estimate with the best form per ?: : 11
+  estimate with the best form per ?: : 13
 > models
-model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, byteperm: 1, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
   fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
   fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
   fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
@@ -192,7 +192,7 @@ model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk:
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
   folds f32 -> f16 -> f32
-model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, byteperm: 1, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
   fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
   fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
   fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
@@ -205,7 +205,7 @@ model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
-model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, byteperm: 1, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
   fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
   fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
   fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
@@ -218,7 +218,7 @@ model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
-model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, byteperm: 1, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
   fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
   fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
   fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
@@ -255,7 +255,7 @@ cost of pc under gt1030: 42.5 (worst case; 0 operations outside loops and 1 loop
     loop total: 42.5 worst case, 21.25 on average
     in a warp of 32 lanes (independent draws from the domain, all 16 points): it runs until its last lane leaves, 3.873 iterations on average, and its lanes leave at different counts with probability 1
       exit per lane: 0 + 3.873 x 10.625 + 1 x 14.375 diverge (the lanes that left keep up) = 55.5278
-      exit on a vote: 0 + 3.873 x (10.625 + 0 sg_vote + 1 x 1.625 select) = 47.4468  (while sg_any(x != 0), a select keeping x where it fails)
+      exit on a vote: 0 + 3.873 x (10.625 + 2 sg_vote + 1 x 1.625 select) = 55.1932  (while sg_any(x != 0), a select keeping x where it fails)
       -> exit on a vote
 > lg(n: int in 1..1000) = { x = n; k = 0; while x > 1 { x = x / 2; k += 1 }; k }
 > cost lg
@@ -272,7 +272,7 @@ cost of lg under gt1030: 149.625 (worst case; 0 operations outside loops and 1 l
     loop total: 149.625 worst case, 132.784 on average
     in a warp of 32 lanes (independent draws from the domain, all 1000 points): it runs until its last lane leaves, 9 iterations on average, and its lanes leave at different counts with probability 1
       exit per lane: 0 + 9 x 16.625 + 1 x 14.375 diverge (the lanes that left keep up) = 164
-      exit on a vote: 0 + 9 x (16.625 + 0 sg_vote + 2 x 1.625 select) = 178.875  (while sg_any(x > 1), a select keeping x and k where it fails)
+      exit on a vote: 0 + 9 x (16.625 + 2 sg_vote + 2 x 1.625 select) = 196.875  (while sg_any(x > 1), a select keeping x and k where it fails)
       -> exit per lane
 > cost lg consecutive n
 cost of lg under gt1030: 149.625 (worst case; 0 operations outside loops and 1 loop, shared subterms counted once)
@@ -288,7 +288,7 @@ cost of lg under gt1030: 149.625 (worst case; 0 operations outside loops and 1 l
     loop total: 149.625 worst case, 132.784 on average
     in a warp of 32 lanes (aligned runs of the consecutive index, all 32 warps): it runs until its last lane leaves, 8.031 iterations on average, and its lanes leave at different counts with probability 0.03125
       exit per lane: 0 + 8.031 x 16.625 + 0.03125 x 14.375 diverge (the lanes that left keep up) = 133.969
-      exit on a vote: 0 + 8.031 x (16.625 + 0 sg_vote + 2 x 1.625 select) = 159.621  (while sg_any(x > 1), a select keeping x and k where it fails)
+      exit on a vote: 0 + 8.031 x (16.625 + 2 sg_vote + 2 x 1.625 select) = 175.684  (while sg_any(x > 1), a select keeping x and k where it fails)
       -> exit per lane
 > tri(n: u32 in 0..40) = { s: u32 = 0; for i in 1..n { s += i*i }; s }
 > cost tri
@@ -306,21 +306,21 @@ cost of tri under gt1030: 505 (worst case; 0 operations outside loops and 1 loop
     loop total: 505 worst case, 252.5 on average
     in a warp of 32 lanes (independent draws from the domain, all 41 points): it runs until its last lane leaves, 39.19 iterations on average, and its lanes leave at different counts with probability 1
       exit per lane: 0 + 39.19 x 12.625 + 1 x 14.375 diverge (the lanes that left keep up) = 509.188
-      exit on a vote: 0 + 39.19 x (12.625 + 0 sg_vote + 1 x 1.625 select) = 558.502  (while sg_any(i <= int(n)), a select keeping s where it fails)
+      exit on a vote: 0 + 39.19 x (12.625 + 2 sg_vote + 1 x 1.625 select) = 636.888  (while sg_any(i <= int(n)), a select keeping s where it fails)
       -> exit per lane
 > vl(lane: u32 in 0..31, x: u32 in 0..3 uniform) = { k: u32 = 0; s: u32 = 0; while sg_any(k < lane + x) { k += 1; s += lane }; s }
 > cost vl
-cost of vl under gt1030: 362.25 (worst case; 0 operations outside loops and 1 loop, shared subterms counted once)
-  average over the domain: 346.312
+cost of vl under gt1030: 430.25 (worst case; 0 operations outside loops and 1 loop, shared subterms counted once)
+  average over the domain: 411.312
   iadd            69 x 1     = 69
   cmp             34 x 2.375 = 80.75
   branch          34 x 6.25  = 212.5
-  sg_vote         34 x 0     = 0
+  sg_vote         34 x 2     = 68
   loop while sg_any(k < lane + x):
-    per iteration: body 4.375 + overhead 6.25 (branch; the compare is in the condition) = 10.625
+    per iteration: body 6.375 + overhead 6.25 (branch; the compare is in the condition) = 12.625
     trip count: at most 34, average 32.5, measured by running it on all 128 points
     once: 1 (initial values and loop-invariant subterms, hoisted)
-    loop total: 362.25 worst case, 346.312 on average
+    loop total: 430.25 worst case, 411.312 on average
     in a warp of 32 lanes: its lanes leave together, the condition being uniform
 > ub(n: u32 in 0..40 uniform, a: u32) = { s: u32 = a; for i in 1..n { s += i*a }; s }
 > cost ub

@@ -356,7 +356,7 @@ cost of f under gt1030: 349.125 (worst case; 0 operations outside loops and 1 lo
     loop total: 349.125 worst case, 182.875 on average
     in a warp of 32 lanes (independent draws from the domain, all 21 points): it runs until its last lane leaves, 20.74 iterations on average, and its lanes leave at different counts with probability 1
       exit per lane: 0 + 20.74 x 16.625 + 1 x 14.375 diverge (the lanes that left keep up) = 359.193
-      exit on a vote: 0 + 20.74 x (16.625 + 0 sg_vote + 1 x 1.625 select) = 378.522  (while sg_any(i <= n), a select keeping sum where it fails)
+      exit on a vote: 0 + 20.74 x (16.625 + 2 sg_vote + 1 x 1.625 select) = 420.004  (while sg_any(i <= n), a select keeping sum where it fails)
       -> exit per lane
 > bad[0] = 1
 > closed bad[n]

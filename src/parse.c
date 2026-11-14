@@ -2145,11 +2145,11 @@ static const char prelude[] =
      * of a compare, ballot(a == b) + b and a < b of either sign, is 4.82
      * (tests/gt1030/probe.py, 2026-11-13): 1.5 above the compare and the
      * add; a ballot of a bit, ballot((a & 1) != 0) + b, is 3.65, which
-     * ballot_bit below takes.  The votes fit below zero (any((a & 1) !=
-     * 0) ? b : c 4.51, where the and, the compare and the select are 5),
-     * so they are priced 0 and their compare as a compare.
+     * ballot_bit below takes.  A vote of a compare with its select,
+     * any(a == b) ? c : d and all(a < b) ? c : d, is 6.01: 2 above the
+     * compare and the select.
      */
-    "  sg_ballot: 1.5, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4,\n"
+    "  sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4,\n"
     "  sg_scan: 60.25,\n"
     /*
      * The shuffle's forms (tests/gt1030/probe.py, 2026-11-13, a step
@@ -2236,12 +2236,16 @@ static const char prelude[] =
      * each less its add: bitfieldExtract 2.25 (BFE, 21 B a step; the
      * corpus's bfe 2.20), bitfieldReverse 2.25 (BREV; the corpus's
      * bitreverse 2.26), a byte swap by shifts and masks 2.05 (one PRMT,
-     * 21 B).  Not listed: funnel and sad4x8 (the driver keeps 4 and 14
-     * instructions: there is no one instruction to price), mulhi (9.55
-     * where the corpus's identical umulhi gave 5.11), med3 (its probe's
-     * clamps were undefined).
+     * 21 B).  funnel and sad4x8 are the time of what the driver makes of
+     * them, 4 and about 14 instructions: (a << s) | (b >> (32 - s)) 9.09,
+     * four byte differences and their sum 16.24.  mulwide is a u32 x u32
+     * product taken as u64 (the driver sees the zero extension), the
+     * high word read with its add 13.96.  Not listed: mulhi (9.55 where
+     * the corpus's identical umulhi gave 5.11), med3 (its probe's clamps
+     * were undefined).
      */
-    "  bfe: 1.25, brev: 1.25, byteperm: 1\n"
+    "  bfe: 1.25, brev: 1.25, byteperm: 1, funnel: 8.125, sad4x8: 15.25,\n"
+    "  mulwide: 13\n"
     /*
      * 64-bit integers, from the 11-11 run (tests/gt1030/results): an add
      * is two instructions with the carry (u64_add 2.02), a multiply the

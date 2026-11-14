@@ -18,29 +18,29 @@ exec of SPIR-V (49 instructions), entry %main, 8 lanes in lockstep, cost model g
     %n = OpGroupNonUniformBallotBitCount %uint %uint_3 InclusiveScan %bl bitcnt         7  t = 7.875..14.875  -> 0 1 1 2 3 3 4 4
     %nx = OpGroupNonUniformBallotBitCount %uint %uint_3 ExclusiveScan %bl bitcnt         7  t = 14.875..21.875  -> 0 0 1 1 2 3 3 4
     %nr = OpGroupNonUniformBallotBitCount %uint %uint_3 Reduce %bl bitcnt         3  t = 21.875..24.875  -> 4 4 4 4 4 4 4 4
-    %any = OpGroupNonUniformAny %bool %uint_3 %p sg_vote        0  t = 24.875..24.875  -> true true true true true true true true
-    %all = OpGroupNonUniformAll %bool %uint_3 %p sg_vote        0  t = 24.875..24.875  -> false false false false false false false false
-    %eq = OpGroupNonUniformAllEqual %bool %uint_3 %x sg_vote    6.375  t = 24.875..31.25  -> false false false false false false false false
-    %el = OpGroupNonUniformElect %bool %uint_3   sg_ballot  6.875  t = 31.25..38.125  -> true false false false false false false false
-    %s = OpGroupNonUniformIAdd %uint %uint_3 Reduce %x sg_add     32.625  t = 38.125..70.75  -> 28 28 28 28 28 28 28 28
-    %is = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %x sg_scan    60.25  t = 70.75..131  -> 0 5 7 14 18 19 25 28
-    %xs = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %x sg_scan    61.25  t = 131..192.25  -> 0 0 5 7 14 18 19 25
-    %cs = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_4 sg_cluster4  19.5  t = 192.25..211.75  -> 14 14 14 14 14 14 14 14
-    %mx = OpGroupNonUniformUMax %uint %uint_3 Reduce %x                0  t = 211.75..211.75  -> 7 7 7 7 7 7 7 7
-    %sh = OpGroupNonUniformShuffle %uint %uint_3 %x %uint_2 sg_shuffle     4  t = 211.75..215.75  -> 2 2 2 2 2 2 2 2
-    %sx = OpGroupNonUniformShuffleXor %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 215.75..220.75  -> 5 0 7 2 1 4 3 6
-    %up = OpGroupNonUniformShuffleUp %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 220.75..225.75  -> 0 0 5 2 7 4 1 6
-    %dn = OpGroupNonUniformShuffleDown %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 225.75..230.75  -> 5 2 7 4 1 6 3 0
-    %bc = OpGroupNonUniformBroadcast %uint %uint_3 %x %uint_5 sg_shuffle     4  t = 230.75..234.75  -> 1 1 1 1 1 1 1 1
-    %bf = OpGroupNonUniformBroadcastFirst %uint %uint_3 %x sg_shuffle     4  t = 234.75..238.75  -> 0 0 0 0 0 0 0 0
-    %lsb = OpGroupNonUniformBallotFindLSB %uint %uint_3 %bl bitcnt         3  t = 238.75..241.75  -> 1 1 1 1 1 1 1 1
-    %msb = OpGroupNonUniformBallotFindMSB %uint %uint_3 %bl bitcnt         4  t = 241.75..245.75  -> 6 6 6 6 6 6 6 6
-    %ex = OpGroupNonUniformBallotBitExtract %bool %uint_3 %bl %uint_1 shift      5.375  t = 245.75..251.125  -> true true true true true true true true
-    %ib = OpGroupNonUniformInverseBallot %bool %uint_3 %bl shift      5.375  t = 251.125..256.5  -> false true false true true false true false
-    OpStore %y %n                                               0  t = 256.5..256.5
-  time 256.5 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 1062x418, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 42.8 cost units; 452970 bytes
-  (nofile: GIF checksum e7038907)
+    %any = OpGroupNonUniformAny %bool %uint_3 %p sg_vote        2  t = 24.875..26.875  -> true true true true true true true true
+    %all = OpGroupNonUniformAll %bool %uint_3 %p sg_vote        2  t = 26.875..28.875  -> false false false false false false false false
+    %eq = OpGroupNonUniformAllEqual %bool %uint_3 %x sg_vote    8.375  t = 28.875..37.25  -> false false false false false false false false
+    %el = OpGroupNonUniformElect %bool %uint_3   sg_ballot  6.875  t = 37.25..44.125  -> true false false false false false false false
+    %s = OpGroupNonUniformIAdd %uint %uint_3 Reduce %x sg_add     32.625  t = 44.125..76.75  -> 28 28 28 28 28 28 28 28
+    %is = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %x sg_scan    60.25  t = 76.75..137  -> 0 5 7 14 18 19 25 28
+    %xs = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %x sg_scan    61.25  t = 137..198.25  -> 0 0 5 7 14 18 19 25
+    %cs = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_4 sg_cluster4  19.5  t = 198.25..217.75  -> 14 14 14 14 14 14 14 14
+    %mx = OpGroupNonUniformUMax %uint %uint_3 Reduce %x                0  t = 217.75..217.75  -> 7 7 7 7 7 7 7 7
+    %sh = OpGroupNonUniformShuffle %uint %uint_3 %x %uint_2 sg_shuffle     4  t = 217.75..221.75  -> 2 2 2 2 2 2 2 2
+    %sx = OpGroupNonUniformShuffleXor %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 221.75..226.75  -> 5 0 7 2 1 4 3 6
+    %up = OpGroupNonUniformShuffleUp %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 226.75..231.75  -> 0 0 5 2 7 4 1 6
+    %dn = OpGroupNonUniformShuffleDown %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 231.75..236.75  -> 5 2 7 4 1 6 3 0
+    %bc = OpGroupNonUniformBroadcast %uint %uint_3 %x %uint_5 sg_shuffle     4  t = 236.75..240.75  -> 1 1 1 1 1 1 1 1
+    %bf = OpGroupNonUniformBroadcastFirst %uint %uint_3 %x sg_shuffle     4  t = 240.75..244.75  -> 0 0 0 0 0 0 0 0
+    %lsb = OpGroupNonUniformBallotFindLSB %uint %uint_3 %bl bitcnt         3  t = 244.75..247.75  -> 1 1 1 1 1 1 1 1
+    %msb = OpGroupNonUniformBallotFindMSB %uint %uint_3 %bl bitcnt         4  t = 247.75..251.75  -> 6 6 6 6 6 6 6 6
+    %ex = OpGroupNonUniformBallotBitExtract %bool %uint_3 %bl %uint_1 shift      5.375  t = 251.75..257.125  -> true true true true true true true true
+    %ib = OpGroupNonUniformInverseBallot %bool %uint_3 %bl shift      5.375  t = 257.125..262.5  -> false true false true true false true false
+    OpStore %y %n                                               0  t = 262.5..262.5
+  time 262.5 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 1062x418, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 43.8 cost units; 484278 bytes
+  (nofile: GIF checksum 502f3ac5)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > animate exec lanes 8 seed 1 nofile
