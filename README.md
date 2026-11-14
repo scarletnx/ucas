@@ -212,7 +212,13 @@ compares it with an expression whose interval is known: in
 each side leaves (`(x >= 3 && x <= 5) || (x >= 100 && x <= 101)`: 3..101),
 and a conjunct that lists a parameter's values, `x == 3 || x == 17 ||
 x == 4000000000`, makes those values its domain however far apart they
-are (up to 128 of them).  A sample in which no point is in the domain
+are (up to 128 of them).  A parameter's values can be listed where it is
+declared, `x: u32 in {5, 900, 70000}`, which is that conjunct of the
+where clause with the values' hull as the range, and `x in {a, b, c}`
+is a condition anywhere (the || of the equalities).  Without braces a
+list is refused: after its comma, `x in 3, 17, y in 6, 9` reads as two
+lists or as one value and the next conditions, and ucas does not
+guess.  A sample in which no point is in the domain
 says that, with the number of points sampled, instead of calling the
 function undefined.  `wrap` and `range` add interval bounds when
 sampling, which can prove that an operation never wraps.

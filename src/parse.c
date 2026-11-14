@@ -1673,8 +1673,29 @@ parse_expr(struct P *p, int minbp)
 		}
 		skip_cont(p);
 		if (bp == BP_CMP) {
+			if (op == O_NONE && pk(p) == T_LC) {	/* x in {a, b} */
+				nid any = 0;
+				adv(p);
+				do {
+					nid v = parse_expr(p, BP_CMP + 1);
+					nid e = mk_bin(O_EQ, lhs, v);
+					any = any ? mk_bin(O_LOR, any, e) : e;
+				} while (accept(p, T_COMMA));
+				expect(p, T_RC);
+				lhs = any;
+				prevcmp = 0;
+				lastjux = 0;
+				continue;
+			}
 			if (op == O_NONE) {   /* x in a..b */
 				nid lo = parse_expr(p, BP_CMP + 1), hi;
+				if (pk(p) == T_COMMA)
+					fail("`in` before a list without braces has two "
+					    "readings: the values `in {%.*s, ...}`, or one "
+					    "value and the next condition after the comma; "
+					    "write the braces, or a range a..b",
+					    (int)p->t->len[p->i - 1], p->t->src +
+					    p->t->off[p->i - 1]);
 				expect(p, T_DOTDOT);
 				hi = parse_expr(p, BP_CMP + 1);
 				c = mk_bin(O_LAND, mk_bin(O_GE, lhs, lo),
@@ -1839,6 +1860,58 @@ parse_range(struct P *p, struct param *pp, int *realrange)
 		fail("empty range");
 }
 
+/*
+ * A parameter's values listed, `x: u32 in {3, 17, 40}`: parse_params
+ * keeps them here and parse_def makes them a conjunct of the where clause
+ * (x == 3 || x == 17 || x == 40), which the domain enumerates as a list
+ * (eval.c, where_set); the parameter's range is their hull.
+ */
+#define PSET_MAX 128
+static struct {
+	int n[MAXP];
+	int64_t v[MAXP][PSET_MAX];
+} psets;
+
+static void
+parse_set(struct P *p, struct param *pp, int j)
+{
+	int64_t lo = 0, hi = 0;
+	int k;
+
+	expect(p, T_LC);
+	psets.n[j] = 0;
+	do {
+		int64_t v;
+		double r;
+		int real = 0;
+		if (psets.n[j] == PSET_MAX)
+			fail("%s: at most %d values in a list", sym_str(pp->name),
+			    PSET_MAX);
+		parse_bound(p, &v, &r, &real);
+		if (real)
+			fail("%s: a list of values is of integers", sym_str(pp->name));
+		if (pp->ty && TY_ISINT(pp->ty) && TY_SIZED(pp->ty) &&
+		    int_norm(pp->ty, v) != v)
+			fail("%s: %lld is not a %s", sym_str(pp->name), (long long)v,
+			    ty_str(pp->ty));
+		for (k = 0; k < psets.n[j] && psets.v[j][k] != v; k++)
+			;
+		if (k < psets.n[j])
+			continue;	/* a value listed twice is one value */
+		psets.v[j][psets.n[j]++] = v;
+		if (psets.n[j] == 1 || v < lo)
+			lo = v;
+		if (psets.n[j] == 1 || v > hi)
+			hi = v;
+	} while (accept(p, T_COMMA));
+	expect(p, T_RC);
+	pp->ranged = 1;
+	pp->lo = lo;
+	pp->hi = hi;
+	pp->rlo = (double)lo;
+	pp->rhi = (double)hi;
+}
+
 static void
 parse_params(struct P *p, struct func *f, int *typed)
 {
@@ -1848,6 +1921,7 @@ parse_params(struct P *p, struct func *f, int *typed)
 	ty_t t;
 	int rr;
 
+	memset(psets.n, 0, sizeof psets.n);
 	expect(p, T_LP);
 	if (accept(p, T_RP))
 		return;
@@ -1878,8 +1952,12 @@ parse_params(struct P *p, struct func *f, int *typed)
 			pp->uniform = 1;
 		else if (accept_kw(p, "lanes"))
 			pp->lanes = 1;
-		if (accept_kw(p, "in"))
-			parse_range(p, pp, &rr);
+		if (accept_kw(p, "in")) {
+			if (pk(p) == T_LC)
+				parse_set(p, pp, f->np);
+			else
+				parse_range(p, pp, &rr);
+		}
 		if (accept_kw(p, "uniform"))
 			pp->uniform = 1;
 		else if (accept_kw(p, "lanes"))
@@ -2007,6 +2085,21 @@ parse_def(struct P *p)
 		p->i = end;
 	}
 	expect_eos(p);
+	for (j = 0; j < tmp.np; j++)
+		if (psets.n[j]) {
+			/* the listed values as a conjunct of the where clause */
+			nid x = mk_var((uint32_t)j, tmp.p[j].name, tmp.p[j].ty), c = 0;
+			int k;
+			if (!TY_ISINT(tmp.p[j].ty))
+				fail("%s: a list of values is for an integer parameter, "
+				    "not %s", sym_str(tmp.p[j].name), ty_str(tmp.p[j].ty));
+			for (k = 0; k < psets.n[j]; k++) {
+				nid e = mk_bin(O_EQ, x, mk_const_i(tmp.p[j].ty,
+				    psets.v[j][k]));
+				c = c ? mk_bin(O_LOR, c, e) : e;
+			}
+			cond = cond ? mk_bin(O_LAND, c, cond) : c;
+		}
 	if (p->autop && tmp.np > 0) {
 		struct sbuf b = {0};
 		for (j = 0; j < tmp.np; j++)
