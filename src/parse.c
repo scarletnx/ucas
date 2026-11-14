@@ -1939,13 +1939,19 @@ parse_set(struct P *p, struct param *pp, int j)
 	do {
 		int64_t v;
 		double r;
-		int real = 0;
+		int real = 0, past = 0;
 		if (psets.n[j] == PSET_MAX)
 			fail("%s: at most %d values in a list", sym_str(pp->name),
 			    PSET_MAX);
-		parse_bound(p, &v, &r, &real);
+		parse_bound(p, &v, &r, &real, &past);
 		if (real)
 			fail("%s: a list of values is of integers", sym_str(pp->name));
+		/* the list's hull becomes the range, which is int64 */
+		if (past)
+			fail("%s's listed value %llu is too large: a list takes "
+			    "at most 2^63 - 1 = 9223372036854775807, as a range "
+			    "does (without a list a u64 takes every value)",
+			    sym_str(pp->name), (unsigned long long)(uint64_t)v);
 		if (pp->ty && TY_ISINT(pp->ty) && TY_SIZED(pp->ty) &&
 		    int_norm(pp->ty, v) != v)
 			fail("%s: %lld is not a %s", sym_str(pp->name), (long long)v,
