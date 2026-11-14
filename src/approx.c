@@ -2472,6 +2472,97 @@ exptab_bits(int L)
 	return 8;
 }
 
+/*
+ * ---- known forms offered beside the fits ----
+ *
+ * Bhaskara I's rational sine (7th century), sin x ~ 16 a (pi - a) / (5
+ * pi^2 - 4 a (pi - a)), a = |x| <= pi, and its cosine (pi^2 - 4 x^2) /
+ * (pi^2 + x^2), |x| <= pi/2: a division and a few operations, about 1e-3.
+ *
+ * CORDIC (Volder): n steps of shifts and adds in fixed point, the angle
+ * driven to 0 against a table of atan 2^-i (sin and cos, |x| up to the
+ * table's sum, 1.743) or y driven to 0 from (2^F, x 2^F) (atan); d * v is
+ * (v xor s) - s with s the sign's mask, so no multiply and no select.  It
+ * pays where integers are cheap and floats dear (no FPU); the model says.
+ */
+static void
+offer_bhaskara(void)
+{
+	char s1[48], s2[48], t[400];
+	const char *ft = A.w == 32 ? "f32" : "f64";
+
+	(void)ft;
+	if (A.fn == F_SIN && A.lo >= -PI_L && A.hi <= PI_L) {
+		kfmt(s1, sizeof s1, rnd(A.w, PI_L), A.w);
+		kfmt(s2, sizeof s2, rnd(A.w, 5 * PI_L * PI_L), A.w);
+		snprintf(t, sizeof t, "copysign(16.0*q/(%s - 4.0*q), x) where a = "
+		    "abs(x), q = a*(%s - a)", s2, s1);
+		submit("Bhaskara", "16a(pi-a)/(5pi^2-4a(pi-a)), a = |x|",
+		    "rational", 2, 2, t);
+	} else if (A.fn == F_COS && A.lo >= -PI_L / 2 && A.hi <= PI_L / 2) {
+		kfmt(s1, sizeof s1, rnd(A.w, PI_L * PI_L), A.w);
+		snprintf(t, sizeof t, "(%s - 4.0*x*x)/(%s + x*x)", s1, s1);
+		submit("Bhaskara", "(pi^2 - 4x^2)/(pi^2 + x^2)", "rational", 2,
+		    2, t);
+	}
+}
+
+static void
+offer_cordic(void)
+{
+	static const int n32[] = {8, 12, 16, 20, 24, 28};
+	static const int n64[] = {16, 24, 32, 40, 48, 56};
+	int i, k, F, w = A.w;
+	ld M = fmaxl(fabsl(A.lo), fabsl(A.hi)), gain, sc;
+	const char *it = w == 32 ? "i32" : "i64";
+	char kx[64];
+
+	if (A.fn != F_SIN && A.fn != F_COS && A.fn != F_ATAN)
+		return;
+	if (A.fn != F_ATAN && M > 1.74L)
+		return;		/* past the table's sum: no reduction here */
+	if (A.fn == F_ATAN) {
+		/* x 2^F and the gain 1.647 of it within the word */
+		for (F = w - 3; F > 8 && ldexpl(M * 1.7L + 1, F) >=
+		    ldexpl(1, w - 1); F--)
+			;
+	} else
+		F = w - 2;
+	sc = ldexpl(1, F);
+	for (k = 0; k < 6; k++) {
+		int n = w == 32 ? n32[k] : n64[k];
+		struct sbuf b = {0};
+		char shape[40];
+		if (n > F)
+			break;
+		gain = 1;
+		for (i = 0; i < n; i++)
+			gain /= sqrtl(1 + ldexpl(1, -2 * i));
+		sb_printf(&b, "{ ");
+		if (A.fn == F_ATAN)
+			sb_printf(&b, "cx: %s = %.0Lf; cy: %s = %s(x*%.1Lf); "
+			    "cz: %s = 0; ", it, sc, it, it, sc, it);
+		else
+			sb_printf(&b, "cx: %s = %.0Lf; cy: %s = 0; cz: %s = "
+			    "%s(x*%.1Lf); ", it, rintl(gain * sc), it, it, it, sc);
+		sb_printf(&b, "for i in 0..%d { s: %s = %s >> %d; tx: %s = cy "
+		    ">> i; cy = cy + ((cx >> i) xor s) - s; cx = cx - (tx xor s) + "
+		    "s; cz = cz - ([", n - 1, it, A.fn == F_ATAN ?
+		    "(0 - cy)" : "cz", w - 1, it);
+		for (i = 0; i < n; i++)
+			sb_printf(&b, "%s%.0Lf", i ? ", " : "", rintl(atanl(ldexpl(1,
+			    -i)) * sc));
+		snprintf(kx, sizeof kx, "%.17Lg", ldexpl(1, -F));
+		sb_printf(&b, "][i] xor s) + s }; %s(%s)*%s }", w == 32 ? "f32" :
+		    "f64", A.fn == F_SIN ? "cy" : A.fn == F_COS ? "cx" : "cz",
+		    kx);
+		snprintf(shape, sizeof shape, "%d steps, fixed point 2^-%d", n, F);
+		submit("cordic", shape, "loop", n, 0, sb_str(&b));
+		notes_drop();	/* the loop's pricing notes: the row says it */
+		free(b.p);
+	}
+}
+
 static void
 reductions(void)
 {
@@ -3321,8 +3412,13 @@ run(void)
 			direct_rationals();
 		if (A.o.split && !A.stalled)
 			piecewise();
-		if (A.o.reduce)
+		if (A.o.reduce) {
 			reductions();
+			if (A.w && A.fn) {
+				offer_bhaskara();
+				offer_cordic();
+			}
+		}
 	}
 	rank();
 	A.valid = 1;

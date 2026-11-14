@@ -1,0 +1,102 @@
+> approx sin(x) in -1.5..1.5 absolute error 0.0002 nosplit norational free list 3
+approx sin(x) on [-1.5, 1.5] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1.5]
+  metric: absolute error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max absolute error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.237        0.244        0.122        
+    3    0.0071       0.0072       0.0036       
+    5    9.79e-05     9.87e-05     4.94e-05     
+  candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130975 f32 in [-1.5, 1.5]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  4.94e-05 abs             0.000245      4.94e-05      4    at x=-1.35104144  *
+      x*P(x^2): x*fma(fma(0.00758357253, s, -0.165835947), s, 0.999768615) where s = x*x
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 2.95, probable no better (under 16 operations), expected 0.904; `error ap1 ~ F` says what each means
+  2   reduced   5     horner+fma  1.09e-05 abs             1.19e-05      1.09e-05      20   at x=-1.16569006  *
+      quadrant r=x-k*pi/2 (2-part), sin+cos: asfloat(asuint((q & 1) == 0 ? fma(r*s, fma(0.00816293713, s, -0.16663377), r) : fma(fma(0.0403596349, s, -0.499684185), s, 0.999988139)) xor ((q & 2) << 30)) where j = x*0.636619747 + 12582912.0, q = asuint(j), k = j - 12582912.0, r = fma(k, 4.45445494e-06, fma(k, -1.57080078, x)), s = r*r
+  3   cordic    16    loop        3.05e-05 abs             inf           3.05e-05      454  at x=-1.29284099e-05  *
+      16 steps, fixed point 2^-30: { cx: i32 = 652032874; cy: i32 = 0; cz: i32 = i32(x*1073741824.0); for i in 0..15 { s: i32 = cz >> 31; tx: i32 = cy >> i; cy = cy + ((cx >> i) xor s) - s; cx = cx - (tx xor s) + s; cz = cz - ([843314857, 497837829, ... 13 more ..., 32768][i] xor s) + s }; f32(cy)*9.3132257461547852e-10 }
+  6 more: 'approx more [n]'
+> approx cos(x) in -1.5..1.5 absolute error 0.002 nosplit norational free list 4
+approx cos(x) on [-1.5, 1.5] as f32, fma
+  checked: cos(x) is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 1.5]
+  metric: absolute error
+  checked: the target equals cos(x) at 33 points: range reductions and identities for cos apply
+  fits in real arithmetic (max absolute error of P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    0    0.512        0.488        0.465        
+    2    0.0245       0.024        0.0235       
+    4    0.000465     0.000461     0.000456     
+  candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130943 f32 in [-1.5, 1.5]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   4     horner+fma  0.000456 abs             0.00645       0.000456      3    at x=1.29652095  *
+      P(x^2): fma(fma(0.0372004807, s, -0.496301383), s, 0.999543905) where s = x*x
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 24.4, probable no better (under 16 operations), expected 9.65; `error ap1 ~ F` says what each means
+  2   identity  7     horner+fma  0.0005 abs               0.000501      0.0005        7    at x=0.0298695359  *
+      sin(pi/2 - x), pi/2 in 2 parts: r*fma(fma(fma(-0.000144019024, s, 0.0079453513), s, -0.165668935), s, 0.999500155) where r = 1.57079637 - x - 4.37113883e-08, s = r*r
+  3   identity  3     horner+fma  0.000629 abs             0.00889       0.000629      7    at x=1.5  *
+      1 - 2 sin(x/2)^2: 1.0 - 2.0*p*p where h = 0.5*x, s = h*h, p = h*fma(-0.161985636, s, 0.999661148)
+  4   Bhaskara  2/2   rational    0.00163 abs              0.0143        0.00163       8    at x=1.36944377  *
+      (pi^2 - 4x^2)/(pi^2 + x^2): (9.86960411 - 4.0*x*x)/(9.86960411 + x*x)
+  9 more: 'approx more [n]'
+> model nofpu : gt1030 {
+    fadd: 100, fmul: 100, fdiv: 400, conv: 20
+    nofuse ffma
+    nofuse ffms
+    nofuse ffmr
+  }
+> use nofpu
+cost model: nofpu
+> approx sin(x) in -1.5..1.5 absolute error 0.0002 nosplit norational free list 3
+approx sin(x) on [-1.5, 1.5] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1.5]
+  metric: absolute error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max absolute error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.237        0.244        0.122        
+    3    0.0071       0.0072       0.0036       
+    5    9.79e-05     9.87e-05     4.94e-05     
+  candidates ranked by max abs and cost under nofpu (sampled floats); defined as ap1..:
+  measured on 130975 f32 in [-1.5, 1.5]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  4.94e-05 abs             0.000245      4.94e-05      400  at x=-1.35104144  *
+      x*P(x^2): x*fma(fma(0.00758357253, s, -0.165835947), s, 0.999768615) where s = x*x
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 2.95, probable no better (under 16 operations), expected 0.904; `error ap1 ~ F` says what each means
+  2   cordic    16    loop        3.05e-05 abs             inf           3.05e-05      570  at x=-1.29284099e-05  *
+      16 steps, fixed point 2^-30: { cx: i32 = 652032874; cy: i32 = 0; cz: i32 = i32(x*1073741824.0); for i in 0..15 { s: i32 = cz >> 31; tx: i32 = cy >> i; cy = cy + ((cx >> i) xor s) - s; cx = cx - (tx xor s) + s; cz = cz - ([843314857, 497837829, ... 13 more ..., 32768][i] xor s) + s }; f32(cy)*9.3132257461547852e-10 }
+  3   reduced   5     horner+fma  1.09e-05 abs             1.19e-05      1.09e-05      1109 at x=-1.16569006  *
+      quadrant r=x-k*pi/2 (2-part), sin+cos: asfloat(asuint((q & 1) == 0 ? fma(r*s, fma(0.00816293713, s, -0.16663377), r) : fma(fma(0.0403596349, s, -0.499684185), s, 0.999988139)) xor ((q & 2) << 30)) where j = x*0.636619747 + 12582912.0, q = asuint(j), k = j - 12582912.0, r = fma(k, 4.45445494e-06, fma(k, -1.57080078, x)), s = r*r
+  6 more: 'approx more [n]'
+> approx atan(x) in -4..4 absolute error 0.0002 nosplit norational free list 3
+approx atan(x) on [-4, 4] as f32, fma
+  checked: atan(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 4]
+  metric: absolute error
+  checked: the target equals atan(x) at 33 points: range reductions and identities for atan apply
+  fits in real arithmetic (max absolute error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.415        -            0.368        
+    3    0.187        -            0.145        
+    5    0.0963       -            0.066        
+    7    0.05         -            0.0322       
+    9    0.026        -            0.0164       
+    11   0.0135       -            0.00862      
+    13   0.00709      -            0.00461      
+    15   0.00393      -            0.00251      
+    17   0.00221      -            0.00138      
+  candidates ranked by max abs and cost under nofpu (sampled floats); defined as ap1..:
+  measured on 130934 f32 in [-4, 4]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   cordic    16    loop        3.06e-05 abs             inf           3.06e-05      586  at x=-3.25413895  *
+      16 steps, fixed point 2^-28: { cx: i32 = 268435456; cy: i32 = i32(x*268435456.0); cz: i32 = 0; for i in 0..15 { s: i32 = (0 - cy) >> 31; tx: i32 = cy >> i; cy = cy + ((cx >> i) xor s) - s; cx = cx - (tx xor s) + s; cz = cz - ([210828714, 124459457, ... 13 more ..., 8192][i] xor s) + s }; f32(cz)*3.7252902984619141e-09 }
+      rounding of ap1: not analysed (loop is not analysed)
+  2   reduced   7     horner+fma  0.000165 abs             0.000242      0.000165      1007.62 at x=-0.999954224  *
+      |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = r*fma(fma(fma(-0.0443185419, s, 0.155568704), s, -0.325805455), s, 0.999787748)
+  3   cordic    8     loop        0.00781 abs              inf           0.00781       353  at x=-0.0921034589
+      8 steps, fixed point 2^-28: { cx: i32 = 268435456; cy: i32 = i32(x*268435456.0); cz: i32 = 0; for i in 0..7 { s: i32 = (0 - cy) >> 31; tx: i32 = cy >> i; cy = cy + ((cx >> i) xor s) - s; cx = cx - (tx xor s) + s; cz = cz - ([210828714, 124459457, 65760959, 33381290, 16755422, 8385879, 4193963, 2097109][i] xor s) + s }; f32(cz)*3.7252902984619141e-09 }
+  18 more: 'approx more [n]'
+> use gt1030
+cost model: gt1030

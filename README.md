@@ -1101,6 +1101,24 @@ f64(1.0027112750502025), ... 253 more ..., f64(1.9945921121709402)]`);
 `show apN`, `as c` (a static array) and the JSON give it whole
 (tests/exptable.ucas).
 
+**Known forms offered beside the fits** (with the reductions, so
+`noreduce` leaves them out too): Bhaskara I's rational sine, sin x ~ 16a
+(pi - a) / (5 pi^2 - 4a (pi - a)) with a = |x| and the sign put back,
+for an interval within [-pi, pi], and its cosine, (pi^2 - 4x^2) / (pi^2
++ x^2) within [-pi/2, pi/2]: a division and a few operations, about
+1.6e-3 absolute.  And **CORDIC** for sin, cos (|x| up to 1.743, the
+table's sum: no reduction here) and atan: n steps of shifts and adds in
+fixed point (i32 for f32, 2^-30; i64 for f64), the angle driven to 0
+against a table of atan 2^-i, or for atan y driven to 0 from (2^F, x
+2^F); d*v is (v xor s) - s with s the sign's mask, so a step has no
+multiply and no select.  8 to 28 steps for f32, 16 to 56 for f64, each
+about a bit.  Written as a loop over the table and priced so: under
+gt1030 16 steps of sin cost 454 against the SFU's 4, and under a model
+with floats at 100 and no fused multiply-add, atan within 2e-4 on [-4,
+4] is CORDIC's 586 against the reduced polynomial's 1007.6
+(tests/cordic.ucas).  Its error is absolute (fixed point): near 0 its
+relative error is unbounded, so under a relative metric it ranks low.
+
 Errors are measured on a sample of the format's values in the interval
 (half evenly spaced in value, half evenly spaced in bit pattern, plus
 the floats around each zero of F, the exact points and 0); the ulp is
