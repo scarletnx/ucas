@@ -227,6 +227,7 @@ static struct {
 	ty_t t;
 	nid x;
 	int fp, fail;
+	int64_t ci0[13];	/* an integer polynomial's coefficients, exact */
 } A;
 
 static int
@@ -409,7 +410,7 @@ pe_resid(const struct pe *a, const double *c, int d)
 		uint64_t mask = TY_SIZED(A.t) && TYW(A.t) < 64 ?
 		    ((uint64_t)1 << TYW(A.t)) - 1 : ~(uint64_t)0;
 		for (i = 0; i <= n; i++) {
-			uint64_t want = i <= d ? (uint64_t)(int64_t)c[i] : 0;
+			uint64_t want = i <= d ? (uint64_t)A.ci0[i] : 0;
 			if (((uint64_t)a->ci[i] - want) & mask)
 				return -1;
 		}
@@ -795,6 +796,25 @@ line_pe(const struct model *m, const char *name, const struct pe *a,
 		    resid);
 }
 
+/* coefficient k as a constant of the type, or its magnitude (mag) */
+static nid
+coef_k(ty_t t, const double *c, const int64_t *ki, int k, int mag)
+{
+	if (TY_FP(t))
+		return mkc(t, mag ? fabs(c[k]) : c[k]);
+	return mk_const_i(t, mag && ki[k] < 0 ? (int64_t)(0 - (uint64_t)ki[k]) :
+	    ki[k]);
+}
+
+/* -v of a constant node k whose value is hv */
+static nid
+neg_k(ty_t t, nid k, double hv)
+{
+	if (TY_FP(t) || !is_const(k))
+		return mkc(t, -hv);
+	return mk_const_i(t, (int64_t)(0 - (uint64_t)N.ki[k]));
+}
+
 static int
 poly_scheme(const struct model *m, struct func *f, int more)
 {
@@ -805,6 +825,7 @@ poly_scheme(const struct model *m, struct func *f, int more)
 	nid x, naive = 0, mulp = 0, horner, estrin, pw[13], forms[8];
 	const char *names[8];
 	double cr[13], tol;
+	int64_t ki[13];
 	int nf = 3, shown = 0;
 
 	for (s = 0; s < f->np; s++)
@@ -815,6 +836,31 @@ poly_scheme(const struct model *m, struct func *f, int more)
 	for (k = 0; k <= P.deg; k++)
 		if (!num_of(P.c[k], &c[k]))
 			return 0;
+	/*
+	 * an integer type's coefficients exactly, centred modulo its width
+	 * (u64's 2^64 - 1 is -1, u32's 4294967295 too): a double holds them
+	 * only to 2^53, and int64 only below 2^63
+	 */
+	for (k = 0; k <= P.deg && !TY_FP(t); k++) {
+		nid q = P.c[k];
+		int w = TY_SIZED(t) ? TYW(t) : 64;
+		uint64_t u = 0;
+		if (is_const(q) && !TY_FP(N.ty[q]))
+			u = (uint64_t)N.ki[q];
+		else if (fabs(c[k]) < 0x1p63)
+			u = (uint64_t)(int64_t)c[k];
+		else
+			fail("scheme: the coefficient of x^%d, %.17g, is past what "
+			    "it reads exactly (|c| < 2^63, or a constant of the "
+			    "type)", k, c[k]);
+		if (w < 64) {
+			u &= ((uint64_t)1 << w) - 1;
+			if (u >> (w - 1))
+				u -= (uint64_t)1 << w;
+		}
+		ki[k] = (int64_t)u;
+		c[k] = (double)ki[k];
+	}
 	d = P.deg;
 	x = var_of(s, f->p[s].name, f->p[s].ty);
 	if (N.ty[x] != t)
@@ -829,12 +875,12 @@ poly_scheme(const struct model *m, struct func *f, int more)
 		double ac = fabs(c[k]);
 		if (c[k] == 0)
 			continue;
-		a = k == 0 ? mkc(t, ac) : ac == 1 ? POW(x, KI(k)) :
-		    MUL(mkc(t, ac), POW(x, KI(k)));
-		b = k == 0 ? mkc(t, ac) : ac == 1 ? pw[k] :
-		    MUL(mkc(t, ac), pw[k]);
+		a = k == 0 ? coef_k(t, c, ki, k, 1) : ac == 1 ? POW(x, KI(k)) :
+		    MUL(coef_k(t, c, ki, k, 1), POW(x, KI(k)));
+		b = k == 0 ? coef_k(t, c, ki, k, 1) : ac == 1 ? pw[k] :
+		    MUL(coef_k(t, c, ki, k, 1), pw[k]);
 		if (k == 1)
-			a = ac == 1 ? x : MUL(mkc(t, ac), x);
+			a = ac == 1 ? x : MUL(coef_k(t, c, ki, k, 1), x);
 		if (c[k] < 0) {
 			naive = naive ? SUB(naive, a) : mk_un(O_NEG, a);
 			mulp = mulp ? SUB(mulp, b) : mk_un(O_NEG, b);
@@ -843,20 +889,20 @@ poly_scheme(const struct model *m, struct func *f, int more)
 			mulp = mulp ? ADD(mulp, b) : b;
 		}
 	}
-	horner = mkc(t, c[d]);
+	horner = coef_k(t, c, ki, d, 0);
 	for (k = d - 1; k >= 0; k--) {
 		horner = MUL(horner, x);
 		if (c[k] > 0)
-			horner = ADD(horner, mkc(t, c[k]));
+			horner = ADD(horner, coef_k(t, c, ki, k, 0));
 		else if (c[k] < 0)
-			horner = SUB(horner, mkc(t, -c[k]));
+			horner = SUB(horner, coef_k(t, c, ki, k, 1));
 	}
 	/* Estrin: pairs a + b x, then combine with x^2, x^4, ... */
 	{
 		nid lev[13], xp = x;
 		int n = d + 1, j;
 		for (j = 0; j < n; j++)
-			lev[j] = mkc(t, c[j]);
+			lev[j] = coef_k(t, c, ki, j, 0);
 		while (n > 1) {
 			int nn = 0;
 			for (j = 0; j < n; j += 2) {
@@ -870,13 +916,13 @@ poly_scheme(const struct model *m, struct func *f, int more)
 				if (num_of(lev[j + 1], &hv) && fabs(hv) == 1)
 					hi = xp;
 				else if (num_of(lev[j + 1], &hv) && hv < 0)
-					hi = MUL(mkc(t, -hv), xp);
+					hi = MUL(neg_k(t, lev[j + 1], hv), xp);
 				else
 					hi = MUL(lev[j + 1], xp), hv = 1;
 				if (const_is(lev[j], 0))
 					lev[nn++] = hv < 0 ? mk_un(O_NEG, hi) : hi;
 				else if (hv > 0 && num_of(lev[j], &hv) && hv < 0)
-					lev[nn++] = SUB(hi, mkc(t, -hv));
+					lev[nn++] = SUB(hi, neg_k(t, lev[j], hv));
 				else
 					lev[nn++] = hv < 0 ? SUB(lev[j], hi) : ADD(lev[j], hi);
 			}
@@ -900,6 +946,8 @@ poly_scheme(const struct model *m, struct func *f, int more)
 	A.t = t;
 	A.x = x;
 	A.fp = TY_FP(t);
+	if (!A.fp)
+		memcpy(A.ci0, ki, (size_t)(d + 1) * sizeof *ki);
 	for (k = 0; k <= d; k++)
 		if (!num_of(mkc(t, c[k]), &cr[k]))
 			cr[k] = c[k];
