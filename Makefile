@@ -241,6 +241,16 @@ mcp-accept: ${PROG}
 
 .PHONY: mcp-test mcp-accept
 
+# The snippet databases `find F snippets` reads (README, "The snippet
+# database"): ucas grows them itself into snippets/ from snippets/grow.ucas,
+# a second or so, at every build; the tests read them.
+CFLAGS+=	-DUCAS_SNIPDIR=\"${.CURDIR}/snippets\"
+snippets: ${PROG}
+	@cd ${.CURDIR}/snippets && ${.OBJDIR}/${PROG} grow.ucas > /dev/null
+all: snippets
+test: snippets
+.PHONY: snippets
+
 # Optional Discord front end (README, "Discord bot"): its own Makefile in
 # discord/, needs libcurl.  Never built by `make` or `make test`.
 .PHONY: discord discord-test

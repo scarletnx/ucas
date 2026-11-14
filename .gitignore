@@ -23,3 +23,5 @@ ai_usage.inc
 ai_usage_short.inc
 # the snippet databases tests/snippets.ucas writes
 tests/*.snip
+# grown by make snippets
+snippets/*.snip
