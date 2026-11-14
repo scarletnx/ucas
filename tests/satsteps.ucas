@@ -1,4 +1,4 @@
-# The solver's budget is 100000 conflicts or 200 million steps (watched
+# The solver's budget is 100000 conflicts or 100 million steps (watched
 # clauses visited), a count and not a time (#488), so where it gives up is
 # the same on every machine: a product against its swap under an xor (no
 # polynomial to expand) gives up by steps

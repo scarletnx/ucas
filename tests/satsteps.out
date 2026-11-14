@@ -1,5 +1,5 @@
 > a(x: u32, y: u32) = (x*y) ^ 5
 > b(x: u32, y: u32) = (y*x) ^ 5
 > equiv a b
-a and b are equal on the domain of a (sampled, not proved; SAT gave up on 35081 AIG nodes within its budget of 100000 conflicts or 200000000 steps)
+a and b are equal on the domain of a (sampled, not proved; SAT gave up on 35081 AIG nodes within its budget of 100000 conflicts or 100000000 steps)
   polynomials of total degree at most 10, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 10/(2^61 - 1) = 4.34e-18 (Schwartz-Zippel), at all 4 with at most 3.54e-70: equal over the integers except with that probability, and then for every input here (a probabilistic answer, not a proof)
