@@ -1,0 +1,37 @@
+> big(x: u32 in {5, 900, 70000, 4000000000}) = x / 5
+> table big
+  x=5  ->  1
+  x=900  ->  180
+  x=70000  ->  14000
+  x=4000000000  ->  800000000
+> range big
+range of big -> u32:
+  1..800000000
+  fits in u30
+  over all 4 points of the domain
+> two(x: u8 in {1, 200}, y: u8 in 0..2) = x + y
+> equiv two two
+two and two are equal on the domain of two (exhaustive)
+  domain: x in {1, 200} by the where clause (6 points enumerated)
+> w(x: u32) = x + 1 where x in {3, 17}
+> table w
+  x=3  ->  4
+  x=17  ->  18
+> c(x: u8) = x in {2, 3, 5, 7} ? 1 : 0
+> table c max 8
+  x=0  ->  0
+  x=1  ->  0
+  x=2  ->  1
+  x=3  ->  1
+  x=4  ->  0
+  x=5  ->  1
+  x=6  ->  0
+  x=7  ->  1
+> bad(x: u8 in {3, 300}) = x
+paramsets.ucas:15:21: error: x: 300 is not a u8
+    bad(x: u8 in {3, 300}) = x
+                        ^
+> w2(x: u32) = x where x in 3, 17
+paramsets.ucas:18:28: error: `in` before a list without braces has two readings: the values `in {3, ...}`, or one value and the next condition after the comma; write the braces, or a range a..b
+    w2(x: u32) = x where x in 3, 17
+                               ^

@@ -1,0 +1,18 @@
+# a parameter's values listed: x: T in {a, b, c} is x in their hull with
+# x == a || x == b || x == c in the where clause, and the domain is those
+# values however far apart
+big(x: u32 in {5, 900, 70000, 4000000000}) = x / 5
+table big
+range big
+two(x: u8 in {1, 200}, y: u8 in 0..2) = x + y
+equiv two two
+# in an expression too: the where clause, or any condition
+w(x: u32) = x + 1 where x in {3, 17}
+table w
+c(x: u8) = x in {2, 3, 5, 7} ? 1 : 0
+table c max 8
+# a value outside the type is refused, naming it
+bad(x: u8 in {3, 300}) = x
+# without braces a list has two readings after a comma (the values, or one
+# value and the next condition): said, not guessed
+w2(x: u32) = x where x in 3, 17
