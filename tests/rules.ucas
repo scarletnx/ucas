@@ -19,3 +19,5 @@ f2(x: u32, y: u32) = (x * y << 1) xor y
 find f2 1
 # a rule whose sides differ is refused with where they differ
 rule bad(a: u32) = a << 1 => a + 1
+# a rule's variables take every value of their type
+rule narrow(a: u32 in 0..9) = a << 1 => a + a

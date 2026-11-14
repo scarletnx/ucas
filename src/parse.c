@@ -2044,6 +2044,10 @@ parse_rule(struct P *p)
 			fail("rule %s: %s has no type (rule %s(a: u32) = L => R)",
 			    sym_str(tmp.name), sym_str(tmp.p[j].name),
 			    sym_str(tmp.name));
+		else if (tmp.p[j].ranged)
+			fail("rule %s: %s takes every value of its type: a rule "
+			    "holds for all of them (a range or a list is for a "
+			    "function)", sym_str(tmp.name), sym_str(tmp.p[j].name));
 	expect(p, T_ASSIGN);
 	p->fn = &tmp;
 	p->sgmask = 0;
