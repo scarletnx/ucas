@@ -21,7 +21,7 @@ find g: 1024 points (sampled; matches verified on the whole domain), computing i
   equality saturation: 41 classes, 424 nodes, saturated after 9 rounds, 26 rules (0 kept for find); the cheapest member of the body's class costs 4, as written 7
   cost 4   6(x + y)                                 by equality saturation (41 classes, 424 nodes, saturated after 9 rounds, 26 rules (0 kept for find); every rule an identity of integers mod 2^w) (proved by SAT)
   cost 5   4294967290(-x - y)                       affine fit (sampled)
-  cost 6   3(x + (x + (y + y)))                     affine fit (proved by SAT)
+  cost 6   3(x + (x + (y + y)))                     affine fit (sampled)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > h(x: u32, y: u32, z: u32) = x * (y + z) - x * z
 > find h 1 saturate
