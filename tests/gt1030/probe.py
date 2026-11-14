@@ -218,8 +218,8 @@ TB = 'layout(std430, set = 0, binding = 2) readonly buffer T { uint t[]; } tb;\n
 
 
 def tbarg(n):
-    """the storage-buffer table: n entries of perm_table at binding 2"""
-    return dict(files={'table%d.bin' % n: table_bytes(n)}, args=['--bind', '0.2=file={data}/table%d.bin' % n])
+    """the storage-buffer table: n entries of perm_table at binding 2, made when the probe runs"""
+    return dict(files={'table%d.bin' % n: lambda: table_bytes(n)}, args=['--bind', '0.2=file={data}/table%d.bin' % n])
 
 
 # NVIDIA's driver refuses a 64 KiB constant array (VK_ERROR_UNKNOWN): the sizes between show where it stops
@@ -243,6 +243,12 @@ for _n, _kib in ((256, 1), (1024, 4), (4096, 16), (8192, 32), (16384, 64), (6553
     step('ssbo%dk_seq' % _kib, [166], '{a} + tb.t[(ib + {u}u) & %du]' % (_n - 1),
          {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, pre_iter='uint ib = gid + i * 64u;', decls=TB,
          **tbarg(_n), note='the same table in a storage buffer (consecutive)')
+# --- #65: the cache's size: #166's random walk over footprints from 128 KiB to 16 MiB (L2 is 512 KiB on GP108)
+CACHE_KIB = (128, 256, 512, 1024, 2048, 4096, 8192, 16384)
+for _kib in CACHE_KIB:
+    step('cache_%s' % ('%dk' % _kib if _kib < 1024 else '%dm' % (_kib // 1024)), [65],
+         '{a} + tb.t[({a} + {u}u) & %du]' % (_kib * 256 - 1), {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
+         decls=TB, **tbarg(_kib * 256), kib=_kib, note='a random walk over %d KiB' % _kib)
 # --- #168: a small texture as a table
 step('tex_table_r32ui', [168], '{a} + texelFetch(utex, ivec2(int({a} & 255u), 0), 0).x',
      {'x_tex_fetch_r32ui': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, decls=UTEX, files={'table256.bin': table_bytes(256)},
@@ -292,6 +298,14 @@ probe('unit', 'setup_binding', [120], how='dispatch',
 probe('absent', 'setup_upload', [120], needs='a timed upload: snx-shaderperf times dispatches and draws, '
       'not the copy of a texture')
 probe('unit', 'draw_empty', [212], how='draw', note='a draw of one point outside the target: no fragment')
+probe('unit', 'dispatch_empty', [53], how='dispatch_empty', note='a dispatch of one workgroup of 64 that does nothing')
+probe('absent', 'dispatch_indirect', [53], needs='vkCmdDispatchIndirect (snx-shaderperf dispatches directly only)',
+      key=r'(?i)indirect')
+probe('unit', 'export', [50], how='export',
+      note='1920x1080 rgba8: a compute imageStore of each pixel (8x8 workgroups) against a full-screen draw whose '
+           'fragment shader exports the same colour')
+probe('absent', 'blit_mip', [52], needs='a timed vkCmdBlitImage and a mip chain made by blits (snx-shaderperf '
+      'times dispatches and draws, not copies)', key=r'(?i)--blit')
 probe('unit', 'points', [212], how='points', note='points, one fragment each, into rgba8, and outside the target')
 probe('unit', 'rop_blend', [207], how='rop',
       note='points into R32_SFLOAT with no blending, ADD ONE ONE and SRC_ALPHA, ONE_MINUS_SRC_ALPHA (factors), '
@@ -591,6 +605,16 @@ void main() {
     atomicAdd(of.f[(i * pc.stride) % (pc.w * pc.h)], 1.0);
 }
 '''
+CS_EMPTY = '''#version 460
+layout(local_size_x = 64) in;
+void main() {}
+'''
+CS_STORE = '''#version 460
+// each invocation writes its own pixel of a w x h rgba8 image
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 6, rgba8) uniform writeonly image2D img;
+void main() { imageStore(img, ivec2(gl_GlobalInvocationID.xy), vec4(1.0, 1.0, 1.0, 0.5)); }
+'''
 CS_BIND0 = '''#version 460
 layout(local_size_x = 128) in;
 layout(std430, set = 0, binding = 1) buffer Out { uint data[]; } outb;
@@ -840,6 +864,31 @@ def unit_points(p):
         t, e = per_rep(d['shaders'][0])
         r[tag] = dict(ns_vertex=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n), clock_mhz=R.sm_clock(d))
     r['vertices'] = n
+    return r
+
+
+def unit_dispatch_empty(p):
+    f = fadd_now(p['name'])
+    cs = compile_glsl('cs_empty', CS_EMPTY, 'comp')
+    d = sp([cs, '--size', '64'] + timing_args(), log_path('dispatch_empty.log'))
+    t, e = per_rep(d['shaders'][0])
+    return dict(f, ns_dispatch=t, err_ns=e, fadd_steps=in_fadd(t), clock_mhz=R.sm_clock(d))
+
+
+def unit_export(p):
+    """a pixel written by compute (imageStore) and by a draw (the fragment's export), the same format and size"""
+    r = fadd_now(p['name'])
+    W, H = (256, 256) if A.quick else (1920, 1080)
+    cs = compile_glsl('cs_store', CS_STORE, 'comp')
+    fs = compile_glsl('fs_one', FS_ONE, 'frag')
+    for tag, args in (('compute', [cs, '--size', '%dx%d' % (W, H), '--bind',
+                                   '0.6=format=rgba8_unorm,size=%dx%d' % (W, H)]),
+                      ('draw', [fs, '--size', '%dx%d' % (W, H)])):
+        d = sp(args + timing_args(), log_path('export_%s.log' % tag))
+        t, e = per_rep(d['shaders'][0])
+        r[tag] = dict(ns_pixel=t / (W * H), err_ns=e / (W * H), fadd_steps=in_fadd(t / (W * H)),
+                      clock_mhz=R.sm_clock(d))
+    r['pixels'] = W * H
     return r
 
 
@@ -1128,7 +1177,8 @@ def info_subtexel(p):
     return dict(device=pick['name'], subtexel=pick['subtexel'], devices=gpus)
 
 
-UNITS = dict(dispatch=unit_setup_binding, draw=unit_draw_empty, points=unit_points, rop=unit_rop)
+UNITS = dict(dispatch=unit_setup_binding, draw=unit_draw_empty, points=unit_points, rop=unit_rop,
+             dispatch_empty=unit_dispatch_empty, export=unit_export)
 VALUES = dict(blend=value_blend, unorm=value_unorm, filter=value_filter, repeat=value_repeat, bc4=value_bc4)
 
 
@@ -1194,6 +1244,18 @@ def model_lines(res):
             L.append(('', '#116 tex_within (ulps of the result) not written: the bilinear R8 result is at most %.3g '
                       '(%.3g of an 8-bit step) from the weighted sum at %s, an absolute error; %s' % (
                           fw['max_error_abs'], fw['max_error_255'], fw['error_against'], grid)))
+    cs = [(p['kib'], res[p['name']]['cost']) for p in P if p['name'].startswith('cache_') and 'cost' in
+          res.get(p['name'], {})]
+    if len(cs) >= 3:
+        base = cs[0][1]
+        knee = next((i for i, (k, c) in enumerate(cs) if c >= 2 * base), None)
+        if knee:
+            L.append(('cache: %d' % (cs[knee - 1][0] * 1024), '#65 a random walk a step: %s; the last footprint '
+                      'below twice the %d KiB one' % (', '.join('%d KiB %.2f' % kc for kc in cs), cs[0][0])))
+        else:
+            L.append(('', '#65 no knee: every footprint below twice the %d KiB one (%s)' % (
+                cs[0][0], ', '.join('%d KiB %.2f' % kc for kc in cs))))
+        used.update(p['name'] for p in P if p['name'].startswith('cache_'))
     rb = res.get('rop_blend', {})
     br = res.get('blend_rounding', {})
     if br.get('add_moved') and br.get('add_unblended') == br['add_moved']:
@@ -1209,11 +1271,16 @@ def model_lines(res):
         if 'cost' in r and n not in used:
             p = next(p for p in P if p['name'] == n)
             extra.append('%s %s: %.2f +- %.2f' % (', '.join('#%d' % i for i in p['issues']), n, r['cost'], r['err']))
-    for n in ('setup_binding', 'draw_empty'):
+    for n in ('setup_binding', 'draw_empty', 'dispatch_empty'):
         if 'fadd_steps' in res.get(n, {}):
             p = next(p for p in P if p['name'] == n)
             extra.append('%s %s: %.3g fadd steps (%.3g ns)' % (', '.join('#%d' % i for i in p['issues']), n,
-                         res[n]['fadd_steps'], res[n].get('ns_binding', res[n].get('ns_draw'))))
+                         res[n]['fadd_steps'], res[n].get('ns_binding', res[n].get('ns_draw',
+                                                                                    res[n].get('ns_dispatch')))))
+    if 'compute' in res.get('export', {}):
+        x = res['export']
+        extra.append('#50 a pixel by imageStore: %.3g fadd steps; by a draw\'s export: %.3g' % (
+            x['compute']['fadd_steps'], x['draw']['fadd_steps']))
     return L, extra
 
 
@@ -1250,6 +1317,11 @@ def summary(p, r):
     if n == 'setup_binding':
         return 'one more sampler: %.3g ns a dispatch (%.3g +- %.2g), %.3g fadd steps' % (
             r['ns_binding'], r['ns_one_more'], r['err_ns'], r['fadd_steps'])
+    if n == 'dispatch_empty':
+        return 'an empty dispatch: %.3g ns, %.3g fadd steps' % (r['ns_dispatch'], r['fadd_steps'])
+    if n == 'export':
+        return '; '.join('%s: %.3g ns a pixel, %.3g fadd steps' % (k, r[k]['ns_pixel'], r[k]['fadd_steps'])
+                         for k in ('compute', 'draw'))
     if n == 'draw_empty':
         return 'a draw with no fragment: %.3g ns, %.3g fadd steps' % (r['ns_draw'], r['fadd_steps'])
     if n == 'points':
