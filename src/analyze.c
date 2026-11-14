@@ -2279,7 +2279,9 @@ eqproof_text(struct sbuf *b, const struct eqproof *pr)
 			    NSAT_BUDGET, nsat_seconds());
 		else if (pr->sat_status == -1)
 			sb_printf(b, "; SAT gave up on %d AIG nodes within its "
-			    "budget of %d conflicts", pr->sat.nodes, NSAT_BUDGET);
+			    "budget of %d conflicts or %ld steps (UCAS_NO_TIMES: "
+			    "those in place of %g s)", pr->sat.nodes, NSAT_BUDGET,
+			    nsat_work(), NSAT_SECONDS);
 		else if (pr->sat_status == -2)
 			sb_printf(b, "; no SAT proof: %s", pr->sat_why ?
 			    pr->sat_why : "unsupported");

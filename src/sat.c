@@ -199,6 +199,7 @@ struct solver {
 	int **w, *wn, *wcap;
 	char *seen;
 	int unsat;
+	long work;		/* watches visited: aig_work's measure */
 };
 
 static int
@@ -344,6 +345,7 @@ propagate(struct solver *s)
 	while (s->qhead < s->ntrail) {
 		lit p = s->trail[s->qhead++];	/* p became true */
 		int *ws = s->w[p], n = s->wn[p], i, j;
+		s->work += n + 1;
 		/* clauses watching ~p (stored under p) */
 		for (i = j = 0; i < n; i++) {
 			int c = ws[i], len = s->clen[c], k;
@@ -503,6 +505,8 @@ solve(struct solver *s, long budget)
 			if (aig_seconds > 0 && (confl & 255) == 0 &&
 			    (double)(clock() - t0) / CLOCKS_PER_SEC > aig_seconds)
 				break;
+			if (aig_work > 0 && s->work > aig_work)
+				break;
 			continue;
 		}
 		if (since >= limit) {	/* restart */
@@ -529,10 +533,11 @@ solve(struct solver *s, long budget)
 	}
 	free(learnt);
 	aig_conflicts = confl;
+	aig_worked = s->work;
 	return r;
 }
 
-long aig_conflicts;
+long aig_conflicts, aig_worked, aig_work;
 
 int
 aig_sat(struct aig *g, lit goal, long budget)
