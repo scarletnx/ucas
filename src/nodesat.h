@@ -28,9 +28,11 @@ int nsat_has_float(const struct func *f, nid e);	/* or f's parameters */
 extern int64_t nsat_lanes[MAXP][SG_MAXW];
 extern uint8_t nsat_lanes_set[MAXP][SG_MAXW];
 #define NSAT_BUDGET 100000   /* conflicts */
-/* and steps, the watched clauses the solver visits: about 2 s of CPU (some
- * 100 million a second, glibc, gcc 16, x86-64), counted so that an answer is
- * the same on every machine and under any load */
-#define NSAT_WORK 200000000L
+/* and steps, the watched clauses the solver visits, counted so that an answer
+ * is the same on every machine and under any load: about 1 s of CPU where a
+ * second visits 100 million (glibc, gcc 16, x86-64), 2 s on a machine half
+ * as fast, where a give-up must not eat the C frontend's own CPU budget; the
+ * largest a test's decided call takes is 94 million */
+#define NSAT_WORK 100000000L
 
 #endif
