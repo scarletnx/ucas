@@ -43,8 +43,8 @@ int aig_nodes(const struct aig *g);
 int aig_sat(struct aig *g, lit goal, long budget);
 int aig_value(const struct aig *g, lit a);	/* after aig_sat == 1 */
 extern long aig_conflicts;	/* conflicts in the last aig_sat */
-extern double aig_seconds;	/* > 0: a CPU time limit for aig_sat too */
-extern long aig_work;	/* > 0: a limit on watches visited, the same everywhere */
+extern long aig_work;	/* > 0: a limit on the watched clauses visited, the
+			 * same on every machine (a time limit would not be) */
 extern long aig_worked;	/* watches visited in the last aig_sat */
 uint64_t aig_word_value(const struct aig *g, const struct word *x);
 

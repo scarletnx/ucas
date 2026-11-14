@@ -136,8 +136,7 @@ TESTS!=	cd ${.CURDIR}/tests && ls *.ucas 2>/dev/null || true
 # Each test runs without spirv-cross (simplify's GLSL view), so that the
 # outputs do not depend on what is installed: UCAS_SPIRV_CROSS=none.
 # UCAS_NO_TIMES=1 leaves out elapsed times, which depend on the machine's
-# load, and stops the SAT solver by a count of its steps in place of CPU
-# time.  DIR/NAME.env, when present, replaces UCAS_SPIRV_CROSS=none;
+# load.  DIR/NAME.env, when present, replaces UCAS_SPIRV_CROSS=none;
 # DIR/NAME.needs
 # names a tool the test needs (spirv-cross): without it the test is
 # skipped.

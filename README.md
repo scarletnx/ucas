@@ -161,7 +161,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `crit F` | real: derivative, roots (bisection), min/max/inflection, kinks; integer: the piecewise-affine segments and local extrema; several reals: the gradient |
 | `integrate F [wrt x] [from a to b]` | quotients are cancelled first (x/x, (x^2-1)/(x-1), x^2/x^3), and the answer says where that holds (x != 0); removable points do not affect a definite integral.  A constant integrand names no variable: asked (terminal, bot) or x with a note; `wrt t` picks one.  A unary function's name alone means f(x): `integrate W0` |
 | `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter; higher, partial and mixed derivatives, gradient, limits, series: see "Derivatives, limits and series" |
-| `equiv F G [ftz\|noftz] [nanbits]` | equal on F's domain? (with a counterexample).  G must be defined and equal wherever F is defined (points where F is undefined are outside its domain).  Enumerated when the domain is small enough; otherwise sampled, then, on machine integers, two polynomials of degree 2 or more expanded mod 2^w ("proved by algebra: ..."; JSON method `algebra`, proof kind `derivation`), else bit-blasted and proved by SAT ("proved by SAT: N AIG nodes, M conflicts"; JSON proof kind `sat`), or a counterexample found by SAT and re-checked by the evaluator; when the solver runs out of its budget (100000 conflicts or 2 s) the answer stays "sampled, not proved" and says why.  See "Proofs on machine integers" and "Proofs on floats" |
+| `equiv F G [ftz\|noftz] [nanbits]` | equal on F's domain? (with a counterexample).  G must be defined and equal wherever F is defined (points where F is undefined are outside its domain).  Enumerated when the domain is small enough; otherwise sampled, then, on machine integers, two polynomials of degree 2 or more expanded mod 2^w ("proved by algebra: ..."; JSON method `algebra`, proof kind `derivation`), else bit-blasted and proved by SAT ("proved by SAT: N AIG nodes, M conflicts"; JSON proof kind `sat`), or a counterexample found by SAT and re-checked by the evaluator; when the solver runs out of its budget (100000 conflicts or 200 million steps, about 2 s) the answer stays "sampled, not proved" and says why.  See "Proofs on machine integers" and "Proofs on floats" |
 | `monotonic F [x] [in a..b]` | increasing/decreasing (strictly or not), constant, or the maximal intervals of monotonicity with a witness pair x1 < x2; polynomials proved by the real roots of f', integer types exhaustively (and whether wrapping is what breaks it) |
 | `period F [x]`, `periodic F [x]` | the fundamental period: trigonometric subterms with linear arguments (2π/\|k\|, π/\|k\| for tan), `x % m`, `x & m`, combined by their lcm (proved), then the smaller fractions p/k (k <= 64) checked numerically; incommensurate periods (sin x + sin(√2 x)) are almost periodic, not periodic; integer domains searched exhaustively; otherwise a numeric search (not proved) |
 | `identify EXPR`, `identify LHS = RHS`, `identify F` | classify and list properties, each tagged proved/exhaustive/numeric: polynomials (degree, factors, roots), rational functions (poles, asymptotes), algebraic/transcendental/piecewise; equations in one variable (solutions), conics by B²-4AC and the 3x3 determinant (circle, ellipse, parabola, hyperbola, degenerate), lines, implicit curves; ODEs (`y'' + y = 0`, or `identify y` after `y' = ...`): order, linear, homogeneous, constant coefficients with the characteristic roots and solution basis, autonomous, separable, exact, Riccati |
@@ -244,10 +244,9 @@ unrolled (up to 256 iterations).  Not bit-blasted: reals, `int`
 multiplication, `isqrt`, while loops; those stay sampled.  Floats are
 (see "Proofs on floats").
 Multipliers are hard for SAT (x*y against y*x gives up), so the budget
-is 100000 conflicts or 2 s of CPU.  With UCAS_NO_TIMES set (as `make
-test` runs) the solver's own steps (watched clauses visited) take the
-place of the seconds, 200 million of them, about what 2 s visits, so
-that an answer does not depend on the machine's speed or load.
+is 100000 conflicts or 200 million steps (watched clauses the solver
+visits), about 2 s of CPU: a count, not a time, so that an answer is the
+same on every machine and under any load.
 
 So before SAT, `equiv` expands both sides when they are polynomials of
 degree 2 or more (src/stoch.c `poly_identity`): sums, differences,
