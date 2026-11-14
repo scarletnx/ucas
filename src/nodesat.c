@@ -1103,24 +1103,6 @@ blast_loop(struct nctx *c, nid n)
 	return res;
 }
 
-/*
- * The solver's CPU time limit.  UCAS_NO_TIMES (set by `make test`) puts a
- * count of the solver's own steps in its place, about as many as it takes
- * in that time, so that a test's answer is the same on every machine and
- * under any load, and the tests take about as long as before.
- */
-double
-nsat_seconds(void)
-{
-	return getenv("UCAS_NO_TIMES") ? 0 : NSAT_SECONDS;
-}
-
-long
-nsat_work(void)
-{
-	return getenv("UCAS_NO_TIMES") ? NSAT_WORK : 0;
-}
-
 /* lo <= x <= hi for a parameter's 64-bit value */
 static lit
 in_bounds(const struct param *p, const struct word *x)
@@ -1356,10 +1338,8 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	goal = aig_and(B.g, assume, aig_and(B.g, D(va), aig_or(B.g,
 	    L_NOT(D(vb)), ne)));
 	out->nodes = aig_nodes(B.g);
-	aig_seconds = nsat_seconds();
-	aig_work = nsat_work();
+	aig_work = NSAT_WORK;
 	r = aig_sat(B.g, goal, budget);
-	aig_seconds = 0;
 	aig_work = 0;
 	out->conflicts = aig_conflicts;
 	out->status = r == 0 ? 0 : r == 1 ? 1 : -1;
