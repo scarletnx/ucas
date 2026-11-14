@@ -7,7 +7,10 @@
 # x * asfloat((k << 23) + 0x3F800000), the correctly rounded x 2^k as
 # ldexp's is (13 -> 4); that is also the form for an x in [0.5, 2] whose k
 # may reach 127, past what keeps x 2^k normal.  A k with no bound, or one
-# that may leave [-126, 127] (here -127), keeps its call.
+# that may leave [-126, 127] (here -127), keeps its call, but for a k up
+# to 254: x * 2^min(k, 127) * 2^(k - min(k, 127)), the first product
+# exact (or an overflow where x 2^k overflows too), the second one
+# rounding (13 -> 10); a k that may reach 255 keeps its call.
 simplify nofile nofunctions under gt1030
 ```glsl
 #version 450
@@ -27,6 +30,8 @@ void main() {
     o.f[i + 256u] = ldexp(any, int(b.d[i + 384u] & 127u) - 64);
     o.f[i + 320u] = ldexp(any, int(b.d[i + 448u] & 255u) - 127);
     o.f[i + 384u] = ldexp(x, min(int(b.d[i + 512u] & 255u), 253) - 126);
+    o.f[i + 448u] = ldexp(any, min(int(b.d[i + 576u] & 511u), 380) - 126);
+    o.f[i + 512u] = ldexp(any, min(int(b.d[i + 640u] & 511u), 381) - 126);
 }
 ```
 # where a multiply costs more than a compare and a select, an integer

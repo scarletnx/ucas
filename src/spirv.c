@@ -12982,8 +12982,11 @@ static struct cvx {
 	int zero;		/* form 9: x may be 0 (an integer converted,
 				 * else 1 or more in magnitude): a select keeps
 				 * it; kt2 the bool type */
+	int ksg;		/* form 9: k's type is signed */
 	int mul;		/* form 9: x times 2^k made by its exponent
-				 * field, k in [-126, 127] (x anything) */
+				 * field, k in [-126, 127] (x anything); 2:
+				 * k in [-126, 254], by 2^min(k, 127) then
+				 * the rest (fx: the GLSL import) */
 	char kt2[40];
 	char fx[40];		/* forms 10, 11: the f32 x log2 reads */
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
@@ -13190,7 +13193,7 @@ i2f_pass(void)
 			int kid = res_of(idx(I->opnd[4])), kt, elo = 0, ehi = 0, zero = 0;
 			int fld, c, mul = -1;
 			struct frng fr;
-			double alo = 0, ahi = 0, afld, amul;
+			double alo = 0, ahi = 0, afld, amul, awide;
 			rt = idx(I->opnd[0]);
 			x = res_of(idx(I->opnd[3]));
 			kt = V.id[kid].type;
@@ -13237,9 +13240,17 @@ i2f_pass(void)
 				    -126 - elo, 127 - ehi))
 					mul = try_mul;
 			}
+			/* k up to 254: x times 2^min(k, 127), then times 2^(k -
+			 * min(k, 127)); the first is exact (a scaling up) or
+			 * overflows where x 2^k does too, the second rounds once */
+			awide = m->c[C_MINMAX] + m->c[C_IADD] + 2 * (m->c[C_SHIFT] +
+			    m->c[C_IADD] + m->c[C_BITCAST] + m->c[C_FMUL]);
+			if (mul < 0 && awide < before - 1e-9 && (double)clock() /
+			    CLOCKS_PER_SEC <= SP.deadline && k_within(kid, -126, 254))
+				mul = 2;
 			if (mul < 0)
 				continue;
-			after = mul ? amul : afld;
+			after = mul == 2 ? awide : mul ? amul : afld;
 			xt = rt;
 			e = &cvx[ncvx++];
 			memset(e, 0, sizeof *e);
@@ -13248,7 +13259,10 @@ i2f_pass(void)
 			snprintf(e->k, sizeof e->k, "%s", V.id[kid].tok);
 			snprintf(e->kt, sizeof e->kt, "%s", V.id[kt].tok);
 			snprintf(e->lx, sizeof e->lx, "%d", mul ? -126 : -126 - elo);
-			snprintf(e->it, sizeof e->it, "%d", mul ? 127 : 127 - ehi);
+			snprintf(e->it, sizeof e->it, "%d", mul == 2 ? 254 : mul ? 127 :
+			    127 - ehi);
+			snprintf(e->fx, sizeof e->fx, "%s", V.id[V.glsl].tok);
+			e->ksg = T(kt)->sign;
 			e->zero = !mul && zero;
 			e->mul = mul;
 			snprintf(e->kt2, sizeof e->kt2, "%s", bt >= 0 ? V.id[bt].tok :
@@ -13636,6 +13650,13 @@ i2f_patch(const char *text, char **out)
 			    !strstr(text, kn))
 				sb_printf(&decl, "%sOpConstant %s %u\n", kn, e->kt,
 				    0x3F800000u);
+			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->kt + 1, 127u);
+			if (e->mul == 2 && !strstr(decl.p ? decl.p : "", kn) &&
+			    !strstr(text, kn))
+				sb_printf(&decl, "%sOpConstant %s 127\n", kn, e->kt);
+			if (e->mul == 2)
+				sb_printf(&dec, "OpDecorate %%ucas_cv%dp NoContraction\n",
+				    base + i);
 			if (e->mul)
 				sb_printf(&dec, "OpDecorate %s NoContraction\n", e->res);
 			nlog++;
@@ -13754,7 +13775,41 @@ i2f_patch(const char *text, char **out)
 				continue;
 			}
 		}
-		if (hit >= 0 && cvx[hit].form == 9 && cvx[hit].mul) {
+		if (hit >= 0 && cvx[hit].form == 9 && cvx[hit].mul == 2) {
+			const struct cvx *e = &cvx[hit];
+			int b = base + hit, sg = e->ksg;
+			sb_printf(&o, "%%ucas_cv%dm = OpExtInst %s %s %s %s "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, e->fx, sg ? "SMin" : "UMin",
+			    e->k, e->kt + 1, 127u);
+			sb_printf(&o, "%%ucas_cv%dr = OpISub %s %s %%ucas_cv%dm\n", b,
+			    e->kt, e->k, b);
+			sb_printf(&o, "%%ucas_cv%ds = OpShiftLeftLogical %s %%ucas_cv%dm "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 23u);
+			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %%ucas_cv%ds "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 0x3F800000u);
+			sb_printf(&o, "%%ucas_cv%df = OpBitcast %s %%ucas_cv%do\n", b,
+			    e->rt, b);
+			sb_printf(&o, "%%ucas_cv%dt = OpShiftLeftLogical %s %%ucas_cv%dr "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 23u);
+			sb_printf(&o, "%%ucas_cv%du = OpIAdd %s %%ucas_cv%dt "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 0x3F800000u);
+			sb_printf(&o, "%%ucas_cv%dg = OpBitcast %s %%ucas_cv%du\n", b,
+			    e->rt, b);
+			sb_printf(&o, "%%ucas_cv%dp = OpFMul %s %s %%ucas_cv%df\n", b,
+			    e->rt, e->x, b);
+			sb_printf(&o, "%s = OpFMul %s %%ucas_cv%dp %%ucas_cv%dg\n", e->res,
+			    e->rt, b, b);
+			sb_printf(&rep, "    %s\n      ->  x * asfloat((min(k, 127) << 23) + "
+			    "0x3F800000) * asfloat(((k - min(k, 127)) << 23) + "
+			    "0x3F800000)   (cost %g -> %g)\n      k = %s is in [-126, "
+			    "254], proved by SAT from its definitions; up to 127 the second "
+			    "factor is 1 and the first product is the correctly rounded x "
+			    "2^k; past it the first is x 2^127, exact (a scaling up) or an "
+			    "overflow where x 2^k overflows too, and the second rounds "
+			    "once: the correctly rounded x 2^k, as ldexp's is, for every x "
+			    "(x = %s); the multiplies are decorated NoContraction\n%s",
+			    e->from, e->before, e->after, e->k, e->x, e->src);
+		} else if (hit >= 0 && cvx[hit].form == 9 && cvx[hit].mul) {
 			const struct cvx *e = &cvx[hit];
 			int b = base + hit;
 			char rng[96];
@@ -13998,7 +14053,10 @@ i2f_patch(const char *text, char **out)
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
 		rep_str("form", cvx[i].form == 10 ? "FindUMsb(i)" : cvx[i].form ==
-		    11 ? "f32(FindUMsb(i))" : cvx[i].form == 9 && cvx[i].mul ?
+		    11 ? "f32(FindUMsb(i))" : cvx[i].form == 9 && cvx[i].mul == 2 ?
+		    "x * asfloat((min(k, 127) << 23) + 0x3F800000) * "
+		    "asfloat(((k - min(k, 127)) << 23) + 0x3F800000)" :
+		    cvx[i].form == 9 && cvx[i].mul ?
 		    "x * asfloat((k << 23) + 0x3F800000)" :
 		    cvx[i].form == 9 && cvx[i].zero ?
 		    "x == 0 ? x : "
