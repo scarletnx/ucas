@@ -1,0 +1,15 @@
+# approx offers Bhaskara I's rational sine and cosine and CORDIC (#30):
+# listed for the model that prices them, beside the fits
+approx sin(x) in -1.5..1.5 absolute error 0.0002 nosplit norational free list 3
+approx cos(x) in -1.5..1.5 absolute error 0.002 nosplit norational free list 4
+# a target without an FPU: floats dear and unfused, integers cheap
+model nofpu : gt1030 {
+  fadd: 100, fmul: 100, fdiv: 400, conv: 20
+  nofuse ffma
+  nofuse ffms
+  nofuse ffmr
+}
+use nofpu
+approx sin(x) in -1.5..1.5 absolute error 0.0002 nosplit norational free list 3
+approx atan(x) in -4..4 absolute error 0.0002 nosplit norational free list 3
+use gt1030

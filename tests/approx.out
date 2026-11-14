@@ -184,7 +184,7 @@ approx atan(x) on [-10, 10] as f32, fma
       rounding of ap1, first order, 12 operations, relative, in u = 2^-24: worst case 3.73, probable no better (under 16 operations), expected 0.927; `error ap1 ~ F` says what each means
   2   reduced   3     horner+fma  2.13e+05 ulp             0.0127        0.00994       14.625 at x=-1.818979e-12
       |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = r*fma(-0.211864173, s, 0.987309217)
-  9 more: 'approx more [n]'
+  12 more: 'approx more [n]'
 > approx 1/sqrt(x) in 0.01..100 ulp 2 nosplit norational list 3
 approx 1/sqrt(x) on [0.00999999978, 100] as f32, fma
   metric: relative error
@@ -232,7 +232,7 @@ approx cos(x) on [0, 1.57079637] as f32, fma
       sin(pi/2 - x), pi/2 in 2 parts: r*fma(fma(0.00760275777, s, -0.16595982), s, 0.999891758) where r = 1.57079637 - x - 4.37113883e-08, s = r*r
   3   identity  7     horner+fma  17.5 ulp                 1.05e-06      1.04e-06      7    at x=0.106301703
       sin(pi/2 - x), pi/2 in 2 parts: r*fma(fma(fma(-0.000184878707, s, 0.008311891), s, -0.166655526), s, 0.999999046) where r = 1.57079637 - x - 4.37113883e-08, s = r*r
-  20 more: 'approx more [n]'
+  23 more: 'approx more [n]'
 > model cheapdiv : gt1030 { fdiv: 2 }
 > use cheapdiv
 cost model: cheapdiv
