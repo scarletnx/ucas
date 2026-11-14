@@ -7784,7 +7784,9 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	/* memk.c */
 	"banks", "intatomic",
 	/* stoch.c */
-	"stoke", "pit", "phash", NULL};
+	"stoke", "pit", "phash",
+	/* find.c: the snippet database */
+	"snippets", NULL};
 static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"us", "all", "for", "out", "whether", "if", "how", "when", "where",
 	"what", "some", "any", "its", "it", "my", "this", "that", "every",
@@ -8053,7 +8055,10 @@ nlp_is_english(const char *s, size_t n)
 	/* stoch.c: "stoke f steps 9", "pit f g", "phash f" are ucas ... */
 	if ((n - i > 6 && !strncmp(s + i, "stoke ", 6)) ||
 	    (n - i > 4 && !strncmp(s + i, "pit ", 4)) ||
-	    (n - i > 6 && !strncmp(s + i, "phash ", 6)))
+	    (n - i > 6 && !strncmp(s + i, "phash ", 6)) ||
+	    (n - i > 14 && !strncmp(s + i, "snippets grow", 13) &&
+	    (s[i + 13] == ' ' || s[i + 13] == '\t')) ||
+	    (n - i == 13 && !strncmp(s + i, "snippets grow", 13)))
 		return 0;
 	{
 		/* ... "superoptimize f", "are f and g the same polynomial" not */

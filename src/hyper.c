@@ -1611,7 +1611,7 @@ static const char *const ucas_cmds[] = {"texalu", "texenc", "show", "table", "ra
 	/* memk.c */
 	"banks", "intatomic",
 	/* stoch.c */
-	"stoke", "pit", "phash",
+	"stoke", "pit", "phash", "snippets",
 	NULL};
 
 static const char *

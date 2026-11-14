@@ -72,6 +72,10 @@ static struct {
 	int nm, capm;
 	int sampled;
 	int full;
+	/* snippets grow: no target, no holes, a deadline */
+	int snip, timedout;
+	clock_t deadline;
+	uint32_t tick;
 } F;
 
 static int fquiet;	/* find_cands: no output, no proofs */
@@ -608,6 +612,10 @@ build(int op, uint32_t a, uint32_t b, int cost, int64_t *scratch)
 	uint8_t fl = 0;
 	int64_t first;
 
+	if (F.snip && (++F.tick & 4095) == 0 && clock() > F.deadline) {
+		F.full = F.timedout = 1;
+		return;
+	}
 	for (i = 0; i < F.P; i++) {
 		scratch[i] = op >= O_NOPS ? xo_eval(op, ca[i], cb[i]) :
 		    scalar_int(op, &F.it, &F.it, ca[i], cb[i], 0, &fl);
@@ -619,6 +627,10 @@ build(int op, uint32_t a, uint32_t b, int cost, int64_t *scratch)
 		;
 	if (i == F.P)
 		return;   /* constants come from the leaves and the holes */
+	if (F.snip) {
+		insert(op, a, b, cost, scratch, &t);
+		return;
+	}
 	if (is_target(scratch)) {
 		static const char *const xname[] = {"andn", "blsr", "blsi",
 		    "blsmsk"};
@@ -2511,8 +2523,11 @@ float_rewrites(struct func *f)
 	return shown;
 }
 
+static void snip_lookup(const char *name);
+
 void
-cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
+cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost,
+    int snip, const char *snipname)
 {
 	int j, fpar = 0;
 
@@ -2589,6 +2604,8 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	swar_find(&F.f);
 	tab_find(&F.f);
 	tex_find(&F.f);
+	if (snip)
+		snip_lookup(snipname);
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();
@@ -2608,6 +2625,645 @@ cmd_more(int want)
 	run_levels(want, F.done + 8);
 	rep_end();
 	fuse_domain(NULL);
+}
+
+/* ---- the snippet database ---- */
+
+/*
+ * `snippets grow [NAME] [inputs N] [width W] [cost C] [seconds S]` runs
+ * the enumeration above with no target: every program over N inputs of W
+ * bits (a, b, c) and the constant pool, from the active model's integer
+ * operations, cheapest first, one program per column of values on a
+ * fixed set of points (edge values, then a seeded sample).  What it
+ * keeps per program is its operation, its operands' entries and its
+ * column's hash.  With NAME the database is NAME.snip, written a level of
+ * cost at a time (a level not finished within the seconds or the bank's
+ * memory is not written), and a later grow reads it back and goes on from
+ * the next level, so it grows in slices; without one it lives for the
+ * session.  `find F snippets [NAME]` computes F's column on the same
+ * points and lists the program with that hash, checked on F's domain like
+ * every match.
+ */
+#define SNIP_P 32
+#define SNIP_VER 1
+
+static struct {
+	int ready, nin, w;
+	uint32_t model;
+	int nlv;			/* levels 0 .. nlv - 1 are complete */
+	uint32_t lvl[64];		/* entries of level c: lvl[c] .. lvl[c+1] */
+	uint32_t n;
+	uint16_t *op;			/* O_VAR (a: the input), O_CONST (kv) */
+	uint32_t *a, *b;
+	int64_t *kv;
+	uint64_t *hash;
+	uint32_t *ht, htcap;		/* entry + 1 by hash */
+} SD;
+
+static void
+sd_free(void)
+{
+	free(SD.op);
+	free(SD.a);
+	free(SD.b);
+	free(SD.kv);
+	free(SD.hash);
+	free(SD.ht);
+	memset(&SD, 0, sizeof SD);
+}
+
+static uint64_t
+snip_hash(const int64_t *c)
+{
+	uint64_t h = 1469598103934665603ULL;
+	uint32_t i;
+
+	for (i = 0; i < SNIP_P; i++)
+		h = (h ^ (uint64_t)c[i]) * 1099511628211ULL;
+	return h;
+}
+
+/* input j at point i, pc[j * SNIP_P + i]: edges in a grid first, then a
+ * sample from a fixed seed */
+static void
+snip_points(int nin, int w, int64_t *pc)
+{
+	uint64_t m = w == 64 ? ~0ULL : (1ULL << w) - 1, top = 1ULL << (w - 1);
+	uint64_t e[4] = {0, 1, m, top}, s = 0x9e3779b97f4a7c15ULL;
+	int i, j, k;
+
+	for (i = 0; i < SNIP_P; i++)
+		for (j = 0, k = i; j < nin; j++, k /= 4) {
+			uint64_t v;
+			if (i < 16) {
+				v = e[nin == 1 ? i % 4 : k % 4];
+				if (nin == 1 && i >= 4)
+					v = i < 8 ? (uint64_t)(i - 2) & m : i < 12 ?
+					    (top - 1 - (uint64_t)(i - 8)) & m :
+					    (m - (uint64_t)(i - 11)) & m;
+			} else {
+				s ^= s << 13;
+				s ^= s >> 7;
+				s ^= s << 17;
+				v = s & m;
+			}
+			pc[(size_t)j * SNIP_P + i] = (int64_t)v;
+		}
+}
+
+/* the operations the bank builds, by a name of their own in the file
+ * (opinfo's names are the syntax: - is both sub and neg) */
+static const struct {
+	int op;
+	const char *name;
+} snip_ops[] = {
+	{O_ADD, "add"}, {O_SUB, "sub"}, {O_MUL, "mul"}, {O_AND, "and"},
+	{O_OR, "or"}, {O_XOR, "xor"}, {O_SHL, "shl"}, {O_SHR, "shr"},
+	{O_NEG, "neg"}, {O_NOT, "not"}, {XO_ANDN, "andn"}, {XO_BLSR, "blsr"},
+	{XO_BLSI, "blsi"}, {XO_BLSMSK, "blsmsk"},
+};
+
+static const char *
+op_name(int op)
+{
+	size_t k;
+
+	for (k = 0; k < sizeof snip_ops / sizeof snip_ops[0]; k++)
+		if (snip_ops[k].op == op)
+			return snip_ops[k].name;
+	fail("snippets: the bank holds operation %d, which has no name in the "
+	    "file", op);
+	return NULL;
+}
+
+static int
+op_named(const char *s)
+{
+	size_t k;
+
+	for (k = 0; k < sizeof snip_ops / sizeof snip_ops[0]; k++)
+		if (!strcmp(snip_ops[k].name, s))
+			return snip_ops[k].op;
+	return -1;
+}
+
+/* find's bank set up for N inputs of W bits on the fixed points */
+static void
+snip_setup(int nin, int w)
+{
+	static const char *const pn[3] = {"a", "b", "c"};
+	int64_t pc[3 * SNIP_P], ks[8], c[SNIP_P];
+	uint32_t t, slot;
+	int j, i, nk = 0;
+
+	finder_free();
+	F.snip = 1;
+	F.W = TY(K_UINT, w);
+	ity_of(&F.it, F.W, 0);
+	F.P = SNIP_P;
+	F.y = xcalloc(SNIP_P, sizeof *F.y);
+	F.maxn = (uint32_t)((256u << 20) / (SNIP_P * sizeof(int64_t)));
+	F.htcap = 1;
+	while (F.htcap < F.maxn * 2)
+		F.htcap *= 2;
+	F.ht = xcalloc(F.htcap, sizeof *F.ht);
+	snip_points(nin, w, pc);
+	for (j = 0; j < nin; j++)
+		if (insert(O_VAR, (uint32_t)j, 0, 0, &pc[(size_t)j * SNIP_P], &t))
+			F.node[t] = mk_var((uint32_t)j, sym_cstr(pn[j]), F.W);
+	F.firstk = F.n;
+	ks[nk++] = 1;
+	ks[nk++] = 2;
+	ks[nk++] = 3;
+	ks[nk++] = 4;
+	ks[nk++] = 5;
+	ks[nk++] = 8;
+	ks[nk++] = w - 1;
+	ks[nk++] = -1;
+	for (j = 0; j < nk; j++) {
+		int64_t v = int_norm(F.W, ks[j]);
+		for (i = 0; i < SNIP_P; i++)
+			c[i] = v;
+		if (lookup(c, &slot) == NOTOK && insert(O_CONST, 0, 0, 0, c, &t))
+			F.node[t] = kconst(v);
+	}
+	F.lvl[0] = 0;
+	F.lvl[1] = F.n;
+	F.done = 0;
+	{
+		static const int defops[] = {O_ADD, O_SUB, O_MUL, O_AND, O_OR,
+		    O_XOR, O_SHL, O_SHR, O_NEG, O_NOT};
+		for (j = 0; j < (int)(sizeof defops / sizeof defops[0]); j++) {
+			F.ops[F.nops] = defops[j];
+			F.opc[F.nops++] = op_cost(defops[j]);
+		}
+		if (x86_with(XF_BMI1) >= 0)
+			for (j = 0; j < 4; j++) {
+				F.ops[F.nops] = XO_ANDN + j;
+				F.opc[F.nops++] = op_cost(O_AND);
+			}
+	}
+}
+
+/* the bank's complete levels (0 .. nlv - 1) into SD */
+static void
+sd_from_bank(int nin, int w, int nlv)
+{
+	uint32_t t, n = F.lvl[nlv];
+	int c;
+
+	sd_free();
+	SD.ready = 1;
+	SD.nin = nin;
+	SD.w = w;
+	SD.model = model_active()->name;
+	SD.nlv = nlv;
+	for (c = 0; c <= nlv; c++)
+		SD.lvl[c] = F.lvl[c];
+	SD.n = n;
+	SD.op = xmalloc((n ? n : 1) * sizeof *SD.op);
+	SD.a = xmalloc((n ? n : 1) * sizeof *SD.a);
+	SD.b = xmalloc((n ? n : 1) * sizeof *SD.b);
+	SD.kv = xmalloc((n ? n : 1) * sizeof *SD.kv);
+	SD.hash = xmalloc((n ? n : 1) * sizeof *SD.hash);
+	for (t = 0; t < n; t++) {
+		SD.op[t] = F.op[t];
+		SD.a[t] = F.a[t];
+		SD.b[t] = F.b[t];
+		SD.kv[t] = COL(t)[0];
+		SD.hash[t] = snip_hash(COL(t));
+	}
+}
+
+static void
+sd_index(void)
+{
+	uint32_t t, j;
+
+	free(SD.ht);
+	SD.htcap = 1;
+	while (SD.htcap < SD.n * 2 + 2)
+		SD.htcap *= 2;
+	SD.ht = xcalloc(SD.htcap, sizeof *SD.ht);
+	for (t = 0; t < SD.n; t++) {
+		j = (uint32_t)(SD.hash[t] ^ (SD.hash[t] >> 32)) & (SD.htcap - 1);
+		while (SD.ht[j])
+			j = (j + 1) & (SD.htcap - 1);
+		SD.ht[j] = t + 1;
+	}
+}
+
+static void
+sd_write(const char *name)
+{
+	char path[160];
+	FILE *fp;
+	uint32_t t;
+	int c;
+
+	snprintf(path, sizeof path, "%s.snip", name);
+	if ((fp = fopen(path, "w")) == NULL)
+		fail("snippets: cannot write %s", path);
+	fprintf(fp, "ucas snippets %d model %s inputs %d width %d points %d\n",
+	    SNIP_VER, sym_str(SD.model), SD.nin, SD.w, SNIP_P);
+	fprintf(fp, "levels");
+	for (c = 0; c <= SD.nlv; c++)
+		fprintf(fp, " %u", SD.lvl[c]);
+	fprintf(fp, "\n");
+	for (t = 0; t < SD.n; t++) {
+		if (SD.op[t] == O_VAR)
+			fprintf(fp, "var %u", SD.a[t]);
+		else if (SD.op[t] == O_CONST)
+			fprintf(fp, "const %lld", (long long)SD.kv[t]);
+		else if (oarity(SD.op[t]) == 1)
+			fprintf(fp, "%s %u", op_name(SD.op[t]), SD.a[t]);
+		else
+			fprintf(fp, "%s %u %u", op_name(SD.op[t]), SD.a[t], SD.b[t]);
+		fprintf(fp, " %016llx\n", (unsigned long long)SD.hash[t]);
+	}
+	if (fclose(fp) != 0)
+		fail("snippets: cannot write %s", path);
+}
+
+/*
+ * NAME.snip into SD; with check, each entry's hash is computed again on
+ * the bank (F set up by snip_setup) and must be the one written.  0 when
+ * there is no such file.
+ */
+static int
+sd_read(const char *name, int bank)
+{
+	char path[160], line[256], mname[64], opn[32];
+	FILE *fp;
+	int ver, nin, w, np, c;
+	uint32_t t, cap = 0;
+	char *s, *end;
+
+	snprintf(path, sizeof path, "%s.snip", name);
+	if ((fp = fopen(path, "r")) == NULL)
+		return 0;
+	if (!fgets(line, sizeof line, fp) || sscanf(line, "ucas snippets %d "
+	    "model %63s inputs %d width %d points %d", &ver, mname, &nin, &w,
+	    &np) != 5) {
+		fclose(fp);
+		fail("snippets: %s does not start with a ucas snippets line",
+		    path);
+	}
+	if (ver != SNIP_VER || np != SNIP_P || nin < 1 || nin > 3 ||
+	    (w != 8 && w != 16 && w != 32)) {
+		fclose(fp);
+		fail("snippets: %s is version %d with %d points, %d inputs of %d "
+		    "bits; this ucas reads version %d with %d points, 1 to 3 "
+		    "inputs of 8, 16 or 32 bits", path, ver, np, nin, w, SNIP_VER,
+		    SNIP_P);
+	}
+	sd_free();
+	SD.nin = nin;
+	SD.w = w;
+	SD.model = sym_cstr(mname);
+	if (!fgets(line, sizeof line, fp) || strncmp(line, "levels", 6)) {
+		fclose(fp);
+		fail("snippets: %s has no levels line", path);
+	}
+	for (s = line + 6, c = 0; c < 64; c++) {
+		unsigned long v = strtoul(s, &end, 10);
+		if (end == s)
+			break;
+		SD.lvl[c] = (uint32_t)v;
+		s = end;
+	}
+	if (c < 2) {
+		fclose(fp);
+		fail("snippets: %s: its levels line has %d entries", path, c);
+	}
+	SD.nlv = c - 1;
+	while (fgets(line, sizeof line, fp)) {
+		unsigned a = 0, b = 0;
+		unsigned long long h;
+		long long k;
+		int op = -1, named;
+		if (SD.n == cap) {
+			cap = cap ? cap * 2 : 1024;
+			SD.op = xrealloc(SD.op, cap * sizeof *SD.op);
+			SD.a = xrealloc(SD.a, cap * sizeof *SD.a);
+			SD.b = xrealloc(SD.b, cap * sizeof *SD.b);
+			SD.kv = xrealloc(SD.kv, cap * sizeof *SD.kv);
+			SD.hash = xrealloc(SD.hash, cap * sizeof *SD.hash);
+		}
+		t = SD.n;
+		SD.kv[t] = 0;
+		{
+			/* words: the operation, 1 or 2 operands (or a leaf's
+			 * input or value), the hash */
+			char *w;
+			int nw = 0;
+			for (w = line; *w; w++)
+				if (*w != ' ' && *w != '\n' && (w == line || w[-1] == ' '))
+					nw++;
+			named = 0;
+			if (nw != 3 && nw != 4) {
+				fclose(fp);
+				fail("snippets: %s line %u has %d words: an entry has 3 "
+				    "or 4", path, t + 3, nw);
+			}
+			if (nw == 3 && sscanf(line, "var %u %llx", &a, &h) == 2)
+				op = O_VAR;
+			else if (nw == 3 && sscanf(line, "const %lld %llx", &k,
+			    &h) == 2) {
+				op = O_CONST;
+				SD.kv[t] = k;
+			} else if ((nw == 4 && sscanf(line, "%31s %u %u %llx", opn,
+			    &a, &b, &h) == 4) || (nw == 3 && sscanf(line,
+			    "%31s %u %llx", opn, &a, &h) == 3)) {
+				op = op_named(opn);
+				named = 1;
+			}
+		}
+		if (named) {
+			if (op < 0 || op == O_VAR || op == O_CONST) {
+				fclose(fp);
+				fail("snippets: %s line %u: no operation '%s'", path,
+				    t + 3, opn);
+			}
+			if (a >= t || b >= t) {
+				fclose(fp);
+				fail("snippets: %s line %u: an operand is not an earlier "
+				    "entry", path, t + 3);
+			}
+		} else if (op == -1) {
+			fclose(fp);
+			fail("snippets: %s line %u is not an entry", path, t + 3);
+		}
+		SD.op[t] = (uint16_t)op;
+		SD.a[t] = a;
+		SD.b[t] = b;
+		SD.hash[t] = h;
+		SD.n++;
+	}
+	fclose(fp);
+	if (SD.n != SD.lvl[SD.nlv]) {
+		fail("snippets: %s has %u entries, its levels say %u", path, SD.n,
+		    SD.lvl[SD.nlv]);
+	}
+	SD.ready = 1;
+	if (bank) {
+		/* the bank again, entry by entry: the columns the file names */
+		int64_t *sc = xmalloc(SNIP_P * sizeof *sc);
+		uint32_t i, got;
+		for (t = 0; t < SD.n; t++) {
+			uint8_t fl = 0;
+			int op = SD.op[t];
+			if (op == O_VAR || op == O_CONST) {
+				if (t >= F.n || F.op[t] != op) {
+					free(sc);
+					fail("snippets: %s entry %u is a leaf this grow does "
+					    "not have (the inputs or the constant pool "
+					    "differ)", path, t);
+				}
+			} else {
+				const int64_t *ca = COL(SD.a[t]), *cb = oarity(op) > 1 ?
+				    COL(SD.b[t]) : ca;
+				for (i = 0; i < SNIP_P; i++)
+					sc[i] = op >= O_NOPS ? xo_eval(op, ca[i], cb[i]) :
+					    scalar_int(op, &F.it, &F.it, ca[i], cb[i], 0, &fl);
+				if (!insert(op, SD.a[t], SD.b[t], 0, sc, &got) || got != t) {
+					free(sc);
+					if (F.full)
+						fail("snippets: %s entry %u: the bank is full (%u "
+						    "programs)", path, t, F.maxn);
+					fail("snippets: %s entry %u does not rebuild (a column "
+					    "seen twice: another ucas or model made it)", path,
+					    t);
+				}
+			}
+			if (snip_hash(COL(t)) != SD.hash[t]) {
+				free(sc);
+				fail("snippets: %s entry %u's hash is %016llx, its program "
+				    "gives %016llx", path, t, (unsigned long long)
+				    SD.hash[t], (unsigned long long)snip_hash(COL(t)));
+			}
+		}
+		free(sc);
+		for (c = 0; c <= SD.nlv; c++)
+			F.lvl[c] = SD.lvl[c];
+		F.done = SD.nlv - 1;
+		for (t = 0; t < SD.n; t++) {
+			int lv;
+			for (lv = 0; lv < SD.nlv && SD.lvl[lv + 1] <= t; lv++)
+				;
+			F.cost[t] = (uint8_t)lv;
+		}
+	}
+	return 1;
+}
+
+void
+cmd_snippets_grow(const char *name, int nin, int w, int maxcost,
+    double seconds, int fresh)
+{
+	clock_t t0 = clock();
+	int c, resumed = 0, from;
+
+	if (name && (rep_on || nlp_defer))
+		fail("snippets grow NAME writes NAME.snip next to a command line "
+		    "run; a JSON request or the bot has no file kept between "
+		    "requests: leave the name out for a database of the session");
+	if (nin < 1 || nin > 3)
+		fail("snippets: inputs %d: from 1 to 3", nin);
+	if (w != 8 && w != 16 && w != 32)
+		fail("snippets: width %d: 8, 16 or 32", w);
+	if (maxcost < 1 || maxcost > 30)
+		fail("snippets: cost %d: from 1 to 30", maxcost);
+	if (seconds <= 0 || seconds > 120)
+		fail("snippets: seconds %g: more than 0, at most 120 (a slice; "
+		    "grow again to go on)", seconds);
+	F.active = 0;
+	snip_setup(nin, w);
+	if (name && !fresh) {
+		char path[160];
+		snprintf(path, sizeof path, "%s.snip", name);
+		{
+			FILE *fp = fopen(path, "r");
+			if (fp) {
+				char line[256];
+				int v2, n2, w2, p2;
+				char m2[64];
+				if (fgets(line, sizeof line, fp) && sscanf(line,
+				    "ucas snippets %d model %63s inputs %d width %d "
+				    "points %d", &v2, m2, &n2, &w2, &p2) == 5 &&
+				    (n2 != nin || w2 != w || strcmp(m2,
+				    sym_str(model_active()->name)))) {
+					fclose(fp);
+					fail("snippets: %s holds programs of %d input%s of %d "
+					    "bits under %s; this grow asks %d of %d bits under "
+					    "%s (fresh starts it over)", path, n2, n2 == 1 ? "" :
+					    "s", w2, m2, nin, w, sym_str(model_active()->name));
+				}
+				fclose(fp);
+			}
+		}
+		resumed = sd_read(name, 1);
+	}
+	from = F.done;
+	F.deadline = t0 + (clock_t)(seconds * CLOCKS_PER_SEC);
+	for (c = F.done + 1; c <= maxcost && c < 62; c++) {
+		enumerate_level(c);
+		if (F.full)
+			break;
+	}
+	/* the levels finished: a cut one is not kept */
+	c = F.full ? F.done : F.done + 1;
+	sd_from_bank(nin, w, c);
+	sd_index();
+	printf("snippets%s%s: %d input%s of %d bits under %s, %u programs with "
+	    "distinct values on %d points, every one up to cost %d%s\n",
+	    name ? " " : "", name ? name : "", nin, nin == 1 ? "" : "s", w,
+	    sym_str(model_active()->name), SD.n, SNIP_P, SD.nlv - 1, resumed ?
+	    "" : " (new)");
+	if (resumed)
+		printf("  read back up to cost %d; this slice added %d level%s\n",
+		    from, SD.nlv - 1 - from, SD.nlv - 1 - from == 1 ? "" : "s");
+	if (F.full)
+		printf("  cost %d not finished (%s): its programs are not kept; "
+		    "grow again%s\n", SD.nlv, F.timedout ? "out of time" :
+		    "the bank is full", F.timedout ? " to go on" :
+		    " (a bank this size holds no more)");
+	if (name) {
+		sd_write(name);
+		printf("  wrote %s.snip\n", name);
+	}
+	rep_begin("snippets");
+	rep_int("programs", SD.n);
+	rep_int("cost", SD.nlv - 1);
+	rep_bool("cut", F.full);
+	finder_free();
+}
+
+/* entry t as an expression over f's parameters; 0 when it reads an input
+ * f does not have */
+static nid
+sd_expr(uint32_t t, const struct func *f, ty_t T, nid *memo)
+{
+	int op = SD.op[t];
+	nid r, x, y = 0;
+
+	if (memo[t])
+		return memo[t];
+	if (op == O_VAR) {
+		if ((int)SD.a[t] >= f->np)
+			return 0;
+		r = mk_cast(T, mk_var(SD.a[t], f->p[SD.a[t]].name,
+		    f->p[SD.a[t]].ty));
+	} else if (op == O_CONST)
+		r = mk_const_i(T, SD.kv[t]);
+	else {
+		if ((x = sd_expr(SD.a[t], f, T, memo)) == 0 || (oarity(op) > 1 &&
+		    (y = sd_expr(SD.b[t], f, T, memo)) == 0))
+			return 0;
+		r = op >= O_NOPS ? xo_node(op, x, y) : opinfo[op].arity == 1 ?
+		    mk_un(op, x) : mk_bin(op, x, y);
+	}
+	memo[t] = r;
+	return r;
+}
+
+/* find's lookup: F's column on the database's points, by hash */
+static void
+snip_lookup(const char *name)
+{
+	const struct func *f = &F.f;
+	ty_t T;
+	int64_t pc[3 * SNIP_P], *in_i, c[SNIP_P];
+	double *in_r;
+	struct plan p;
+	nid root;
+	uint64_t h;
+	uint32_t j, i, t;
+	int k, cost;
+
+	if (name && !sd_read(name, 0))
+		fail("snippets: no file %s.snip", name);
+	if (!SD.ready)
+		fail("find ... snippets: no database in this session: `snippets "
+		    "grow` makes one, `find F snippets NAME` reads NAME.snip");
+	if (!SD.ht)
+		sd_index();
+	T = TY(K_UINT, SD.w);
+	if (f->np > SD.nin) {
+		printf("  snippet database: not consulted: it holds programs of %d "
+		    "input%s, %s has %d parameters\n", SD.nin, SD.nin == 1 ? "" :
+		    "s", f->anon ? "the function" : sym_str(f->name), f->np);
+		return;
+	}
+	for (k = 0; k < f->np; k++)
+		if (!TY_ISINT(f->p[k].ty) || !TY_SIZED(f->p[k].ty) ||
+		    TYW(f->p[k].ty) != SD.w) {
+			printf("  snippet database: not consulted: it holds programs "
+			    "of %d-bit inputs, %s is %s\n", SD.w,
+			    sym_str(f->p[k].name), ty_str(f->p[k].ty));
+			return;
+		}
+	snip_points(SD.nin, SD.w, pc);
+	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	for (k = 0; k < f->np; k++)
+		for (i = 0; i < SNIP_P; i++)
+			in_i[(size_t)k * CH + i] = int_norm(f->p[k].ty,
+			    pc[(size_t)k * SNIP_P + i]);
+	root = mk_cast(T, f->body);
+	plan_build(&p, &root, 1, 0);
+	plan_run(&p, SNIP_P, in_i, in_r);
+	for (i = 0; i < SNIP_P; i++) {
+		if (COLF(&p, p.root[0])[i] & F_UNDEF)
+			break;
+		c[i] = int_norm(T, COLI(&p, p.root[0])[i]);
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	if (i < SNIP_P) {
+		printf("  snippet database: not consulted: %s is undefined at one "
+		    "of its points\n", f->anon ? "the function" : sym_str(f->name));
+		return;
+	}
+	h = snip_hash(c);
+	j = (uint32_t)(h ^ (h >> 32)) & (SD.htcap - 1);
+	while ((t = SD.ht[j]) != 0 && SD.hash[t - 1] != h)
+		j = (j + 1) & (SD.htcap - 1);
+	if (!t) {
+		printf("  snippet database: no program up to cost %d has its "
+		    "values (%u programs of %d input%s, %d bits, grown under %s)\n",
+		    SD.nlv - 1, SD.n, SD.nin, SD.nin == 1 ? "" : "s", SD.w,
+		    sym_str(SD.model));
+		return;
+	}
+	{
+		nid *memo = xcalloc(SD.n, sizeof *memo), e;
+		static char why[200];
+		e = sd_expr(t - 1, f, T, memo);
+		free(memo);
+		if (!e) {
+			printf("  snippet database: its program with these values reads "
+			    "an input %s does not have\n", f->anon ? "the function" :
+			    sym_str(f->name));
+			return;
+		}
+		e = mk_cast(F.W, e);
+		for (k = 0; k < SD.nlv && SD.lvl[k + 1] <= t - 1; k++)
+			;
+		if (!quick_refines(f, e)) {
+			printf("  snippet database: its program with these values, %s, "
+			    "differs from %s elsewhere (%d points do not tell them "
+			    "apart)\n", shared_str(e, 200), f->anon ? "the function" :
+			    sym_str(f->name), SNIP_P);
+			return;
+		}
+		cost = icost(e);
+		snprintf(why, sizeof why, "the snippet database's program with "
+		    "these values (cost %d under %s, where it was grown)", k,
+		    sym_str(SD.model));
+		add_match(M_FORM, cost, e, why);
+	}
 }
 
 /*

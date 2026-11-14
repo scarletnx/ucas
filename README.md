@@ -173,6 +173,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, or the draw whose coverage is a predicate P(x, y) of a pixel, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
+| `snippets grow [NAME] [fresh] [inputs N] [width W] [cost C] [seconds S]`, `find F snippets [NAME]` | a database of the cheapest program for each column of values on 32 fixed points, grown by find's enumeration with no target and consulted by find (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, or its values from the key by a multiply-add and a shift with no value table, when the model prices that below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
 | `dword cases [P]` | the bounds of DWPlusFP and AccurateDWPlusDW whatever cancels, by the case analysis ucas runs at P bits (24): the cases, the largest bound and its case; at 3 to 5 bits also every operand pair of that format in a window run against them (see "fp64 without fp64").  English: "the case analysis of the double-word additions at 4 bits" |
@@ -5335,6 +5336,34 @@ phash sw8 under gt1030: 8 keys, the compare chain costs 32; seed 1
 > phash few
   -> not rewritten: the lookup costs 18.75, the compare chain 12 under gt1030
 ```
+
+**The snippet database.**  `snippets grow [NAME] [inputs N] [width W]
+[cost C] [seconds S]` (defaults 2 inputs of 32 bits, cost 4, 10 s; at
+most 120 s a slice) runs find's enumeration with no target: every
+program over N inputs a, b, c of W bits (8, 16 or 32) and find's
+constant pool, from the active model's integer operations, cheapest
+first, keeping one program for each column of values on 32 fixed points
+(edge values in a grid, then a sample from a fixed seed).  On 32 points
+instead of find's 1024 the bank (256 MB) holds every program of cost 3
+over two 32-bit inputs (78812 of them, about a second), where find's
+own bank is full before that cost.  Without NAME the database lives for
+the session; with it, it is NAME.snip, written a level of cost at a time
+(one cut short by the seconds or by the bank's memory is not kept), and
+a later grow reads it back, checks every entry's hash against its
+program, and goes on from the next level; `fresh` starts it over, and a
+file of another shape or model is refused, naming both.  A line of the
+file is an entry: its operation and its operands' entries (or an
+input, or a constant) and the hash of its column.
+
+`find F snippets [NAME]` hashes F's values on the same points (F's
+parameters in order as a, b, c, of the database's width) and lists the
+program with that hash, checked on F's domain like every match
+(tests/snippets.ucas: `((a + b) | (a - b)) & ~((a + b) & (a - b))` is
+`a + b xor a - b`, which find alone does not reach).  Thirty-two points
+do not tell every pair of functions apart: a program that matches there
+and differs on F's domain is said, not listed.  The database is not
+consulted for parameters of another width or more parameters than it has
+inputs, and says so.
 
 ## Float simplify
 

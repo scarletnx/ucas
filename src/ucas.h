@@ -837,7 +837,11 @@ void cmd_npn(void);		/* npn.c: `gates npn` */
 int find_cands(struct func *f, int maxcost, double seconds, nid *out,
     char (*why)[96], int max);
 extern uint64_t gates_budget;
-void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost);
+void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost,
+    int snip, const char *snipname);
+/* find.c: snippets grow [NAME] ...: the enumeration with no target */
+void cmd_snippets_grow(const char *name, int nin, int w, int maxcost,
+    double seconds, int fresh);
 void cmd_more(int want);
 void cmd_fit(struct func *g, struct func *f, int metric);
 void error_measured(const struct func *f, nid approx, double *maxabs,
