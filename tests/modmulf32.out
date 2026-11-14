@@ -39,7 +39,7 @@ find mm2: 1024 points (sampled; matches verified on the whole domain), computing
 > find mm4 1
 find mm4: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
   rewrites the model prices lower (each derived, with what it holds under):
-  cost 22  u64(asint((t3 >= 1000003 ? t3 - 1000003 : t3) + 12582912) - 1262485504) where t1 = asfloat(u32(a) | 0x4b000000) - 8388608, t2 = fma(floor(9.99997042e-07*(999331*t1)), -1000003, 999331*t1) + fma(999331, t1, -999331*t1), t3 = t2 < 0 ? t2 + 1000003 : t2 999331a % 1000003 on the f32 pipe: 999331*a as two floats (2Prod), the quotient by 9.99997042e-07 (1/1000003) floored, the remainder put in [0, 1000003) (derived; checked on a sample)
+  cost 22  u64(asint((t3 >= 1000003 ? t3 - 1000003 : t3) + 12582912) - 1262485504) where t1 = asfloat(u32(a) | 0x4b000000) - 8388608, t2 = fma(floor(9.99997042e-07*(999331*t1)), -1000003, 999331*t1) + fma(999331, t1, -999331*t1), t3 = t2 < 0 ? t2 + 1000003 : t2 999331a % 1000003 on the f32 pipe: 999331*a as two floats (2Prod), the quotient by 9.99997042e-07 (1/1000003) floored, the remainder put in [0, 1000003) (derived; checked on every point)
       holds where 999331 in [999331, 999331] and a in [0, 1000002], below 2^24; their product at most 999332998662, and 999332998662/1000003 times the three roundings is 0.161 < 1
       999331 and a are integers below 2^24: their f32 are exact
       p = f32(999331)*f32(a) rounded and e = fma(f32(999331), f32(a), -p) make 999331*a = p + e exactly (2Prod: the error of a rounded product is an f32, and the fma rounds it once, to itself); |e| <= 32768, half an ulp at 999332998662
