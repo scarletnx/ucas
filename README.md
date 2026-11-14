@@ -15,7 +15,7 @@ It is not a better assembler (that is Souper's job).  It works on the
 mathematical function: it rewrites it, measures it on its domain, and
 searches for other implementations.
 
-C99, BSD make, no dependencies beyond libm.
+C99, BSD make (or an optional CMake build), no dependencies beyond libm.
 
 License: GPL-3.0-or-later (COPYING).  src/snxglslc/ is ScarletNX's GLSL
 compiler, GPL-3.0-or-later as well; it is why ucas is GPLv3.
@@ -31,6 +31,21 @@ make test       # tests/*.ucas must print tests/*.out
 ./ucas --json   # JSON Lines for programs and agents (see "JSON frontend")
 ./ucas --mcp    # an MCP server for AI clients (see "MCP server")
 ```
+
+On Linux, where BSD make is usually absent, the optional CMake build uses
+the same sources and generated headers:
+
+```sh
+cmake -S . -B build -DCMAKE_C_COMPILER=clang
+cmake --build build
+(cd build && ctest --output-on-failure)
+```
+
+`ctest` runs the SAT self-test and a portable smoke set (`cost`, `find`,
+and the JSON schema).  The full `tests/*.ucas` golden outputs stay on the
+BSD make/FreeBSD path: several numeric lines differ in their last digits
+between C libraries, and SAT conflict counts differ between compilers, so
+exact-output CI on Linux would be red for reasons unrelated to the code.
 
 ## A tour
 
