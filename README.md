@@ -1802,8 +1802,16 @@ it (a fusion priced by it is then unavailable).  `on CLASS ...` makes
 the fusion a result modifier, the mirror image of `in`: the pattern
 folds into the instruction that makes its input when that is an
 operation of those classes used only there (a clamp to [0, 1] into a
-saturating add, multiply or fma).  SPIR-V simplify prices without
-ranges, so a fusion with a proved width does not apply there yet.
+saturating add, multiply or fma).  SPIR-V simplify's cover reads each
+integer's range the same way, from its type, its constants and its
+operations (a load is its whole type), so `(x & 0xffffu) * (y &
+0xffffu) + z` or `(x >> 16) * (y >> 16) + z` of uints is one XMAD
+there; the mask and the shift stay, as the width is what is proved, and
+a model whose multiply reads the halves itself says so with patterns,
+`fuse xmadlo(a: int, b: int, c: int) = (a & 65535) * (b & 65535) + c :
+mul16`, which absorb them.  A product of full words whose low half
+alone is kept, `(x * y) & 0xffffu`, is not narrowed: no width is proved
+for its operands (tests/fusewidth.ucas).
 
 gt1030 lists neither: no test in the corpus measures a 16 x 16
 multiply-add (XMAD alone) against IMUL or a saturating result against

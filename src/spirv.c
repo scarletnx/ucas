@@ -14527,6 +14527,32 @@ spv_cover(struct fuse_tally *t)
 				}
 			}
 	}
+	/* each integer's range from its type, its constants and its
+	 * operations, for a fusion's input of a proved width (#45) */
+	{
+		int64_t *tlo = xmalloc((size_t)(nins + nleaf + 1) * sizeof *tlo);
+		int64_t *thi = xmalloc((size_t)(nins + nleaf + 1) * sizeof *thi);
+		for (j = 0; j < nins + nleaf; j++) {
+			tlo[j] = 1;
+			thi[j] = 0;
+		}
+		for (i = 0; i < nid_; i++) {
+			int t, w, sg = 0;
+			if (gi[i] < 0 || i >= V.nid)
+				continue;
+			t = V.id[i].type;
+			w = t >= 0 && V.id[t].kind == K_TYPE && T(t)->k == S_INT ?
+			    T(t)->w : 0;
+			if (w < 1 || w > 32)
+				continue;
+			sg = T(t)->sign;
+			tlo[gi[i]] = sg ? -(1LL << (w - 1)) : 0;
+			thi[gi[i]] = sg ? (1LL << (w - 1)) - 1 : (1LL << w) - 1;
+		}
+		fg_ranges(&G, tlo, thi);
+		free(tlo);
+		free(thi);
+	}
 	/* what no result needs (a rewrite took its last use; dead code
 	 * removal drops it later) costs nothing */
 	{

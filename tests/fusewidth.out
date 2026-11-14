@@ -1,3 +1,5 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
 > m1(a: u32 in 0..60000, b: u32 in 0..60000, c: u32) = a * b + c
 > m2(a: u32, b: u32, c: u32) = (a & 0xffff) * (b >> 16) + c
 > m3(a: u32, b: u32) = a * b
@@ -104,3 +106,39 @@ cost of s1 under gt1030: 3 (4 operations, shared subterms counted once)
 fusewidth.ucas:61:65: error: a fusion is a source modifier (in) or a result modifier (on), not both
     model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
                                                                     ^
+> use xmad
+cost model: xmad
+> spvsimplify nofile float nofunctions
+simplify: 88 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under xmad (each instruction once): 18 -> 18 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    xmad             2 x 1     = 2  (a*b + c; saves 6)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: no float arithmetic reaches a store, a return, a conversion to an integer or a compare with a constant
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model xmadh : xmad {
+    fuse xmadlo(a: int, b: int, c: int) = (a & 65535) * (b & 65535) + c : mul16
+    fuse xmadhi(a: int, b: int, c: int) = (a >> 16) * (b >> 16) + c : mul16 }
+> use xmadh
+cost model: xmadh
+> spvsimplify nofile nofunctions
+simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under xmadh (each instruction once): 6 -> 6 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    xmadlo           1 x 1     = 1  ((a & 0xffff)*(b & 0xffff) + c; saves 5)
+    xmadhi           1 x 1     = 1  ((a >> 0x10)*(b >> 0x10) + c; saves 7)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 16 -> 16 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    imad             2 x 3     = 6  (a*b + c; saves 2)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

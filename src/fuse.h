@@ -105,6 +105,7 @@ struct fgraph {
 void fg_init(struct fgraph *g, int n);
 void fg_free(struct fgraph *g);
 float fg_cover(const struct model *m, struct fgraph *g);
+void fg_ranges(struct fgraph *g, const int64_t *tlo, const int64_t *thi);
 /* what the cover fused: one line each ("imad 2 x 3 = 6, saves 2") */
 struct fuse_tally {
 	int n;
