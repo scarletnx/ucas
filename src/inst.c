@@ -2197,6 +2197,13 @@ inst_find(const struct func *f)
 		for (i = 0; i < n; i++) {
 			nid cand;
 			float c;
+
+			/* a value per lane (inside a subgroup operation's operand,
+			 * or a scan or shuffle's result) has no value alone, so
+			 * no pattern can be told on it */
+			if ((N.fl[nd[i]] & (NF_SG | NF_LANE)) &&
+			    sg_has_lane(sg_lower(nd[i])))
+				continue;
 			sb_clear(&one);
 			cand = wide_pair(f, cur, nd, n, nd[i], &one);
 			if (cand && (c = fuse_expr_cost(m, sg_priced(f, cand))) <
