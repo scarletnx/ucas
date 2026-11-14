@@ -2,6 +2,7 @@
 > phash big
 phash big under gt1030: 50 keys, the compare chain costs 200; seed 1
   16028 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  the values by a multiply-add and a shift: none with a shift up to 16 (every multiplier mod 2^(s + 6) tried, each with its offset solved), nor with 17 to 26 among 1048576 multipliers drawn
   injective on the 50 keys (each slot checked): h(x) = ((x * 45331) >> 10) + D[(x * 56013) >> 12] & 63, D of 16, a table of 64 slots
   other inputs: the slot's key is compared with x, and the default taken when they differ
   the lookup costs 35.625

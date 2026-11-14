@@ -1828,6 +1828,7 @@ static ld l_sin(void *c, ld x) { (void)c; return sinl(x); }
 static ld l_cos(void *c, ld x) { (void)c; return cosl(x); }
 static ld l_tan(void *c, ld x) { (void)c; return tanl(x); }
 static ld l_exp(void *c, ld x) { (void)c; return expl(x); }
+static ld l_expm1(void *c, ld x) { (void)c; return expm1l(x); }
 static ld l_log1p(void *c, ld x) { (void)c; return log1pl(x); }
 static ld l_sqrt(void *c, ld x) { (void)c; return sqrtl(x); }
 static ld l_rsqrt(void *c, ld x) { (void)c; return 1 / sqrtl(x); }
@@ -2024,8 +2025,11 @@ core_make(struct core *k, ldfn f, ld a, ld b, int k0, int step, ld c,
 
 enum {
 	R_QUAD, R_COSSHIFT, R_COSHALF, R_SINCOS, R_TANHALF, R_EXP, R_LOG,
-	R_SQRT, R_NEWTON1, R_NEWTON2, R_ATAN, R_SQRTN, R_HYP, R_NRED
+	R_SQRT, R_NEWTON1, R_NEWTON2, R_ATAN, R_SQRTN, R_HYP, R_EXPTAB, R_NRED
 };
+
+/* R_EXPTAB's table: 2^tab_t entries (reductions picks it) */
+static int tab_t;
 
 struct fmtc {
 	const char *ut, *it, *ft;
@@ -2203,6 +2207,77 @@ reduction(int r, int L, struct sbuf *full, char *shape, size_t ns)
 		snprintf(shape, ns, "2^k * P(r), r = x - k*ln2");
 		deg = L + 1;
 		break;
+	case R_EXPTAB: {
+		/*
+		 * Tang's table: x = k ln2/N + r, |r| <= ln2/2N, k = kh N + kl,
+		 * exp x = 2^kh T[kl] (1 + q(r)), T[kl] = 2^(kl/N) as the format
+		 * rounds it, q a fit of e^r - 1 (its error reaches the result
+		 * times |r|); 2^kh is an add on T[kl]'s exponent field
+		 */
+		int N = 1 << tab_t, nb = 1, j;
+		double cc[3];
+		ld kmax;
+		struct sbuf tb = {0};
+
+		R = LN2_L / (2 * N) * 1.001L + M * ldexpl(1, 2 - A.prec);
+		if (!core_make(&k1, l_expm1, -R, R, 1, 1, 0, L + 1, "r", "s"))
+			goto fail;
+		kfmt(s1, sizeof s1, rnd(wb, N / LN2_L), wb);
+		snprintf(t, sizeof t, "x*%s + %s", s1, F->shifter);
+		bl_add(&l, "j", t);
+		snprintf(t, sizeof t, "j - %s", F->shifter);
+		bl_add(&l, "k", t);
+		/*
+		 * r = x - k ln2/N.  With an fma k c1 is exact inside it, so c1
+		 * is ln2/N to the format's precision; without, k c1 and k c2
+		 * must be exact (Cody-Waite): c1 and c2 of prec - nb bits for k
+		 * of nb bits, and a third part when two leave r short
+		 */
+		for (kmax = M * N / LN2_L + 1; ldexpl(1, nb) <= kmax; nb++)
+			;
+		if (fm) {
+			cw_parts(ln2_3, A.prec, 2, cc);
+			cc[2] = 0;
+		} else if (2 * nb > A.prec - 5)
+			cw_parts(ln2_3, A.prec - nb, 3, cc);
+		else {
+			cw_parts(ln2_3, A.prec - nb, 2, cc);
+			cc[2] = 0;
+		}
+		for (j = 0; j < 3; j++)
+			cc[j] /= N;
+		cw_text(t, sizeof t, cc[0], cc[1], fm);
+		if (cc[2] != 0) {
+			char t2[400];
+			kfmt(s3, sizeof s3, fabs(cc[2]), wb);
+			snprintf(t2, sizeof t2, "%s %s k*%s", t,
+			    cc[2] < 0 ? "+" : "-", s3);
+			snprintf(t, sizeof t, "%s", t2);
+		}
+		bl_add(&l, "r", t);
+		core_text(&k1, &l, &b1);
+		for (j = 0; j < N; j++) {
+			kfmt(s2, sizeof s2, rnd(wb, exp2l((ld)j / N)), wb);
+			sb_printf(&tb, "%s%s(%s)", j ? ", " : "", F->ft, s2);
+		}
+		{
+			struct sbuf sc = {0};
+			sb_printf(&sc, "asfloat(asuint([%s][asuint(j) & %d]) + "
+			    "((asuint(j) << %d) & %s))", sb_str(&tb), N - 1,
+			    F->mant - tab_t, F->expmask);
+			bl_add(&l, "sc", sb_str(&sc));
+			free(sc.p);
+		}
+		free(tb.p);
+		if (fm)
+			sb_printf(&body, "fma(sc, %s, sc)", sb_str(&b1));
+		else
+			sb_printf(&body, "sc + sc*(%s)", sb_str(&b1));
+		snprintf(shape, ns, "2^(k/%d)*(1 + q(r)), %d-entry table", N,
+		    N);
+		deg = L + 1;
+		break;
+	}
 	case R_LOG:
 		/* x = 2^e m, m in [sqrt(1/2), sqrt(2)); log = e ln2 + log1p(m-1) */
 		if (!core_make(&k1, l_log1p, rnd(wb, sqrtl(0.5L)) - 1,
@@ -2372,6 +2447,31 @@ fail:
 	return 0;
 }
 
+/*
+ * R_EXPTAB's table at core degree L + 1: the smallest of 2 to 256 entries
+ * at which q's error, carried to the result, is under an eighth of a unit
+ * roundoff, so a larger table would only cost memory; the largest when
+ * none is.  The error is Taylor's bound, R^(L+2)/(L+2)! e^2R with e^2R <=
+ * 1 + 4R, above what the minimax fit reaches: plain arithmetic, so the
+ * choice does not move with a platform's libm or its fits.
+ */
+static int
+exptab_bits(int L)
+{
+	ld M = fmaxl(fabsl(A.lo), fabsl(A.hi)), goal = ldexpl(1, -A.prec - 3);
+	int t, i;
+
+	for (t = 1; t < 8; t++) {
+		ld R = LN2_L / (2 << t) * 1.001L + M * ldexpl(1, 2 - A.prec),
+		    e = 1 + 4 * R;
+		for (i = 1; i <= L + 2; i++)
+			e *= R / i;
+		if (e <= goal)
+			return t;
+	}
+	return 8;
+}
+
 static void
 reductions(void)
 {
@@ -2405,6 +2505,7 @@ reductions(void)
 		break;
 	case F_EXP:
 		list[n++] = R_EXP;
+		list[n++] = R_EXPTAB;
 		break;
 	case F_LOG:
 		if (A.lo > 0)
@@ -2438,7 +2539,10 @@ reductions(void)
 			struct sbuf full = {0};
 			char shape[40];
 			struct cand *c;
-			int deg = reduction(list[i], L, &full, shape, sizeof shape);
+			int deg;
+			if (list[i] == R_EXPTAB)
+				tab_t = exptab_bits(L);
+			deg = reduction(list[i], L, &full, shape, sizeof shape);
 			double m;
 			const char *kind, *form;
 			if (deg == 0) {
@@ -2504,11 +2608,18 @@ cty(ty_t t)
 	return "int64_t";
 }
 
+/* emit_c's tables: printed as NAME_t0, NAME_t1, ... */
+static struct {
+	const char *name;
+	nid tab[8];
+	int n;
+} CT;
+
 static void
 c_expr(struct sbuf *b, nid n, const int32_t *tmp, int *helpers)
 {
 	ty_t t = N.ty[n];
-	int f32 = TYK(t) == K_FLOAT && TYW(t) == 32, op = N.op[n];
+	int f32 = TYK(t) == K_FLOAT && TYW(t) == 32, op = N.op[n], i;
 	const char *sfx = f32 ? "f" : "";
 	char k[48];
 
@@ -2517,6 +2628,14 @@ c_expr(struct sbuf *b, nid n, const int32_t *tmp, int *helpers)
 		return;
 	}
 	switch (op) {
+	case O_INDEX:
+		/* a table: a static array emit_c prints before the function */
+		for (i = 0; i < CT.n && CT.tab[i] != N.a[n]; i++)
+			;
+		sb_printf(b, "%s_t%d[", CT.name, i);
+		c_expr(b, N.b[n], tmp, helpers);
+		sb_putc(b, ']');
+		return;
 	case O_CONST:
 		if (TY_FP(t)) {
 			kfmt(k, sizeof k, N.kr[n], f32 ? 32 : 64);
@@ -2611,11 +2730,13 @@ emit_c(struct func *f, const char *name)
 	uint8_t *mark = xcalloc(N.n, 1);
 	nid *st = xmalloc(N.n * sizeof *st), g;
 	uint32_t sp = 0;
-	int nt = 0, helpers = 0;
+	int nt = 0, helpers = 0, ti;
 	struct sbuf b = {0}, e = {0};
 	ty_t rt = N.ty[f->body];
 
 	memset(tmp, 0xff, N.n * sizeof *tmp);
+	CT.name = name;
+	CT.n = 0;
 	st[sp++] = f->body;
 	mark[f->body] = 1;
 	while (sp) {
@@ -2624,6 +2745,16 @@ emit_c(struct func *f, const char *name)
 		g = st[--sp];
 		if (N.op[g] == O_CONST || N.op[g] == O_VAR)
 			continue;
+		if (N.op[g] == O_TABLE) {
+			/* its entries are constants, written in the array */
+			if (CT.n == (int)(sizeof CT.tab / sizeof CT.tab[0])) {
+				printf("/* %s: more than %d tables, not written as "
+				    "C */\n", name, CT.n);
+				goto out;
+			}
+			CT.tab[CT.n++] = g;
+			continue;
+		}
 		ch[0] = N.a[g];
 		ch[1] = N.b[g];
 		ch[2] = N.c[g];
@@ -2640,7 +2771,7 @@ emit_c(struct func *f, const char *name)
 	/* shared subterms become locals, in topological (id) order */
 	for (g = 1; g < N.n; g++) {
 		if (!mark[g] || uses[g] < 2 || N.op[g] == O_CONST ||
-		    N.op[g] == O_VAR || g == f->body)
+		    N.op[g] == O_VAR || N.op[g] == O_TABLE || g == f->body)
 			continue;
 		sb_printf(&b, "\tconst %s t%d = ", cty(N.ty[g]), nt);
 		c_expr(&b, g, tmp, &helpers);
@@ -2660,9 +2791,31 @@ emit_c(struct func *f, const char *name)
 		    "{ uint64_t u; memcpy(&u, &f, 8); return u; }\n"
 		    "static inline double ucas_asfloat64(uint64_t u) "
 		    "{ double f; memcpy(&f, &u, 8); return f; }\n#endif\n");
+	for (ti = 0; ti < CT.n; ti++) {
+		nid tb = CT.tab[ti];
+		ty_t et = N.ty[tb];
+		uint32_t j;
+		printf("static const %s %s_t%d[%u] = {", cty(et), name, ti,
+		    (unsigned)N.b[tb]);
+		for (j = 0; j < N.b[tb]; j++) {
+			char k[48];
+			nid v = N.lst[N.a[tb] + j];
+			int w = TYW(et) == 32 ? 32 : 64;
+			if (TY_FP(et))
+				kfmt(k, sizeof k, N.kr[v], w);
+			else
+				snprintf(k, sizeof k, "%lld",
+				    (long long)N.ki[v]);
+			printf("%s%s%s%s", j ? "," : "", j % 4 ? " " :
+			    "\n\t", k, TYK(et) == K_FLOAT && w == 32 ?
+			    "f" : "");
+		}
+		printf("\n};\n");
+	}
 	printf("static inline %s\n%s(%s x)\n{\n%s\treturn %s;\n}\n", cty(rt),
 	    name, cty(f->p[0].ty),
 	    b.p ? b.p : "", sb_str(&e));
+out:
 	free(b.p);
 	free(e.p);
 	free(uses);
@@ -2738,11 +2891,50 @@ rank(void)
 	qsort(A.cd, A.nc, sizeof *A.cd, cand_cmp);
 }
 
+/*
+ * A candidate's text for the listing: a table of more than 8 entries (exp's
+ * reduction holds up to 256) by its first two and its last; `show` prints
+ * it whole, as do the JSON and `as c`.
+ */
+static void
+elide_tables(const char *s, struct sbuf *out)
+{
+	sb_clear(out);
+	while (*s) {
+		const char *e = s, *c2 = NULL, *last = NULL;
+		int d = 0, n = 1;
+		if (*s != '[') {
+			sb_putc(out, *s++);
+			continue;
+		}
+		for (e = s + 1; *e && !(d == 0 && *e == ']'); e++) {
+			if (*e == '(' || *e == '[')
+				d++;
+			else if (*e == ')' || *e == ']')
+				d--;
+			else if (d == 0 && *e == ',') {
+				if (++n == 3)
+					c2 = e;
+				last = e;
+			}
+		}
+		if (!*e || n <= 8) {
+			sb_printf(out, "%.*s", (int)(e - s + (*e != 0)), s);
+			s = e + (*e != 0);
+			continue;
+		}
+		sb_printf(out, "%.*s, ... %d more ...%.*s", (int)(c2 - s), s,
+		    n - 3, (int)(e - last + 1), last);
+		s = e + 1;
+	}
+}
+
 static void
 print_rows(int from, int to)
 {
 	int i;
 	char nm[48], deg[16], ulp[48];
+	struct sbuf shown = {0};
 
 	for (i = from; i < to && i < A.nc; i++) {
 		struct cand *c = &A.cd[i];
@@ -2776,7 +2968,8 @@ print_rows(int from, int to)
 			printf("  *");
 		printf("\n");
 		snprintf(nm, sizeof nm, "%s%d", A.o.name, i + 1);
-		printf("      %s: %s\n", c->shape, c->text);
+		elide_tables(c->text, &shown);
+		printf("      %s: %s\n", c->shape, sb_str(&shown));
 		f = define(nm, c->text);
 		memset(&ac, 0, sizeof ac);
 		if (c->skind && c->skept && A.w) {
@@ -2880,6 +3073,7 @@ print_rows(int from, int to)
 	if (to > A.nc)
 		to = A.nc;
 	A.shown = to;
+	free(shown.p);
 }
 
 static void

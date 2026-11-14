@@ -115,6 +115,18 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_SGDDX] = {"sg_dfdx", 3, 0},
 	[O_SGDDY] = {"sg_dfdy", 3, 0},
 	[O_SGFWIDTH] = {"sg_fwidth", 3, 0},
+	[O_SGMIN] = {"sg_min", 2, OF_INT},
+	[O_SGMAX] = {"sg_max", 2, OF_INT},
+	[O_SGAND] = {"sg_and", 2, OF_INT},
+	[O_SGOR] = {"sg_or", 2, OF_INT},
+	[O_SGXOR] = {"sg_xor", 2, OF_INT},
+	[O_SGCADD2] = {"sg_clustered_add", 3, OF_INT},
+	[O_SGCADD4] = {"sg_clustered_add", 3, OF_INT},
+	[O_SGCADD8] = {"sg_clustered_add", 3, OF_INT},
+	[O_SGCADD16] = {"sg_clustered_add", 3, OF_INT},
+	[O_SGCADD32] = {"sg_clustered_add", 3, OF_INT},
+	[O_SGPART] = {"sg_partition", 3, 0},
+	[O_SGPADD] = {"sg_partitioned_add", 3, OF_INT},
 	[O_BFE] = {"bfe", 3, OF_INT},
 	[O_SBFE] = {"sbfe", 3, OF_INT},
 	[O_BREV] = {"brev", 1, OF_INT},
@@ -1125,10 +1137,6 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 			fail("tex_trilinear: a table of %u texels is not "
 			    "slices of %lld rows of %lld", n, (long long)h,
 			    (long long)w);
-		if (TEX_RED(ki))
-			fail("tex_trilinear: a MIN or MAX reduction is not one "
-			    "of its forms (tex_min, tex_max, tex_bimin, "
-			    "tex_bimax are)");
 	} else {
 		w = h = 0;
 		c = 0;
@@ -1152,7 +1160,7 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 		return mk_undef(TY_F32);
 	for (j = 0; j < n; j++)
 		allk &= is_const(N.lst[N.a[a] + j]);
-	if ((ki & TEX_WRAPMASK) && (op != O_TEX_LINEAR || TEX_RED(ki)))
+	if ((ki & TEX_WRAPMASK) && (op == O_TEX_COMPARE || TEX_RED(ki)))
 		fail("%s: REPEAT and MIRRORED_REPEAT are for a linear filter's "
 		    "weighted sum", opinfo[op].name);
 	ki = TEX_KI(bits, w) | TEX_KH(h) | TEX_RED(ki) | (ki & TEX_WRAPMASK) |
@@ -1886,13 +1894,19 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		break;
 	case O_SGBALLOT: case O_SGANY: case O_SGALL: case O_SGADD:
 	case O_SGSHUF: case O_SGSCAN: case O_SGDDX: case O_SGDDY:
-	case O_SGFWIDTH:
+	case O_SGFWIDTH: case O_SGMIN: case O_SGMAX: case O_SGAND: case O_SGOR:
+	case O_SGXOR: case O_SGCADD2: case O_SGCADD4: case O_SGCADD8:
+	case O_SGCADD16: case O_SGCADD32: case O_SGPART: case O_SGPADD:
 		/* without the subgroup's size, which reading them back takes
-		 * from the lane parameter or the model again; a scan's lane
-		 * only when it is not the lane itself */
+		 * from the lane parameter or the model again; the lane of a
+		 * scan, a clustered sum or a partition only when it is not the
+		 * lane itself */
 		sb_printf(b, "%s(", opinfo[op].name);
 		pr(b, N.a[n], 0, pc, 0);
-		if (op == O_SGSHUF || (op == O_SGSCAN && !sg_is_lane(N.b[n]))) {
+		if (IS_SGCADD(op))
+			sb_printf(b, ", %d", SGCADD_N(op));
+		if (op == O_SGSHUF || op == O_SGPADD || ((op == O_SGSCAN ||
+		    IS_SGCADD(op) || op == O_SGPART) && !sg_is_lane(N.b[n]))) {
 			sb_puts(b, ", ");
 			pr(b, N.b[n], 0, pc, 0);
 		}
@@ -2031,7 +2045,10 @@ print_paren(struct sbuf *b, nid n)
 	if (IS_SG(op)) {
 		sb_printf(b, "%s(", opinfo[op].name);
 		print_paren(b, N.a[n]);
-		if (op == O_SGSHUF || (op == O_SGSCAN && !sg_is_lane(N.b[n]))) {
+		if (IS_SGCADD(op))
+			sb_printf(b, ", %d", SGCADD_N(op));
+		if (op == O_SGSHUF || op == O_SGPADD || ((op == O_SGSCAN ||
+		    IS_SGCADD(op) || op == O_SGPART) && !sg_is_lane(N.b[n]))) {
 			sb_puts(b, ", ");
 			print_paren(b, N.b[n]);
 		}

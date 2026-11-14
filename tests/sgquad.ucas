@@ -1,0 +1,61 @@
+# The quad's swaps and broadcast (#137): a shuffle by lane xor 1, 2, 3
+# and by (lane & ~3) | i, the lanes in fours as the derivatives read
+# them (bit 0 the column, bit 1 the row); OpGroupNonUniformQuadSwap and
+# QuadBroadcast in SPIR-V.
+qh(t: u32 uniform, lane: u32 in 0..7) = sg_quad_swap_h(lane * 10 + t)
+qv(t: u32 uniform, lane: u32 in 0..7) = sg_quad_swap_v(lane * 10 + t)
+qd(t: u32 uniform, lane: u32 in 0..7) = subgroupQuadSwapDiagonal(lane * 10 + t)
+qb(t: u32 uniform, lane: u32 in 0..7) = sg_quad_broadcast(lane * 10 + t, 2)
+show qh(0, 2)
+show qv(0, 2)
+show qd(0, 2)
+show qb(0, 5)
+qx(t: u32 uniform, lane: u32 in 0..7) = sg_shuffle_xor(lane * 10 + t, 3)
+equiv qd qx
+equiv qh qx
+
+# an index that is not a constant: undefined past the quad
+qbi(i: u32 uniform, lane: u32 in 0..7) = sg_quad_broadcast(lane * 10, i)
+show qbi(3, 5)
+show qbi(4, 5)
+domain qbi
+
+# under sg_active: a swap that reads an inactive lane is undefined
+qm(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_quad_swap_h(lane * 10) }
+show qm(0x0f, 2)
+show qm(0x07, 2)
+qmb(m: u8 uniform, i: u32 uniform, lane: u32 in 0..7) = { sg_active(m); sg_quad_broadcast(lane * 10, i) }
+show qmb(0xff, 1, 6)
+show qmb(0xff, 4, 6)
+
+# priced as the shuffle and its index; a model that has SHFL.BFLY's xor
+# in the instruction, and a butterfly (the swap and an add in one, as
+# FSWZADD), price them lower (the prices are this test's, not measured)
+cost qh
+model bfly : gt1030 {
+  fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse qadd(a: int, lane: lane) = a + sg_shuffle(a, lane xor 1) : sg_shuffle }
+use bfly
+cost qh
+qa(t: u32 uniform, lane: u32 in 0..7) = (lane * 10 + t) + sg_quad_swap_h(lane * 10 + t)
+cost qa
+use gt1030
+
+# refused: a subgroup with no quads, a lane past the quad
+q6(t: u32 uniform, lane: u32 in 0..5) = sg_quad_swap_h(lane + t)
+qb5(t: u32 uniform, lane: u32 in 0..7) = sg_quad_broadcast(lane + t, 5)
+
+# SPIR-V: 8 lanes whose x is 0 5 2 7 4 1 6 3; a broadcast's index past 3
+# is undefined (0 here, counted)
+animate exec %px = lane lanes 8 seed 1 nofile
+```spv
+%l = OpLoad %uint %px
+%m = OpIMul %uint %l %uint_5
+%x = OpBitwiseAnd %uint %m %uint_7
+%qh = OpGroupNonUniformQuadSwap %uint %uint_3 %x %uint_0
+%qv = OpGroupNonUniformQuadSwap %uint %uint_3 %x %uint_1
+%qd = OpGroupNonUniformQuadSwap %uint %uint_3 %x %uint_2
+%qb = OpGroupNonUniformQuadBroadcast %uint %uint_3 %x %uint_2
+%qz = OpGroupNonUniformQuadBroadcast %uint %uint_3 %x %uint_5
+OpStore %y %qd
+```

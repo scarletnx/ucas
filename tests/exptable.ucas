@@ -1,0 +1,11 @@
+# exp through a table (Tang's reduction): x = k ln2/N + r, exp x =
+# 2^(k/N) (1 + q(r)), the table 2^(i/N) read at k's low bits, the high
+# ones added to its exponent field.
+# f64 under gt1030: the table's one load buys a degree 4 polynomial for
+# degree 11 (335.625 against 553.375, both within 2 ulp).
+approx exp(x) in -700..700 as f64 ulp 2 nosplit norational free list 2
+# f32: the table meets the target too, but its load costs more than the
+# terms it saves (19.875 against 15).
+approx exp(x) in -87..88 ulp 2 nosplit norational free list 2
+# without an fma, k ln2/N in three Cody-Waite parts: k has 14 bits
+approx exp(x) in -87..88 nofma ulp 2 nosplit norational free list 2

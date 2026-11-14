@@ -81,3 +81,12 @@ texalu q4 under cal
 # a reference computed: it holds where it is not NaN
 q5(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r * r <= S[y*4 + x]) + u32(r * r <= S[y*4 + x + 1]) + u32(r * r <= S[y*4 + x + 4]) + u32(r * r <= S[y*4 + x + 5])
 texalu q5 under cal
+# compares over a table read as slices (2 slices of 4 rows of 3): no
+# depth format is 3-D, so the slices are stacked as rows of one 2-D depth
+# texture, row y + 4z, where neighbouring entries stay neighbours; a
+# 2 x 2 x 2 block is two reads
+L = [0.25, 0.5, 0.75, 1.0, 0.125, 0.375, 0.625, 0.875, 0.0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125, 0.5, 0.0, 1.0, 0.25, 0.75, 0.5, 0.125, 0.0]
+l4(x: u8 in 0..1, y: u8 in 0..1, z: u8 in 0..1, r: f32 in 0..1) = u32(r <= L[z*12 + y*3 + x]) + u32(r <= L[z*12 + y*3 + x + 1]) + u32(r <= L[z*12 + y*3 + x + 3]) + u32(r <= L[z*12 + y*3 + x + 4])
+texalu l4 under cal
+l8(x: u8 in 0..1, y: u8 in 0..1, z: u8 in 0..0, r: f32 in 0..1) = u32(r <= L[z*12 + y*3 + x]) + u32(r <= L[z*12 + y*3 + x + 1]) + u32(r <= L[z*12 + y*3 + x + 3]) + u32(r <= L[z*12 + y*3 + x + 4]) + u32(r <= L[z*12 + y*3 + x + 12]) + u32(r <= L[z*12 + y*3 + x + 13]) + u32(r <= L[z*12 + y*3 + x + 15]) + u32(r <= L[z*12 + y*3 + x + 16])
+texalu l8 under cal

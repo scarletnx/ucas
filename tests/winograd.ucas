@@ -1,0 +1,17 @@
+# scheme F more: an inner product in Winograd's form (#26), listed for the
+# model that prices it: A and B are computed once a row and a column in a
+# matrix product, so a dot product pays half its multiplications
+d4(a0: u32, a1: u32, a2: u32, a3: u32, b0: u32, b1: u32, b2: u32, b3: u32) = a0*b0 + a1*b1 + a2*b2 + a3*b3
+scheme d4 more
+# a model where a multiply is dear and does not fuse its add
+model dearmul : gt1030 {
+  imul: 12
+  nofuse imad
+}
+scheme d4 more model dearmul
+# signs, and an odd count: the last product stays as it is
+d3(a0: i32, a1: i32, a2: i32, b0: i32, b1: i32, b2: i32) = a0*b0 - a1*b1 + a2*b2
+scheme d3 more
+# floats: its sums cancel, and the check line says by how much
+df(a0: f32 in -1..1, a1: f32 in -1..1, b0: f32 in -1..1, b1: f32 in -1..1) = a0*b0 + a1*b1
+scheme df more

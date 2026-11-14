@@ -1,0 +1,48 @@
+# Fusions over subgroup operations (src/fuse.c): an input inside an
+# operand is what the lane computes there, `lane: lane` the lane's
+# index, and the pattern matches a subgroup of any size.  The prices
+# here are the test's own, not measurements.
+
+model sgf : gt1030 {
+  fuse ballot_eq(a: int, b: int) = sg_ballot(a == b) : 2
+  fuse sumsq(a: int) = sg_add(a * a) : 30
+  fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse bitsum(v: any, lane: lane) = sg_add(v >> lane) : 5
+}
+use sgf
+
+# a ballot of an equality, in a warp and in 8 lanes; a less-than is not
+# the pattern's compare
+b32(x: u32 uniform, y: u32 uniform, lane: u32 in 0..31) = sg_ballot(x + lane == y)
+cost b32
+b8(x: u32 uniform, y: u32 uniform, lane: u32 in 0..7) = sg_ballot(x + lane == y)
+cost b8
+blt(x: u32 uniform, y: u32 uniform, lane: u32 in 0..31) = sg_ballot(x + lane < y)
+cost blt
+
+# an input under an operation inside the operand: it was read past the
+# fusion's inputs (a pattern variable at slot 300 and more)
+sq(x: u32 uniform, lane: u32 in 0..31) = sg_add((x + lane) * (x + lane))
+cost sq
+
+# the shuffle's index made by the instruction: by xor, rotated
+xr(x: u32 uniform, lane: u32 in 0..31) = sg_shuffle_xor(x + lane, 1)
+cost xr
+rt(x: u32 uniform, lane: u32 in 0..31) = sg_rotate(x + lane, 3)
+cost rt
+
+# the lane inside the operand is the lane input
+bs(x: u32 uniform, lane: u32 in 0..31) = sg_add(x >> lane)
+cost bs
+
+# refused: a lane input named otherwise, the lane with no lane input
+model bad1 : gt1030 { fuse q(a: int, l: lane) = a + l : 1 }
+model bad2 : gt1030 { fuse q(v: any) = sg_add(v + lane) : 1 }
+
+# a pattern that fails leaves nothing behind: a subgroup operation after
+# it under a model with no warp is still refused (it took 32 lanes)
+model bad3 : gt1030 { fuse q(a: int) = sg_add(a + zz) : 1 }
+use skl
+nowarp(x: u32 uniform) = sg_add(x)
+use gt1030

@@ -1,0 +1,20 @@
+# scheme F more: Eve's form from degree 7 (TAOCP 4.6.4, theorem E): at
+# each level (x^2 - t)*q + b, t a root of the odd part, down to a cubic.
+# A wrapping type takes the roots modulo 2^w (here at x - 1): an identity
+# of the type, where Knuth's whole adapted coefficients do not exist.
+a(x: u32) = 42 - 47*x + 17*x^2 - 22*x^3 + 47*x^4 + 6*x^5 + 13*x^6 + 20*x^7 + x^8
+scheme a more
+# an odd leading coefficient is inverted modulo 2^w
+b(x: u32) = 50 - 32*x - 34*x^2 - 7*x^3 - 36*x^4 + 28*x^5 + 25*x^6 + 50*x^7 + 3*x^8
+scheme b more
+# u64 (priced as u32 until a class prices a 64-bit multiply)
+c(x: u64) = -1 + 50*x + 44*x^2 + 15*x^3 - 34*x^4 + 16*x^5 + 49*x^6 + 5*x^7
+scheme c more
+# no root modulo 2^32 at any shift tried; an even leading coefficient
+r(x: u32) = x^12 + 3*x^11 + 5*x^10 + 7*x^9 + 9*x^8 + 11*x^7 + 13*x^6 + 15*x^5 + 17*x^4 + 19*x^3 + 21*x^2 + 23*x + 25
+scheme r more
+e(x: u32) = 2*x^7 + 3*x^6 + x + 1
+scheme e more
+# floats take real roots; here they cancel past the tolerance
+s(x: f32 in -1..1) = 1.5*x^9 - 0.75*x^8 + 2.25*x^7 + 0.5*x^6 - 1.25*x^5 + 3.5*x^4 + 0.125*x^3 - 2.5*x^2 + 1.75*x + 0.625
+scheme s more

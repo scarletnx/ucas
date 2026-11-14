@@ -1,0 +1,117 @@
+> mn(t: u32 uniform, lane: u32 in 0..7) = sg_min(t xor lane * 37)
+> mx(t: u32 uniform, lane: u32 in 0..7) = sg_max(t xor lane * 37)
+> smn(t: i32 uniform, lane: u32 in 0..7) = sg_min(i32(lane) * t)
+> smx(t: i32 uniform, lane: u32 in 0..7) = subgroupMax(i32(lane) * t)
+> an(t: u32 uniform, lane: u32 in 0..7) = subgroupAnd(t xor lane * 37)
+> o(t: u32 uniform, lane: u32 in 0..7) = sg_or(t xor lane * 37)
+> x(t: u32 uniform, lane: u32 in 0..7) = sg_xor(t xor lane * 37)
+> show mn(100, 0)
+_() = 11
+  -> u32
+> show mx(100, 0)
+_() = 359
+  -> u32
+> show smn(-3, 0)
+_() = -21
+  -> i32
+> show smx(-3, 0)
+_() = 0
+  -> i32
+> show an(100, 0)
+_() = 0
+  -> u32
+> show o(100, 0)
+_() = 511
+  -> u32
+> show x(100, 0)
+_() = 496
+  -> u32
+> mk(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_min(lane + 3) }
+> show mk(0xf0, 0)
+_() = 7
+  -> u32
+> mks(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_max(i32(lane) - 10) }
+> show mks(0x03, 0)
+_() = -9
+  -> i32
+> mka(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_and(0xff xor 1 << lane) }
+> show mka(0x05, 0)
+_() = 250
+  -> u32
+> cost mn
+cost of mn under gt1030: inf (3 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  imul             1 x 3     = 3
+  sg_min           1 x inf   = inf
+  sg_min is not available under gt1030 (the model lists no such instruction)
+> find mn
+find mn: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
+  cost 22  min(min(min(t xor 37lane, sg_shuffle(t1, lane xor 1)), sg_shuffle(t2, lane xor 2)), sg_shuffle(min(t2, sg_shuffle(t2, lane xor 2)), lane xor 4)) where t1 = t xor 37lane, t2 = min(t1, sg_shuffle(t1, lane xor 1))
+           sg_min(t xor 37lane): a butterfly of 3 shuffles by lane xor 1, 2, 4 and mins: after the step for d a lane holds the minimum of the 2d lanes that agree with it from bit d up; proved for any value per lane (with a free word in each lane, every lane's result is the minimum of the 8 words of its subgroup, each once)
+           holds in a full subgroup (all 8 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> b(t: u32 uniform, lane: u32 in 0..31) = sg_and((t >> lane) & 1) + sg_xor((t >> lane) & 1)
+> find b
+find b: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
+  cost 10.375 u32(sg_all(t1)) + (popcount(sg_ballot(t1)) & 1) where t1 = t >> lane & 1 != 0
+           sg_and(t >> lane & 1): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its and over the lanes is whether it is not 0 in every lane: sg_all
+           sg_xor(t >> lane & 1): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its xor over the lanes is the parity of the lanes where it is not 0, the low bit of the ballot's bit count
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot), vote (GL_KHR_shader_subgroup_vote)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model red : gt1030 { sg_min: 31, sg_max: 33.875, sg_and: 62.625, sg_or: 59.75, sg_xor: 2 }
+> use red
+cost model: red
+> cost mn
+cost of mn under red: 35 (3 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  imul             1 x 3     = 3
+  sg_min           1 x 31    = 31
+> find x
+find x: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from red
+  dropping operations of x (cost 6 as written; each checked on the whole domain):
+  cost 0   496                                      drops xor t (proved by SAT)
+  subgroup forms: derived, but not cheaper under red (cost 22, as written 6): a reduction as a butterfly of shuffles by xor
+  cost 0   496                                      constant (proved by SAT)
+  cost 2   (t | lane - 8) & 0x1f0                   mask (proved by SAT)
+  cost 3   lane << 4 | 0x1f0                        or constant (proved by SAT)
+  cost 3   0xffffffff >> lane & 0x1f0               mask (proved by SAT)
+  cost 3   -(lane | 2) & 0x1f0                      mask (proved by SAT)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> fm(t: f32 uniform, lane: u32 in 0..7) = sg_min(t)
+sgreduce.ucas:43:50: error: sg_min takes integers: a float minimum over the lanes is not an operation here yet
+    fm(t: f32 uniform, lane: u32 in 0..7) = sg_min(t)
+                                                     ^
+> animate exec %px = lane lanes 8 seed 1 nofile red
+  input %px: uint, given
+  output %y: uint (stored to; its values are listed after the run)
+exec of SPIR-V (32 instructions), entry %main, 8 lanes in lockstep, cost model red
+  buffers start with random values (seed 1)
+  subgroup: the 8 lanes run are one subgroup (SubgroupSize 8)
+  note: OpGroupNonUniformUMin InclusiveScan ran at cost 0 (no operation of the model stands for it)
+  output %y per lane: 7 7 7 7 7 7 7 7
+  serial form:
+    %l = OpLoad %uint %px                                       0  t = 0..0  -> 0 1 2 3 4 5 6 7
+    %m = OpIMul %uint %l %uint_5                 imul           3  t = 0..3  -> 0 5 10 15 20 25 30 35
+    %x = OpBitwiseAnd %uint %m %uint_7           logic          1  t = 3..4  -> 0 5 2 7 4 1 6 3
+    %sx = OpBitcast %int %x                                     0  t = 4..4  -> 0 5 2 7 4 1 6 3
+    %p = OpUGreaterThan %bool %x %uint_3         cmp        2.375  t = 4..6.375  -> false true false true true false true false
+    %a = OpGroupNonUniformUMin %uint %uint_3 Reduce %x sg_min        31  t = 6.375..37.375  -> 0 0 0 0 0 0 0 0
+    %b = OpGroupNonUniformSMax %int %uint_3 Reduce %sx sg_max     33.875  t = 37.375..71.25  -> 7 7 7 7 7 7 7 7
+    %c = OpGroupNonUniformBitwiseAnd %uint %uint_3 Reduce %x sg_and     62.625  t = 71.25..133.875  -> 0 0 0 0 0 0 0 0
+    %d = OpGroupNonUniformBitwiseOr %uint %uint_3 Reduce %x sg_or      59.75  t = 133.875..193.625  -> 7 7 7 7 7 7 7 7
+    %e = OpGroupNonUniformBitwiseXor %uint %uint_3 Reduce %x sg_xor         2  t = 193.625..195.625  -> 0 0 0 0 0 0 0 0
+    %f = OpGroupNonUniformLogicalAnd %bool %uint_3 Reduce %p sg_vote        0  t = 195.625..195.625  -> false false false false false false false false
+    %g = OpGroupNonUniformLogicalOr %bool %uint_3 Reduce %p sg_vote        0  t = 195.625..195.625  -> true true true true true true true true
+    %h = OpGroupNonUniformUMin %uint %uint_3 InclusiveScan %x                0  t = 195.625..195.625  -> 0 0 0 0 0 0 0 0
+    OpStore %y %d                                               0  t = 195.625..195.625
+  time 195.625 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 990x288, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 32.6 cost units; 205979 bytes
+  (nofile: GIF checksum 1c985536)

@@ -1509,12 +1509,179 @@ ph_text(const struct phf *h, int W, char *b, size_t n)
 
 #define PH_TRIES 4000
 
+/*
+ * For a multiplier M and a shift s, the offsets A that give key j its
+ * value are those with k_j M + A mod 2^(s + b) in [t_j 2^s, (t_j + 1)
+ * 2^s): an arc 2^s long on a circle of 2^(s + b), the bits above s + b
+ * not reaching the field.  A serves every key where all the arcs meet,
+ * so A is solved and only M is searched.  Arcs no longer than half the
+ * circle meet in one arc or not at all, so they are met one key at a
+ * time and most multipliers stop at the second key.
+ *
+ * Only M mod 2^(s + b) reaches the field, so for s + b <= MS_EXH every
+ * multiplier is tried (none found there means none exists); larger
+ * shifts take multipliers drawn from seed.  The values the form can
+ * give are not spread at random over the keys (k_j M is a line in M), so
+ * how many draws a map needs is not 2^(b n): that is why the small
+ * shifts are covered whole.
+ */
+#define MS_EXH 22
+
+static int
+ms_try(const uint32_t *k, const uint32_t *t, int n, int b, uint32_t m,
+    int sh, uint32_t *A)
+{
+	uint64_t C = (1ULL << (sh + b)) - 1, L = 1ULL << sh;
+	uint64_t cs = (((uint64_t)t[0] << sh) - (uint64_t)(k[0] * m)) & C, cl = L;
+	uint32_t a, mask = (uint32_t)((1ULL << b) - 1);
+	int j;
+
+	for (j = 1; j < n; j++) {
+		uint64_t c = (((uint64_t)t[j] << sh) - (uint64_t)(k[j] * m)) & C,
+		    dd = (c - cs) & C;
+		if (dd < cl) {
+			cl = cl - dd < L ? cl - dd : L;
+			cs = c;
+		} else if ((dd = (cs - c) & C) < L)
+			cl = L - dd < cl ? L - dd : cl;
+		else
+			return 0;
+	}
+	/* 0 when the arc holds it: one add fewer */
+	a = ((0 - cs) & C) < cl ? 0 : (uint32_t)cs;
+	for (j = 0; j < n; j++)
+		if (((k[j] * m + a) >> sh & mask) != t[j])
+			return 0;	/* not reached: the arcs say so */
+	*A = a;
+	return 1;
+}
+
+int
+ms_solve(const uint32_t *k, const uint32_t *t, int n, int b, uint64_t seed,
+    long maxtries, uint32_t *M, uint32_t *A, int *s, long *tries, int *exh)
+{
+	uint64_t st = seed * 0x9E3779B97F4A7C15ULL + 0x632BE59BD9B4E019ULL;
+	long d;
+	int sh;
+
+	*tries = 0;
+	*exh = -1;
+	if (n < 2 || b < 1 || b > 31)
+		return 0;
+	for (sh = 0; sh + b <= MS_EXH && sh + b <= 32; sh++) {
+		uint32_t m, top = (uint32_t)((1ULL << (sh + b)) - 1);
+		for (m = 0;; m++) {
+			if (ms_try(k, t, n, b, m, sh, A)) {
+				*M = m;
+				*s = sh;
+				return 1;
+			}
+			if (m == top)
+				break;
+		}
+		*exh = sh;
+	}
+	if (st == 0)
+		st = 1;
+	for (d = 0; d < maxtries && *exh < 32 - b; d++) {
+		uint32_t m;
+		st ^= st >> 12;
+		st ^= st << 25;
+		st ^= st >> 27;
+		m = (uint32_t)((st * 0x2545F4914F6CDD1DULL) >> 32);
+		(*tries)++;
+		for (sh = 32 - b; sh > *exh; sh--)
+			if (ms_try(k, t, n, b, m, sh, A)) {
+				*M = m;
+				*s = sh;
+				return 1;
+			}
+	}
+	return 0;
+}
+
+#define PH_VTRIES (1L << 20)
+
+/* what a search that found no multiplier covered */
+void
+ms_none(char *txt, size_t n, int b, int exh, long tries)
+{
+	if (exh >= 32 - b)
+		snprintf(txt, n, "the values by a multiply-add and a shift: none "
+		    "exists (every multiplier mod 2^(s + %d) tried at every shift, "
+		    "each with its offset solved)", b);
+	else if (exh >= 0)
+		snprintf(txt, n, "the values by a multiply-add and a shift: none "
+		    "with a shift up to %d (every multiplier mod 2^(s + %d) "
+		    "tried, each with its offset solved), nor with %d to %d among "
+		    "%ld multipliers drawn", exh, b, exh + 1, 32 - b, tries);
+	else
+		snprintf(txt, n, "the values by a multiply-add and a shift: none "
+		    "among %ld multipliers drawn, each with its offset solved",
+		    tries);
+}
+
+/*
+ * The keys' values with no table: ((u32(x) M + A) >> s) & mask, plus the
+ * least value, from ms_solve.  The node in rt, 0 when none was found;
+ * the line saying what was tried goes to txt.
+ */
+static nid
+ph_direct(const struct phk *key, int nk, nid x, ty_t rt, uint64_t seed,
+    char *txt, size_t ntxt)
+{
+	uint32_t kk[PH_MAXKEYS], tv[PH_MAXKEYS], M, A;
+	int64_t vmin = key[0].v, vmax = key[0].v;
+	int j, b, s;
+	long tries;
+	int exh;
+	ty_t u = TY(K_UINT, 32);
+	nid e;
+
+	for (j = 1; j < nk; j++) {
+		vmin = key[j].v < vmin ? key[j].v : vmin;
+		vmax = key[j].v > vmax ? key[j].v : vmax;
+	}
+	if (vmax == vmin || (uint64_t)(vmax - vmin) >= (1u << 16)) {
+		snprintf(txt, ntxt, "the values by a multiply-add and a shift: "
+		    "not tried (%s)", vmax == vmin ? "one value" :
+		    "the values span more than 16 bits");
+		return 0;
+	}
+	for (b = 1; ((int64_t)1 << b) <= vmax - vmin; b++)
+		;
+	for (j = 0; j < nk; j++) {
+		kk[j] = (uint32_t)(uint64_t)key[j].k;
+		tv[j] = (uint32_t)(key[j].v - vmin);
+	}
+	if (!ms_solve(kk, tv, nk, b, seed, PH_VTRIES, &M, &A, &s, &tries,
+	    &exh)) {
+		ms_none(txt, ntxt, b, exh, tries);
+		return 0;
+	}
+	e = mk_bin(O_MUL, mk_cast(u, x), mk_const_i(u, M));
+	if (A)
+		e = mk_bin(O_ADD, e, mk_const_i(u, A));
+	if (s)
+		e = mk_bin(O_SHR, e, mk_const_i(u, s));
+	if (s + b < 32)
+		e = mk_bin(O_AND, e, mk_const_i(u, (int64_t)((1u << b) - 1)));
+	e = mk_cast(rt, e);
+	if (vmin)
+		e = mk_bin(O_ADD, e, mk_const_i(rt, vmin));
+	snprintf(txt, ntxt, "the values by a multiply-add and a shift, no "
+	    "table: %s (%s)", shared_str(e, 200), tries ? "M drawn, A solved" :
+	    "M the least at the least shift, every one tried; A solved");
+	return e;
+}
+
 static void
 cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 {
 	struct phk key[PH_MAXKEYS];
 	int64_t raw[PH_MAXKEYS], lo, hi;
 	int nraw = 0, nk = 0, i, j, W, b0, b, covered, found = 0, tried = 0;
+	int direct = 0;
 	nid x, n, dflt, best_form = 0, xu, best_v = 0, best_k = 0, best_i = 0;
 	ty_t u;
 	struct phf best, h;
@@ -1665,16 +1832,49 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 	printf("  %d hash functions tried: masks and shifts, (x K) >> s, "
 	    "((x xor x >> a) K) >> s, and a displacement table, K drawn at "
 	    "random\n", tried);
-	if (!found) {
+	/*
+	 * The values with no value table.  When every input is a key it
+	 * needs nothing else; otherwise the check that x is a key still reads
+	 * the keys' table through the hash.
+	 */
+	if (W <= 32) {
+		char dtx[400];
+		nid d = ph_direct(key, nk, x, N.ty[f->body], seed, dtx,
+		    sizeof dtx), f2;
+		printf("  %s\n", dtx);
+		if (d) {
+			f2 = covered ? d : found ? mk_sel(mk_bin(O_EQ,
+			    mk_index(best_k, best_i), x), d, dflt) : 0;
+			rep_expr("direct", d);
+			if (!f2)
+				printf("    not used: the check that %s is a key needs "
+				    "the keys' table, and no hash put them in one\n",
+				    sym_str(f->p[0].name));
+			else {
+				double c2 = dag_cost(m, f2);
+				if (!found || c2 < cbest - 1e-9) {
+					direct = 1;
+					best_form = f2;
+					cbest = c2;
+				} else
+					printf("    derived, but not cheaper under %s: %s "
+					    "costs %g, the table's lookup %g\n", sym_str(m->name),
+					    covered ? "it" : "with the key check it", c2, cbest);
+			}
+		}
+	}
+	if (!found && !direct) {
 		printf("  -> not rewritten: none is injective on the keys into "
 		    "a table of up to %d slots\n", 1 << (b0 + 3 > 12 ? 12 :
 		    b0 + 3));
 		rep_bool("rewritten", 0);
 		return;
 	}
-	ph_text(&best, W, tb, sizeof tb);
-	printf("  injective on the %d keys (each slot checked): h(x) = %s, "
-	    "a table of %d slots\n", nk, tb, 1 << best.b);
+	if (found) {
+		ph_text(&best, W, tb, sizeof tb);
+		printf("  injective on the %d keys (each slot checked): h(x) = %s, "
+		    "a table of %d slots\n", nk, tb, 1 << best.b);
+	}
 	if (covered)
 		printf("  every value of %s in %lld..%lld is a key: no key check "
 		    "is needed\n", sym_str(f->p[0].name), (long long)lo,
@@ -1682,13 +1882,18 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 	else
 		printf("  other inputs: the slot's key is compared with x, and "
 		    "the default taken when they differ\n");
-	printf("  the lookup costs %g\n", cbest);
-	rep_str("hash", tb);
-	rep_int("slots", 1 << best.b);
-	rep_num("cost_lookup", cbest);
+	printf("  the %s costs %g\n", direct ? (covered ? "multiply-add and "
+	    "shift" : "multiply-add and shift with the key check") : "lookup",
+	    cbest);
+	if (found) {
+		rep_str("hash", tb);
+		rep_int("slots", 1 << best.b);
+	}
+	rep_num(direct ? "cost_direct" : "cost_lookup", cbest);
 	if (cbest >= cchain) {
-		printf("  -> not rewritten: the lookup costs %g, the compare "
-		    "chain %g under %s\n", cbest, cchain, sym_str(m->name));
+		printf("  -> not rewritten: the %s costs %g, the compare chain %g "
+		    "under %s\n", direct ? "form" : "lookup", cbest, cchain,
+		    sym_str(m->name));
 		rep_bool("rewritten", 0);
 		return;
 	}
@@ -1697,8 +1902,9 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 		struct eqproof pr;
 		int bad = equiv_decide(f, f->body, best_form, &w, &pr);
 		if (bad || pr.how == EQ_SAMPLED) {
-			printf("  -> not rewritten: the lookup is not proved equal "
-			    "to the switch%s%s\n", bad ? ": they differ at " : "",
+			printf("  -> not rewritten: the %s is not proved equal to "
+			    "the switch%s%s\n", direct ? "form" : "lookup", bad ?
+			    ": they differ at " : "",
 			    bad ? sb_str(&w) : " (sampled only)");
 			rep_bool("rewritten", 0);
 			free(w.p);
@@ -1715,10 +1921,11 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 		free(how.p);
 	}
 	/* the tables as BC4, where that holds them exactly */
-	texenc_note(best_v, 0, "values", "     ");
+	if (!direct)
+		texenc_note(best_v, 0, "values", "     ");
 	if (!covered)
 		texenc_note(best_k, 0, "keys", "     ");
-	if (best.kind == PH_DISP)
+	if (found && (!direct || !covered) && best.kind == PH_DISP)
 		texenc_note(ph_table_in(best_i), 0, "displacements", "     ");
 	{
 		struct func copy = *f, *g;

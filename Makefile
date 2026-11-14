@@ -8,7 +8,7 @@ SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 # IEEE 754 floats as SAT circuits (nodesat.c's float formulas)
 SRCS+=	fpsat.c
 # fusions in cost models (cover pricing) and the integer rewrites
-SRCS+=	fuse.c irw.c idrw.c
+SRCS+=	fuse.c irw.c idrw.c npn.c egraph.c
 # integers as floats and floats as integers: more rewrites for irw.c
 SRCS+=	ifx.c
 # lanes packed in a word, worked on all at once: more rewrites for find
@@ -241,6 +241,16 @@ mcp-accept: ${PROG}
 	done
 
 .PHONY: mcp-test mcp-accept
+
+# The snippet databases `find F snippets` reads (README, "The snippet
+# database"): ucas grows them itself into snippets/ from snippets/grow.ucas,
+# a second or so, at every build; the tests read them.
+CFLAGS+=	-DUCAS_SNIPDIR=\"${.CURDIR}/snippets\"
+snippets: ${PROG}
+	@cd ${.CURDIR}/snippets && ${.OBJDIR}/${PROG} grow.ucas > /dev/null
+all: snippets
+test: snippets
+.PHONY: snippets
 
 # Optional Discord front end (README, "Discord bot"): its own Makefile in
 # discord/, needs libcurl.  Never built by `make` or `make test`.

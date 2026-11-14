@@ -1,0 +1,110 @@
+> rules infer inputs 1 width 32 cost 2
+rules from the enumeration: 1 input of 32 bits under gt1030, programs up to cost 2
+  25 candidates (a dearer program with a cheaper one's values on 32 points; constants 1 and all ones); 25 read: 17 kept, 1 derived from the kept ones, 2 priced alike by the cover, 5 made one by the constructors, 0 not proved equal
+  as declarations a .ucas file can keep (each is proved again when read):
+  rule r1(a: u32) = a - (a + a)                => -a                       cost 2 -> 1
+  rule r2(a: u32) = a + a - a                  => a                        cost 2 -> 0
+  rule r3(a: u32) = -a - 1                     => 4294967295 - a           cost 2 -> 1
+  rule r4(a: u32) = -a - 4294967295            => 1 - a                    cost 2 -> 1
+  rule r5(a: u32) = a & (a | 1)                => a                        cost 1 -> 0
+  rule r6(a: u32) = -a & 1                     => a & 1                    cost 2 -> 1
+  rule r7(a: u32) = a | a & 1                  => a                        cost 1 -> 0
+  rule r8(a: u32) = a + 4294967295 xor 0xffffffff => -a                       cost 2 -> 1
+  rule r9(a: u32) = 4294967295 - a xor 0xffffffff => a                        cost 2 -> 0
+  rule r10(a: u32) = -a xor 0xffffffff         => a + 4294967295           cost 2 -> 1
+  rule r11(a: u32) = a << 1                    => a + a                    cost 2 -> 1
+  rule r12(a: u32) = -(a + 1)                  => 4294967295 - a           cost 2 -> 1
+  rule r13(a: u32) = -(a + 4294967295)         => 1 - a                    cost 2 -> 1
+  rule r14(a: u32) = -(1 - a)                  => a + 4294967295           cost 2 -> 1
+  rule r15(a: u32) = -(4294967295 - a)         => a + 1                    cost 2 -> 1
+  rule r16(a: u32) = ~(a + 4294967295)         => -a                       cost 2 -> 1
+  rule r17(a: u32) = ~(4294967295 - a)         => a                        cost 2 -> 0
+> f(x: u32, y: u32, z: u32) = ((x * y + z) << 1) xor (z * 3)
+> find f 1
+find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 8   t1 + t1 xor 3z where t1 = x*y + z        the rule r11, a << 1 => a + a, inferred from the enumeration (derived; checked by SAT)
+      holds where every value of its variables (u32): proved when it was inferred
+      both sides equal on every input of the rule's variables (enumerated or SAT); the variables bound to subterms here
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model cheapshift : gt1030 { shift: 1 }
+> use cheapshift
+cost model: cheapshift
+> rules infer inputs 1 width 32 cost 2
+rules from the enumeration: 1 input of 32 bits under cheapshift, programs up to cost 2
+  26 candidates (a dearer program with a cheaper one's values on 32 points; constants 1 and all ones); 26 read: 18 kept, 1 derived from the kept ones, 2 priced alike by the cover, 5 made one by the constructors, 0 not proved equal
+  as declarations a .ucas file can keep (each is proved again when read):
+  rule r1(a: u32) = a - (a + a)                => -a                       cost 2 -> 1
+  rule r2(a: u32) = a + a - a                  => a                        cost 2 -> 0
+  rule r3(a: u32) = -a - 1                     => 4294967295 - a           cost 2 -> 1
+  rule r4(a: u32) = -a - 4294967295            => 1 - a                    cost 2 -> 1
+  rule r5(a: u32) = a & (a | 1)                => a                        cost 1 -> 0
+  rule r6(a: u32) = -a & 1                     => a & 1                    cost 2 -> 1
+  rule r7(a: u32) = a | a & 1                  => a                        cost 1 -> 0
+  rule r8(a: u32) = a + 4294967295 xor 0xffffffff => -a                       cost 2 -> 1
+  rule r9(a: u32) = 4294967295 - a xor 0xffffffff => a                        cost 2 -> 0
+  rule r10(a: u32) = -a xor 0xffffffff         => a + 4294967295           cost 2 -> 1
+  rule r11(a: u32) = (a | 1) >> 1              => a >> 1                   cost 2 -> 1
+  rule r12(a: u32) = (a xor 1) >> 1            => a >> 1                   cost 2 -> 1
+  rule r13(a: u32) = -(a + 1)                  => 4294967295 - a           cost 2 -> 1
+  rule r14(a: u32) = -(a + 4294967295)         => 1 - a                    cost 2 -> 1
+  rule r15(a: u32) = -(1 - a)                  => a + 4294967295           cost 2 -> 1
+  rule r16(a: u32) = -(4294967295 - a)         => a + 1                    cost 2 -> 1
+  rule r17(a: u32) = ~(a + 4294967295)         => -a                       cost 2 -> 1
+  rule r18(a: u32) = ~(4294967295 - a)         => a                        cost 2 -> 0
+> use gt1030
+cost model: gt1030
+> rules infer inputs 2 width 32 cost 2
+rules from the enumeration: 2 inputs of 32 bits under gt1030, programs up to cost 2
+  76 candidates (a dearer program with a cheaper one's values on 32 points; constants 1 and all ones); 76 read: 27 kept, 27 derived from the kept ones, 10 priced alike by the cover, 12 made one by the constructors, 0 not proved equal
+  as declarations a .ucas file can keep (each is proved again when read):
+  rule r1(a: u32, b: u32) = a + (b - a)        => b                        cost 2 -> 0
+  rule r2(a: u32, b: u32) = a - (a + a)        => -a                       cost 2 -> 1
+  rule r3(a: u32, b: u32) = a - (a + b)        => -b                       cost 2 -> 1
+  rule r4(a: u32, b: u32) = a - (a - b)        => b                        cost 2 -> 0
+  rule r5(a: u32, b: u32) = b - (a + b)        => -a                       cost 2 -> 1
+  rule r6(a: u32, b: u32) = a + a - a          => a                        cost 2 -> 0
+  rule r7(a: u32, b: u32) = a + b - a          => b                        cost 2 -> 0
+  rule r8(a: u32, b: u32) = a + b - b          => a                        cost 2 -> 0
+  rule r9(a: u32, b: u32) = a - b - a          => -b                       cost 2 -> 1
+  rule r10(a: u32, b: u32) = -a - 1            => 4294967295 - a           cost 2 -> 1
+  rule r11(a: u32, b: u32) = -a - 4294967295   => 1 - a                    cost 2 -> 1
+  rule r12(a: u32, b: u32) = a & (a | b)       => a                        cost 1 -> 0
+  rule r13(a: u32, b: u32) = -a & 1            => a & 1                    cost 2 -> 1
+  rule r14(a: u32, b: u32) = a | a & b         => a                        cost 1 -> 0
+  rule r15(a: u32, b: u32) = a xor (a xor b)   => b                        cost 1 -> 0
+  rule r16(a: u32, b: u32) = b xor (a xor b)   => a                        cost 1 -> 0
+  rule r17(a: u32, b: u32) = a + 4294967295 xor 0xffffffff => -a                       cost 2 -> 1
+  rule r18(a: u32, b: u32) = 4294967295 - a xor 0xffffffff => a                        cost 2 -> 0
+  rule r19(a: u32, b: u32) = -a xor 0xffffffff => a + 4294967295           cost 2 -> 1
+  rule r20(a: u32, b: u32) = a << 1            => a + a                    cost 2 -> 1
+  rule r21(a: u32, b: u32) = -(a + 1)          => 4294967295 - a           cost 2 -> 1
+  rule r22(a: u32, b: u32) = -(a + 4294967295) => 1 - a                    cost 2 -> 1
+  rule r23(a: u32, b: u32) = -(a - b)          => b - a                    cost 2 -> 1
+  rule r24(a: u32, b: u32) = -(1 - a)          => a + 4294967295           cost 2 -> 1
+  rule r25(a: u32, b: u32) = -(4294967295 - a) => a + 1                    cost 2 -> 1
+  rule r26(a: u32, b: u32) = ~(a + 4294967295) => -a                       cost 2 -> 1
+  rule r27(a: u32, b: u32) = ~(4294967295 - a) => a                        cost 2 -> 0
+> rule dbl(a: u32) = a << 1 => a + a
+rule dbl: a << 1 => a + a, proved by SAT (cost 2 -> 1 under gt1030)
+> f2(x: u32, y: u32) = (x * y << 1) xor y
+> find f2 1
+find f2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   x*y + x*y xor y                          the rule r20, a << 1 => a + a, inferred from the enumeration (derived; checked by SAT)
+      holds where every value of its variables (u32): proved when it was inferred
+      both sides equal on every input of the rule's variables (enumerated or SAT); the variables bound to subterms here
+  cost 5   x*y + x*y xor y                          the rule dbl, a << 1 => a + a, declared (derived; checked by SAT)
+      holds where every value of its variables (u32): proved when it was declared
+      both sides equal on every input of the rule's variables (enumerated or SAT); the variables bound to subterms here
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> rule bad(a: u32) = a << 1 => a + 1
+rules.ucas:21:35: error: rule bad: not kept: the sides differ at a=0: 0 vs 1
+    rule bad(a: u32) = a << 1 => a + 1
+                                      ^
+> rule narrow(a: u32 in 0..9) = a << 1 => a + a
+rules.ucas:23:29: error: rule narrow: a takes every value of its type: a rule holds for all of them (a range or a list is for a function)
+    rule narrow(a: u32 in 0..9) = a << 1 => a + a
+                                ^

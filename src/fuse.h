@@ -16,7 +16,7 @@
 #define FUSE_MAXT 4
 #define MAXFUSE 96
 
-enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY };
+enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY, FP_LANE };
 #define FUSE_MAXBITS 32		/* an input's proved width: u1 .. u32, s1 .. s32 */
 
 /*
@@ -41,6 +41,12 @@ enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY };
  *                                    into the instruction that makes its
  *                                    input, when that is an operation of
  *                                    those classes used only here
+ * fuse NAME(a: int, b: int) = sg_ballot(a == b) : 3.875
+ * fuse NAME(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k)
+ *     : sg_shuffle                   subgroup operations (sg.c): an input
+ *                                    in an operand is what the lane
+ *                                    computes there, `lane: lane` the
+ *                                    lane's index; any subgroup size
  */
 struct fusion {
 	uint32_t model, name;
@@ -65,6 +71,7 @@ void fuse_remove(const struct model *m, uint32_t name);
 void fuse_inherit(const struct model *m, const struct model *parent);
 void fuse_reset(const struct model *m);
 int fuse_count(const struct model *m);
+int fuse_lut_k(const struct model *m);
 void fuse_text(struct sbuf *b, const struct fusion *f);
 void fuse_print_models(const struct model *m);	/* `models`: its lines */
 float fuse_price(const struct model *m, const struct fusion *f, int f64);
@@ -77,6 +84,7 @@ float fuse_price(const struct model *m, const struct fusion *f, int f64);
 struct fgraph {
 	int n;
 	uint8_t *op, *fp, *f64, *isk, *uns, *isbool, *nocontract, *pinned;
+	uint8_t *islane;	/* the lane's index (a variable named lane) */
 	int64_t *kv;
 	double *kr;
 	int (*arg)[3];
@@ -86,6 +94,8 @@ struct fgraph {
 	uint32_t *id;		/* the caller's id of each node */
 	int64_t *lo, *hi;	/* an integer node's proved range, where */
 	uint8_t *ranged;	/* ranged[i]; NULL: no ranges at all */
+	uint64_t *dem;		/* the bits of each integer node that
+				 * anything reads (fg_demanded); NULL: all */
 	/* the cover */
 	float *eff;		/* each node's share: its fusion's price at the
 				 * root, 0 when absorbed, else its own cost */
@@ -98,6 +108,8 @@ struct fgraph {
 void fg_init(struct fgraph *g, int n);
 void fg_free(struct fgraph *g);
 float fg_cover(const struct model *m, struct fgraph *g);
+void fg_ranges(struct fgraph *g, const int64_t *tlo, const int64_t *thi);
+void fg_demanded(struct fgraph *g, const int *width);
 /* what the cover fused: one line each ("imad 2 x 3 = 6, saves 2") */
 struct fuse_tally {
 	int n;

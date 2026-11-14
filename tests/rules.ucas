@@ -1,0 +1,23 @@
+# rules inferred from the enumeration: a dearer program with a cheaper
+# one's values on the points is a candidate, kept when the rules already
+# kept do not derive it and it is proved on every input; under gt1030 a
+# shift costs 2 and an add 1, so a << 1 => a + a is one of them
+rules infer inputs 1 width 32 cost 2
+# find tries the kept rules on every subterm of their width
+f(x: u32, y: u32, z: u32) = ((x * y + z) << 1) xor (z * 3)
+find f 1
+# where the cover prices a shift as an add, that rule is not kept
+model cheapshift : gt1030 { shift: 1 }
+use cheapshift
+rules infer inputs 1 width 32 cost 2
+use gt1030
+# two inputs
+rules infer inputs 2 width 32 cost 2
+# a rule declared as rules infer prints them: proved, then kept for find
+rule dbl(a: u32) = a << 1 => a + a
+f2(x: u32, y: u32) = (x * y << 1) xor y
+find f2 1
+# a rule whose sides differ is refused with where they differ
+rule bad(a: u32) = a << 1 => a + 1
+# a rule's variables take every value of their type
+rule narrow(a: u32 in 0..9) = a << 1 => a + a

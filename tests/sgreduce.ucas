@@ -1,0 +1,63 @@
+# The reductions over the lanes other than the sum (#147): sg_min, sg_max,
+# sg_and, sg_or, sg_xor (subgroupMin ... subgroupXor), integers, min and
+# max by the operand's signedness.  Their classes (sg_min ... sg_xor) are
+# absent unless a model lists them; the prices here are this test's.
+mn(t: u32 uniform, lane: u32 in 0..7) = sg_min(t xor lane * 37)
+mx(t: u32 uniform, lane: u32 in 0..7) = sg_max(t xor lane * 37)
+smn(t: i32 uniform, lane: u32 in 0..7) = sg_min(i32(lane) * t)
+smx(t: i32 uniform, lane: u32 in 0..7) = subgroupMax(i32(lane) * t)
+an(t: u32 uniform, lane: u32 in 0..7) = subgroupAnd(t xor lane * 37)
+o(t: u32 uniform, lane: u32 in 0..7) = sg_or(t xor lane * 37)
+x(t: u32 uniform, lane: u32 in 0..7) = sg_xor(t xor lane * 37)
+show mn(100, 0)
+show mx(100, 0)
+show smn(-3, 0)
+show smx(-3, 0)
+show an(100, 0)
+show o(100, 0)
+show x(100, 0)
+
+# under sg_active an inactive lane gives the value that changes nothing
+# (the type's largest for a min, smallest for a max, all ones for an and)
+mk(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_min(lane + 3) }
+show mk(0xf0, 0)
+mks(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_max(i32(lane) - 10) }
+show mks(0x03, 0)
+mka(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_and(0xff xor 1 << lane) }
+show mka(0x05, 0)
+
+# no class under gt1030; find writes each with shuffles by xor (a
+# butterfly, proved for any value per lane and checked again), and one of
+# a value that is 0 or 1 in every lane as a vote or a ballot's parity
+cost mn
+find mn
+b(t: u32 uniform, lane: u32 in 0..31) = sg_and((t >> lane) & 1) + sg_xor((t >> lane) & 1)
+find b
+model red : gt1030 { sg_min: 31, sg_max: 33.875, sg_and: 62.625, sg_or: 59.75, sg_xor: 2 }
+use red
+cost mn
+find x
+use gt1030
+
+# refused: a float
+fm(t: f32 uniform, lane: u32 in 0..7) = sg_min(t)
+
+# SPIR-V: Reduce of UMin ... BitwiseXor is the operation (cost 0 and said
+# where the model lists no class), LogicalAnd and LogicalOr are the votes
+animate exec %px = lane lanes 8 seed 1 nofile red
+```spv
+%l = OpLoad %uint %px
+%m = OpIMul %uint %l %uint_5
+%x = OpBitwiseAnd %uint %m %uint_7
+%sx = OpBitcast %int %x
+%p = OpUGreaterThan %bool %x %uint_3
+%a = OpGroupNonUniformUMin %uint %uint_3 Reduce %x
+%b = OpGroupNonUniformSMax %int %uint_3 Reduce %sx
+%c = OpGroupNonUniformBitwiseAnd %uint %uint_3 Reduce %x
+%d = OpGroupNonUniformBitwiseOr %uint %uint_3 Reduce %x
+%e = OpGroupNonUniformBitwiseXor %uint %uint_3 Reduce %x
+%f = OpGroupNonUniformLogicalAnd %bool %uint_3 Reduce %p
+%g = OpGroupNonUniformLogicalOr %bool %uint_3 Reduce %p
+%h = OpGroupNonUniformUMin %uint %uint_3 InclusiveScan %x
+OpStore %y %d
+```

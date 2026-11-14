@@ -695,9 +695,10 @@ cs_per_lane(struct P *p, nid n, uint64_t lanes, uint8_t *seen)
 			if ((r = cs_per_lane(p, N.lst[N.a[n] + j], lanes, seen)) != 0)
 				return r;
 		return 0;
-	case O_SGSCAN:
+	case O_SGSCAN: case O_SGCADD2: case O_SGCADD4: case O_SGCADD8:
+	case O_SGCADD16: case O_SGCADD32: case O_SGPART:
 		return sym_cstr("lane");
-	case O_SGSHUF:
+	case O_SGSHUF: case O_SGPADD:
 		return cs_per_lane(p, N.b[n], lanes, seen);
 	case O_LOOP: {
 		uint64_t f = loops.free[(uint32_t)N.ki[n]];

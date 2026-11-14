@@ -1,0 +1,22 @@
+# bitwise cones of 4 values as the minimum network of 3-input tables of
+# their NPN class (src/npn.c): each table written as an expression of its
+# 3 arguments, which gt1030's lop3 fusion covers once
+gates npn
+g(a: u32, b: u32, c: u32, d: u32) = ((a ^ b) & (c ^ d)) | (a & ~c & d)
+find g 1
+# at least two of four: 11 operations, 5 lop3 as written, 3 tables
+m(a: u32, b: u32, c: u32, d: u32) = (a & b) | (a & c) | (a & d) | (b & c) | (b & d) | (c & d)
+find m 1
+x(a: u16, b: u16, c: u16, d: u16) = (a & ~b & c & ~d) | (~a & b & ~c & d) | (a & b & c & d)
+find x 1
+# a cone whose cover is already its class's minimum: no line
+f(a: u32, b: u32, c: u32, d: u32) = (a & b) ^ (c | d) ^ (a & d)
+find f 1
+# leaves that are not parameters: the cone above a shift and a sum
+s(a: u32, b: u32, c: u32) = ((a >> 3) & ~b & c & ~(a + b)) | (~(a >> 3) & b & ~c & (a + b)) | ((a >> 3) & b & c & (a + b))
+find s 1
+# without a table instruction there is nothing to fit
+model nolut : gt1030 { nofuse lop3 }
+use nolut
+find g 1
+use gt1030

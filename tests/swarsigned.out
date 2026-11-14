@@ -1,0 +1,110 @@
+> smax8(a: u32, b: u32) = (u32(max((i32(a << 24) >> 24), (i32(b << 24) >> 24))) & 255) | (u32(max((i32(a << 16) >> 24), (i32(b << 16) >> 24))) & 255) << 8 | (u32(max((i32(a << 8) >> 24), (i32(b << 8) >> 24))) & 255) << 16 | (u32(max((i32(a) >> 24), (i32(b) >> 24))) & 255) << 24
+> find smax8 1
+find smax8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of smax8 (cost 43 as written; each checked on the whole domain):
+  cost 42  u32(max(i32(a << 24) >> 0x18, i32(b << 24) >> 0x18)) & 0xff | (u32(max(i32(a << 16) >> 0x18, i32(b << 16) >> 0x18)) & 0xff) << 8 | (u32(max(i32(a << 8) >> 0x18, i32(b << 8) >> 0x18)) & 0xff) << 16 | u32(max(i32(a) >> 0x18, i32(b) >> 0x18)) << 24 drops & 255 (proved by SAT)
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 43 as written):
+  cost 12  b xor (a xor b) & (t1 - (t1 >> 7) | t1) where t1 = (~a & b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
+           4 x 8-bit lanes, max(a, b) of signed lanes in each: chosen by whole lanes from the top bit a word-wide compare leaves, the top bits read as signs
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> smin16(a: u32, b: u32) = (u32(min((i32(a << 16) >> 16), (i32(b << 16) >> 16))) & 65535) | (u32(min((i32(a) >> 16), (i32(b) >> 16))) & 65535) << 16
+> find smin16 1
+find smin16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of smin16 (cost 18 as written; each checked on the whole domain):
+  cost 17  u32(min(i32(a << 16) >> 0x10, i32(b << 16) >> 0x10)) & 0xffff | u32(min(i32(a) >> 0x10, i32(b) >> 0x10)) << 16 drops & 65535 (proved by SAT)
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 18 as written):
+  cost 12  a xor (a xor b) & (t1 - (t1 >> 15) | t1) where t1 = (~a & b | ~(a xor b) & (a | 0x80008000) - (b & 0x7fff7fff)) & 0x80008000
+           2 x 16-bit lanes, min(a, b) of signed lanes in each: chosen by whole lanes from the top bit a word-wide compare leaves, the top bits read as signs
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sabsd8(a: u32, b: u32) = (u32((max((i32(a << 24) >> 24), (i32(b << 24) >> 24)) - min((i32(a << 24) >> 24), (i32(b << 24) >> 24)))) & 255) | (u32((max((i32(a << 16) >> 24), (i32(b << 16) >> 24)) - min((i32(a << 16) >> 24), (i32(b << 16) >> 24)))) & 255) << 8 | (u32((max((i32(a << 8) >> 24), (i32(b << 8) >> 24)) - min((i32(a << 8) >> 24), (i32(b << 8) >> 24)))) & 255) << 16 | (u32((max((i32(a) >> 24), (i32(b) >> 24)) - min((i32(a) >> 24), (i32(b) >> 24)))) & 255) << 24
+> find sabsd8 1
+find sabsd8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of sabsd8 (cost 51 as written; each checked on the whole domain):
+  cost 50  u32(max(t1, t2) - min(t1, t2)) & 0xff | (u32(max(t3, t4) - min(t3, t4)) & 0xff) << 8 | (u32(max(t5, t6) - min(t5, t6)) & 0xff) << 16 | u32(max(t7, t8) - min(t7, t8)) << 24 where t1 = i32(a << 24) >> 0x18, t2 = i32(b << 24) >> 0x18, t3 = i32(a << 16) >> 0x18, t4 = i32(b << 16) >> 0x18, t5 = i32(a << … (78 more characters) drops & 255 (proved by SAT)
+  cost 50  u32(max(t1, t2) - min(t1, t2)) & 0xff | (u32(max(t3, t4) - min(t3, t4)) & 0xff) << 8 | u32(max(t5, t6) - min(t5, t6)) << 16 | (u32(max(t7, t8) - min(t7, t8)) & 0xff) << 24 where t1 = i32(a << 24) >> 0x18, t2 = i32(b << 24) >> 0x18, t3 = i32(a << 16) >> 0x18, t4 = i32(b << 16) >> 0x18, t5 = i32(a << … (78 more characters) drops & 255 (proved by SAT)
+  cost 50  u32(max(t1, t2) - min(t1, t2)) & 0xff | u32(max(t3, t4) - min(t3, t4)) << 8 | (u32(max(t5, t6) - min(t5, t6)) & 0xff) << 16 | (u32(max(t7, t8) - min(t7, t8)) & 0xff) << 24 where t1 = i32(a << 24) >> 0x18, t2 = i32(b << 24) >> 0x18, t3 = i32(a << 16) >> 0x18, t4 = i32(b << 16) >> 0x18, t5 = i32(a << … (78 more characters) drops & 255 (proved by SAT)
+  cost 48  u32(max(t1, t2) - min(t1, t2)) & 0xff | u32(max(t3, t4) - min(t3, t4)) << 8 | u32(max(t5, t6) - min(t5, t6)) << 16 | u32(max(t7, t8) - min(t7, t8)) << 24 where t1 = i32(a << 24) >> 0x18, t2 = i32(b << 24) >> 0x18, t3 = i32(a << 16) >> 0x18, t4 = i32(b << 16) >> 0x18, t5 = i32(a << 8) >> 0x18, t6 = i… (60 more characters) all of them: drops & 255, then & 255, then & 255 (proved by SAT)
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 51 as written):
+  cost 14  (b xor t2 xor 0x80808080) - (a xor t2 xor 0x80808080) where t1 = (~a & b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080, t2 = (a xor b) & (t1 - (t1 >> 7) | t1)
+           4 x 8-bit lanes, |a - b| of signed lanes in each: max - min with the top bits flipped, which borrows from no lane
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> savg8(a: u32, b: u32) = (u32((((i32(a << 24) >> 24) + (i32(b << 24) >> 24)) >> 1)) & 255) | (u32((((i32(a << 16) >> 24) + (i32(b << 16) >> 24)) >> 1)) & 255) << 8 | (u32((((i32(a << 8) >> 24) + (i32(b << 8) >> 24)) >> 1)) & 255) << 16 | (u32((((i32(a) >> 24) + (i32(b) >> 24)) >> 1)) & 255) << 24
+> find savg8 1
+find savg8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of savg8 (cost 47 as written; each checked on the whole domain):
+  cost 46  u32((i32(a << 24) >> 0x18) + (i32(b << 24) >> 0x18) >> 1) & 0xff | (u32((i32(a << 16) >> 0x18) + (i32(b << 16) >> 0x18) >> 1) & 0xff) << 8 | (u32((i32(a << 8) >> 0x18) + (i32(b << 8) >> 0x18) >> 1) & 0xff) << 16 | u32((i32(a) >> 0x18) + (i32(b) >> 0x18) >> 1) << 24 drops & 255 (proved by SAT)
+  dot products under gt1030 (sums of products laid into lanes; cost 47 as written):
+  cost 46  u32(sudot4x8(i32(a << 24), 0x1000000) + sudot4x8(i32(b << 24), 0x1000000) >> 1) & 0xff | (u32((i32(a << 16) >> 0x18) + (i32(b << 16) >> 0x18) >> 1) & 0xff) << 8 | (u32((i32(a << 8) >> 0x18) + (i32(b << 8) >> 0x18) >> 1) & 0xff) << 16 | (u32((i32(a) >> 0x18) + (i32(b) >> 0x18) >> 1) & 0xff) << 24
+           sudot4x8 (4 x 8-bit lanes, signed x unsigned): lane 3: (i32(a << 24) >> 0x18) * 1
+           sudot4x8 (4 x 8-bit lanes, signed x unsigned): lane 3: (i32(b << 24) >> 0x18) * 1
+           i32(a << 24) >> 0x18 is bits 24..31 of i32(a << 24) read signed: lane 3 as it is
+           the word's other lanes meet zero lanes
+           i32(b << 24) >> 0x18 is bits 24..31 of i32(b << 24) read signed: lane 3 as it is
+           the word's other lanes meet zero lanes
+           sudot4x8's sum is in -128..127: it does not wrap; sudot4x8's sum is in -128..127: it does not wrap
+           proved by SAT: 813 AIG nodes, 0 conflicts
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 47 as written):
+  cost 5   ((a xor 0x80808080) & (b xor 0x80808080)) + (((a xor b) & 0xfefefefe) >> 1) xor 0x80808080
+           4 x 8-bit lanes, (a + b) >> 1 of signed lanes in each: on the lanes with their top bits flipped (signed order is then unsigned order), flipped back
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> savgc16(a: u32, b: u32) = (u32((((i32(a << 16) >> 16) + (i32(b << 16) >> 16) + 1) >> 1)) & 65535) | (u32((((i32(a) >> 16) + (i32(b) >> 16) + 1) >> 1)) & 65535) << 16
+> find savgc16 1
+find savgc16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of savgc16 (cost 22 as written; each checked on the whole domain):
+  cost 21  u32((i32(a << 16) >> 0x10) + (i32(b << 16) >> 0x10) + 1 >> 1) & 0xffff | u32((i32(a) >> 0x10) + (i32(b) >> 0x10) + 1 >> 1) << 16 drops & 65535 (proved by SAT)
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 22 as written):
+  cost 6   (a xor 0x80008000 | b xor 0x80008000) - (((a xor b) & 0xfffefffe) >> 1) xor 0x80008000
+           2 x 16-bit lanes, (a + b + 1) >> 1 of signed lanes in each: on the lanes with their top bits flipped (signed order is then unsigned order), flipped back
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sgt8(a: u32, b: u32) = (u32(((i32(a << 24) >> 24) > (i32(b << 24) >> 24) ? -1 : 0)) & 255) | (u32(((i32(a << 16) >> 24) > (i32(b << 16) >> 24) ? -1 : 0)) & 255) << 8 | (u32(((i32(a << 8) >> 24) > (i32(b << 8) >> 24) ? -1 : 0)) & 255) << 16 | (u32(((i32(a) >> 24) > (i32(b) >> 24) ? -1 : 0)) & 255) << 24
+> find sgt8 1
+find sgt8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of sgt8 (cost 55 as written; each checked on the whole domain):
+  cost 54  u32(i32(a << 24) >> 0x18 > i32(b << 24) >> 0x18 ? -1 : 0) & 0xff | (u32(i32(a << 16) >> 0x18 > i32(b << 16) >> 0x18 ? -1 : 0) & 0xff) << 8 | (u32(i32(a << 8) >> 0x18 > i32(b << 8) >> 0x18 ? -1 : 0) & 0xff) << 16 | u32(i32(a) >> 0x18 > i32(b) >> 0x18 ? -1 : 0) << 24 drops & 255 (proved by SAT)
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 55 as written):
+  cost 9   t1 - (t1 >> 7) | t1 where t1 = ~(~b & a | ~(a xor b) & (b | 0x80808080) - (a & 0x7f7f7f7f)) & 0x80808080
+           4 x 8-bit lanes, a > b ? all ones : 0, signed lanes in each: whole lanes from the top bit a word-wide compare leaves, the top bits read as signs
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sge4(a: u32, b: u32) = (u32(((i32(a << 28) >> 28) >= (i32(b << 28) >> 28) ? -1 : 0)) & 15) | (u32(((i32(a << 24) >> 28) >= (i32(b << 24) >> 28) ? -1 : 0)) & 15) << 4 | (u32(((i32(a << 20) >> 28) >= (i32(b << 20) >> 28) ? -1 : 0)) & 15) << 8 | (u32(((i32(a << 16) >> 28) >= (i32(b << 16) >> 28) ? -1 : 0)) & 15) << 12 | (u32(((i32(a << 12) >> 28) >= (i32(b << 12) >> 28) ? -1 : 0)) & 15) << 16 | (u32(((i32(a << 8) >> 28) >= (i32(b << 8) >> 28) ? -1 : 0)) & 15) << 20 | (u32(((i32(a << 4) >> 28) >= (i32(b << 4) >> 28) ? -1 : 0)) & 15) << 24 | (u32(((i32(a) >> 28) >= (i32(b) >> 28) ? -1 : 0)) & 15) << 28
+> find sge4 1
+find sge4: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of sge4 (cost 117 as written; each checked on the whole domain):
+  cost 116 u32(i32(a << 28) >> 0x1c >= i32(b << 28) >> 0x1c ? -1 : 0) & 15 | (u32(i32(a << 24) >> 0x1c >= i32(b << 24) >> 0x1c ? -1 : 0) & 15) << 4 | (u32(i32(a << 20) >> 0x1c >= i32(b << 20) >> 0x1c ? -1 : 0) & 15) << 8 | (u32(i32(a << 16) >> 0x1c >= i32(b << 16) >> 0x1c ? -1 : 0) & 15) << 12 | (u32(i32(a << … (256 more characters) drops & 15 (proved by SAT)
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 117 as written):
+  cost 9   t1 - (t1 >> 3) | t1 where t1 = (~a & b | ~(a xor b) & (a | 0x88888888) - (b & 0x77777777)) & 0x88888888
+           8 x 4-bit lanes, a >= b ? all ones : 0, signed lanes in each: whole lanes from the top bit a word-wide compare leaves, the top bits read as signs
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> smaxrgb(a: u32, b: u32) = (u32(max((i32(a << 24) >> 24), (i32(b << 24) >> 24))) & 255) | (u32(max((i32(a << 16) >> 24), (i32(b << 16) >> 24))) & 255) << 8 | (u32(max((i32(a << 8) >> 24), (i32(b << 8) >> 24))) & 255) << 16 | (a & 4278190080)
+> find smaxrgb 1
+find smaxrgb: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 36 as written):
+  cost 13  a xor (b xor (a xor b) & (t1 - (t1 >> 7) | t1) xor a) & 0xffffff where t1 = (~a & b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
+           4 x 8-bit lanes, max(a, b) of signed lanes in the lanes of 0x00ffffff: chosen by whole lanes from the top bit a word-wide compare leaves, the top bits read as signs; 0xff000000 kept from a
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> seq8(a: u32, b: u32) = (u32(((i32(a << 24) >> 24) == (i32(b << 24) >> 24) ? -1 : 0)) & 255) | (u32(((i32(a << 16) >> 24) == (i32(b << 16) >> 24) ? -1 : 0)) & 255) << 8 | (u32(((i32(a << 8) >> 24) == (i32(b << 8) >> 24) ? -1 : 0)) & 255) << 16 | (u32(((i32(a) >> 24) == (i32(b) >> 24) ? -1 : 0)) & 255) << 24
+> find seq8 1
+find seq8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of seq8 (cost 55 as written; each checked on the whole domain):
+  cost 54  u32(i32(a << 24) >> 0x18 == i32(b << 24) >> 0x18 ? -1 : 0) & 0xff | (u32(i32(a << 16) >> 0x18 == i32(b << 16) >> 0x18 ? -1 : 0) & 0xff) << 8 | (u32(i32(a << 8) >> 0x18 == i32(b << 8) >> 0x18 ? -1 : 0) & 0xff) << 16 | u32(i32(a) >> 0x18 == i32(b) >> 0x18 ? -1 : 0) << 24 drops & 255 (proved by SAT)
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 55 as written):
+  cost 8   t1 - (t1 >> 7) | t1 where t1 = ~(((a xor b) & 0x7f7f7f7f) + 2139062143 | a xor b) & 0x80808080
+           4 x 8-bit lanes, a == b ? all ones : 0 in each: whole lanes from the top bit a word-wide compare leaves
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

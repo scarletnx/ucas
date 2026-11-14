@@ -3745,8 +3745,11 @@ sink_carry(const struct sinkctx *s, const double *w, double *dev)
 
 		dev[i] = 0;
 		if (n->op == FX_IN || n->op == FX_K || n->op == FX_CVT ||
-		    n->op == FX_OPQ || s->R[i].empty)
+		    n->op == FX_OPQ || s->R[i].empty) {
+			if (!s->R[i].empty)
+				dev[i] = s->E[i];	/* an input's own: a loop's sum */
 			continue;
+		}
 		if (s->at[i] && s->at[i]->kind == FXR_TABLE) {
 			/* a read: what is under it no longer reaches it */
 			dev[i] = s->E[i];
@@ -4279,6 +4282,59 @@ sink_offers(struct sinkctx *s, double budget)
 		    " and the coefficients' f32 rounding" : "", ec, dc, c_comp, c_as,
 		    mp, mc);
 		(void)nd;
+	}
+	/* a loop's f32 sum read here (spirv.c's lsum_of): its adds' rounding
+	 * as written, and as Kahan's compensated sum */
+	for (i = 0; i <= s->root; i++) {
+		const struct fxn *nd = &g->n[i];
+		const struct fxin *f;
+		double dp, dk;
+		char *off;
+		if (nd->op != FX_IN || nd->in < 0 || (!g->in[nd->in].lsum_n &&
+		    !g->in[nd->in].lsum_why[0]))
+			continue;
+		f = &g->in[nd->in];
+		off = (char *)g->sinkoffer;	/* the graph's lines, written here */
+		if (!f->lsum_n) {
+			snprintf(off + strlen(off), sizeof g->sinkoffer - strlen(off),
+			    "    %s, a loop's f32 sum s = s + t: no bound on its "
+			    "rounding, so Kahan's sum is not weighed: %s\n%s",
+			    f->lsum_s, f->lsum_why, f->lsum_src);
+			continue;
+		}
+		memset(s->E, 0, sizeof s->E);
+		s->E[i] = f->lsum_plain;
+		dp = sink_dev(s);
+		s->E[i] = f->lsum_kahan;
+		dk = sink_dev(s);
+		s->E[i] = 0;
+		if (!(dp > budget) || !(dk <= budget)) {
+			snprintf(off + strlen(off), sizeof g->sinkoffer - strlen(off),
+			    "    %s, a loop's f32 sum s = s + t of %ld passes, errs as "
+			    "written by up to %.3g against the exact sum of its f32 "
+			    "terms, %.3g at the stored value: %s %.3g a step allows%s"
+			    "\n%s", f->lsum_s, f->lsum_n, f->lsum_plain, dp, dp <=
+			    budget ? "within the" : "more than the", budget, dp <=
+			    budget ? ", so Kahan's sum is not offered" : isfinite(dk) ?
+			    "; Kahan's compensated sum may pass it too, so it is not "
+			    "offered" : "; Kahan's sum has no bound there", f->lsum_src);
+			continue;
+		}
+		snprintf(off + strlen(off), sizeof g->sinkoffer - strlen(off),
+		    "    offered (not applied: it moves the "
+		    "stored value toward the exact sum, away from the original's): "
+		    "%s, a loop's f32 sum s = s + t of %ld passes, t = %s in [%.4g, "
+		    "%.4g], errs as written by up to %.3g against the exact sum of "
+		    "its f32 terms (each add rounded, on the partial sums' "
+		    "magnitudes), %.3g at the stored value, more than the %.3g a "
+		    "step allows; Kahan's compensated sum, y = t - c, w = s + y, c "
+		    "= (w - s) - y, s = w, each written precise (NoContraction: no "
+		    "driver may fold c to 0), errs by at most %.3g, %.3g at the "
+		    "stored value: within it, cost %g a pass against %g (%g more "
+		    "over the loop)\n%s", f->lsum_s, f->lsum_n, f->lsum_t,
+		    f->lsum_tlo, f->lsum_thi, f->lsum_plain, dp, budget,
+		    f->lsum_kahan, dk, f->lsum_kcost, f->lsum_cost, (f->lsum_kcost -
+		    f->lsum_cost) * (double)f->lsum_n, f->lsum_src);
 	}
 }
 

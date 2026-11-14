@@ -87,6 +87,18 @@ fuse_inherit(const struct model *m, const struct model *parent)
 		}
 }
 
+/* the inputs of m's widest lut fusion, 0 when it has none */
+int
+fuse_lut_k(const struct model *m)
+{
+	int i, k = 0;
+
+	for (i = 0; i < nfz; i++)
+		if (fz[i].model == m->name && fz[i].lut > k)
+			k = fz[i].lut;
+	return k;
+}
+
 int
 fuse_count(const struct model *m)
 {
@@ -97,7 +109,7 @@ fuse_count(const struct model *m)
 	return n;
 }
 
-static const char *const pkname[] = {"int", "float", "const", "any"};
+static const char *const pkname[] = {"int", "float", "const", "any", "lane"};
 
 /* does model m have a fusion whose input has a proved width */
 static int
@@ -163,7 +175,7 @@ fuse_text(struct sbuf *b, const struct fusion *f)
 	}
 	if (f->makers) {
 		sb_puts(b, " on");
-		for (k = 0; k < C_NCLASS; k++)
+		for (k = 0; k < C_NCLASS && k < 64; k++)
 			if (f->makers >> k & 1)
 				sb_printf(b, " %s", cclass_name[k]);
 	}
@@ -220,6 +232,7 @@ fg_init(struct fgraph *g, int n)
 	g->isbool = xcalloc((size_t)n, 1);
 	g->nocontract = xcalloc((size_t)n, 1);
 	g->pinned = xcalloc((size_t)n, 1);
+	g->islane = xcalloc((size_t)n, 1);
 	g->kv = xcalloc((size_t)n, sizeof *g->kv);
 	g->kr = xcalloc((size_t)n, sizeof *g->kr);
 	g->arg = xmalloc((size_t)n * sizeof *g->arg);
@@ -248,6 +261,7 @@ fg_free(struct fgraph *g)
 	free(g->isbool);
 	free(g->nocontract);
 	free(g->pinned);
+	free(g->islane);
 	free(g->kv);
 	free(g->kr);
 	free(g->arg);
@@ -262,6 +276,7 @@ fg_free(struct fgraph *g)
 	free(g->lo);
 	free(g->hi);
 	free(g->ranged);
+	free(g->dem);
 	memset(g, 0, sizeof *g);
 }
 
@@ -298,6 +313,10 @@ fmatch_args(const struct fgraph *g, const struct fusion *f, nid P, int i,
 	int ga[3] = {g->arg[i][0], g->arg[i][1], g->arg[i][2]}, k, ar;
 
 	ar = opinfo[N.op[P]].arity;
+	/* a subgroup operation's last operand is its size, which the pattern
+	 * does not fix: the lanes' count is the function's */
+	if (IS_SG(N.op[P]))
+		ar--;
 	if (swap) {
 		int t = ga[0];
 		ga[0] = ga[1];
@@ -341,6 +360,25 @@ match_amount(const struct fgraph *g, const struct fusion *f, nid P,
 	return 0;
 }
 
+/* a pattern whose result's low bits depend on its inputs' low bits
+ * alone: adds, subtracts, multiplies, the bitwise operations and left
+ * shifts by a constant */
+static int
+pat_lowclosed(nid P)
+{
+	switch (N.op[P]) {
+	case O_VAR: case O_CONST:
+		return 1;
+	case O_ADD: case O_SUB: case O_MUL: case O_AND: case O_OR: case O_XOR:
+		return pat_lowclosed(N.a[P]) && pat_lowclosed(N.b[P]);
+	case O_NEG: case O_NOT:
+		return pat_lowclosed(N.a[P]);
+	case O_SHL:
+		return N.op[N.b[P]] == O_CONST && pat_lowclosed(N.a[P]);
+	}
+	return 0;
+}
+
 static int
 fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
     int root, struct mst *s)
@@ -349,14 +387,22 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 
 	if (op == O_VAR) {
 		int sl = (int)N.ki[P];
+		if (sl < 0 || sl >= f->np)
+			return 0;
 		switch (f->pkind[sl]) {
 		case FP_INT:
 			if (g->fp[i] || g->isbool[i])
 				return 0;
 			if (f->pbits[sl]) {
 				int64_t top = 1LL << (f->pbits[sl] - f->psgn[sl]);
-				if (!g->ranged || !g->ranged[i] || g->hi[i] >= top ||
-				    g->lo[i] < (f->psgn[sl] ? -top : 0))
+				/* proved inside the width, or, for uN, only the low N
+				 * bits of the fusion's result are read and its pattern
+				 * keeps low bits to low bits: the instruction reading
+				 * the input's low N bits gives those bits */
+				if ((!g->ranged || !g->ranged[i] || g->hi[i] >= top ||
+				    g->lo[i] < (f->psgn[sl] ? -top : 0)) && (f->psgn[sl] ||
+				    !g->dem || g->dem[root] >> f->pbits[sl] ||
+				    !pat_lowclosed(f->pat)))
 					return 0;
 			}
 			break;
@@ -366,6 +412,10 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 			break;
 		case FP_CONST:
 			if (!g->isk[i])
+				return 0;
+			break;
+		case FP_LANE:
+			if (!g->islane[i])
 				return 0;
 			break;
 		}
@@ -382,7 +432,14 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 	}
 	if (g->isk[i] || (i != root && !inner_ok(g, i)))
 		return 0;
-	if ((g->fp[i] != 0) != (TY_FP(N.ty[P]) != 0) || g->isbool[i])
+	/* a compare is inside a pattern only where the pattern has one (a
+	 * ballot of it) */
+	if ((g->fp[i] != 0) != (TY_FP(N.ty[P]) != 0) || g->isbool[i] !=
+	    (N.ty[P] == TY_BOOL))
+		return 0;
+	/* a model's fusions are 32-bit instructions: an operation it prices
+	 * by a 64-bit class is several of them */
+	if (g->cls[i] >= C_IADD64 && g->cls[i] <= C_SHIFT64)
 		return 0;
 	if (f->contract && g->nocontract[i])
 		return 0;
@@ -592,7 +649,8 @@ fg_cover(const struct model *m, struct fgraph *g)
 				if (f->pkind[l] == FP_CONST)
 					continue;
 				if (b < 0 || g->isk[b] || !inner_ok(g, b) ||
-				    g->cls[b] < 0 || !(f->makers >> g->cls[b] & 1))
+				    g->cls[b] < 0 || g->cls[b] >= 64 ||
+				    !(f->makers >> g->cls[b] & 1))
 					break;
 			}
 			if (f->makers && l < f->np)
@@ -889,6 +947,118 @@ mul_fits(int64_t a, int64_t b, int64_t *r)
 }
 
 /*
+ * An integer node's range from its operands' (sound on ideal integers
+ * below 2^62; the caller cuts it to the node's type): 1 with *lo, *hi,
+ * else 0
+ */
+static int
+node_range(const struct fgraph *G, int op, int a, int b, int c, int64_t *plo,
+    int64_t *phi)
+{
+	const int64_t big = 1LL << 61;
+	int ra = a >= 0 && G->ranged[a], rb = b >= 0 && G->ranged[b], ok = 0, j;
+	int64_t lo = 0, hi = 0, x[4];
+
+	switch (op) {
+	case O_ADD:
+		ok = ra && rb;
+		lo = ok ? G->lo[a] + G->lo[b] : 0;
+		hi = ok ? G->hi[a] + G->hi[b] : 0;
+		break;
+	case O_SUB:
+		ok = ra && rb;
+		lo = ok ? G->lo[a] - G->hi[b] : 0;
+		hi = ok ? G->hi[a] - G->lo[b] : 0;
+		break;
+	case O_MUL:
+		ok = ra && rb && mul_fits(G->lo[a], G->lo[b], &x[0]) &&
+		    mul_fits(G->lo[a], G->hi[b], &x[1]) &&
+		    mul_fits(G->hi[a], G->lo[b], &x[2]) &&
+		    mul_fits(G->hi[a], G->hi[b], &x[3]);
+		if (ok) {
+			lo = hi = x[0];
+			for (j = 1; j < 4; j++) {
+				lo = x[j] < lo ? x[j] : lo;
+				hi = x[j] > hi ? x[j] : hi;
+			}
+		}
+		break;
+	case O_AND:
+		/* with a non-negative operand: at most that operand */
+		if (ra && G->lo[a] >= 0 && rb && G->lo[b] >= 0) {
+			ok = 1;
+			hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
+		} else if (ra && G->lo[a] >= 0) {
+			ok = 1;
+			hi = G->hi[a];
+		} else if (rb && G->lo[b] >= 0) {
+			ok = 1;
+			hi = G->hi[b];
+		}
+		break;
+	case O_OR: case O_XOR:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0) {
+			int64_t m = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
+			int bb = bits_for((uint64_t)m);
+			ok = bb < 62;
+			hi = ok ? (1LL << bb) - 1 : 0;
+		}
+		break;
+	case O_SHR:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
+		    G->hi[b] < 63) {
+			ok = 1;
+			lo = G->lo[a] >> G->hi[b];
+			hi = G->hi[a] >> G->lo[b];
+		}
+		break;
+	case O_SHL:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
+		    G->hi[b] < 61 && G->hi[a] < (big >> G->hi[b])) {
+			ok = 1;
+			lo = G->lo[a] << G->lo[b];
+			hi = G->hi[a] << G->hi[b];
+		}
+		break;
+	case O_DIV:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
+			ok = 1;
+			lo = G->lo[a] / G->hi[b];
+			hi = G->hi[a] / G->lo[b];
+		}
+		break;
+	case O_MOD:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
+			ok = 1;
+			hi = G->hi[a] < G->hi[b] - 1 ? G->hi[a] : G->hi[b] - 1;
+		}
+		break;
+	case O_MIN: case O_MAX:
+		if (ra && rb) {
+			ok = 1;
+			if (op == O_MIN) {
+				lo = G->lo[a] < G->lo[b] ? G->lo[a] : G->lo[b];
+				hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
+			} else {
+				lo = G->lo[a] > G->lo[b] ? G->lo[a] : G->lo[b];
+				hi = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
+			}
+		}
+		break;
+	case O_SEL:
+		if (rb && c >= 0 && G->ranged[c]) {
+			ok = 1;
+			lo = G->lo[b] < G->lo[c] ? G->lo[b] : G->lo[c];
+			hi = G->hi[b] > G->hi[c] ? G->hi[b] : G->hi[c];
+		}
+		break;
+	}
+	*plo = lo;
+	*phi = hi;
+	return ok;
+}
+
+/*
  * Each integer node's range: its operands' intervals (sound, on ideal
  * integers below 2^62), cut to the node's type when they leave it (the
  * machine value wraps: only the type bounds it then).
@@ -897,7 +1067,7 @@ static void
 cover_ranges(struct fgraph *G, const nid *v, int cnt)
 {
 	const int64_t big = 1LL << 61;
-	int i, j;
+	int i;
 
 	G->lo = xcalloc((size_t)(cnt ? cnt : 1), sizeof *G->lo);
 	G->hi = xcalloc((size_t)(cnt ? cnt : 1), sizeof *G->hi);
@@ -907,8 +1077,8 @@ cover_ranges(struct fgraph *G, const nid *v, int cnt)
 		ty_t t = N.ty[g];
 		int op = N.op[g], a = G->arg[i][0], b = G->arg[i][1];
 		int c = G->arg[i][2], ok = 0;
-		int64_t lo = 0, hi = 0, x[4], tlo, thi;
-		int ra = a >= 0 && G->ranged[a], rb = b >= 0 && G->ranged[b];
+		int64_t lo = 0, hi = 0, tlo, thi;
+		int ra = a >= 0 && G->ranged[a];
 
 		if (TY_FP(t))
 			continue;
@@ -936,104 +1106,15 @@ cover_ranges(struct fgraph *G, const nid *v, int cnt)
 			}
 			break;
 		}
-		case O_ADD:
-			ok = ra && rb;
-			lo = ok ? G->lo[a] + G->lo[b] : 0;
-			hi = ok ? G->hi[a] + G->hi[b] : 0;
-			break;
-		case O_SUB:
-			ok = ra && rb;
-			lo = ok ? G->lo[a] - G->hi[b] : 0;
-			hi = ok ? G->hi[a] - G->lo[b] : 0;
-			break;
-		case O_MUL:
-			ok = ra && rb && mul_fits(G->lo[a], G->lo[b], &x[0]) &&
-			    mul_fits(G->lo[a], G->hi[b], &x[1]) &&
-			    mul_fits(G->hi[a], G->lo[b], &x[2]) &&
-			    mul_fits(G->hi[a], G->hi[b], &x[3]);
-			if (ok) {
-				lo = hi = x[0];
-				for (j = 1; j < 4; j++) {
-					lo = x[j] < lo ? x[j] : lo;
-					hi = x[j] > hi ? x[j] : hi;
-				}
-			}
-			break;
-		case O_AND:
-			/* with a non-negative operand: at most that operand */
-			if (ra && G->lo[a] >= 0 && rb && G->lo[b] >= 0) {
-				ok = 1;
-				hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
-			} else if (ra && G->lo[a] >= 0) {
-				ok = 1;
-				hi = G->hi[a];
-			} else if (rb && G->lo[b] >= 0) {
-				ok = 1;
-				hi = G->hi[b];
-			}
-			break;
-		case O_OR: case O_XOR:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0) {
-				int64_t m = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
-				int bb = bits_for((uint64_t)m);
-				ok = bb < 62;
-				hi = ok ? (1LL << bb) - 1 : 0;
-			}
-			break;
-		case O_SHR:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
-			    G->hi[b] < 63) {
-				ok = 1;
-				lo = G->lo[a] >> G->hi[b];
-				hi = G->hi[a] >> G->lo[b];
-			}
-			break;
-		case O_SHL:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
-			    G->hi[b] < 61 && G->hi[a] < (big >> G->hi[b])) {
-				ok = 1;
-				lo = G->lo[a] << G->lo[b];
-				hi = G->hi[a] << G->hi[b];
-			}
-			break;
-		case O_DIV:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
-				ok = 1;
-				lo = G->lo[a] / G->hi[b];
-				hi = G->hi[a] / G->lo[b];
-			}
-			break;
-		case O_MOD:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
-				ok = 1;
-				hi = G->hi[a] < G->hi[b] - 1 ? G->hi[a] : G->hi[b] - 1;
-			}
-			break;
-		case O_MIN: case O_MAX:
-			if (ra && rb) {
-				ok = 1;
-				if (op == O_MIN) {
-					lo = G->lo[a] < G->lo[b] ? G->lo[a] : G->lo[b];
-					hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
-				} else {
-					lo = G->lo[a] > G->lo[b] ? G->lo[a] : G->lo[b];
-					hi = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
-				}
-			}
-			break;
-		case O_SEL:
-			if (rb && c >= 0 && G->ranged[c]) {
-				ok = 1;
-				lo = G->lo[b] < G->lo[c] ? G->lo[b] : G->lo[c];
-				hi = G->hi[b] > G->hi[c] ? G->hi[b] : G->hi[c];
-			}
-			break;
 		case O_CAST:
 			if (ra && !G->fp[a]) {
 				ok = 1;
 				lo = G->lo[a];
 				hi = G->hi[a];
 			}
+			break;
+		default:
+			ok = node_range(G, op, a, b, c, &lo, &hi);
 			break;
 		}
 		if (ok && (lo <= -big || hi >= big || (lo < 0 &&
@@ -1055,6 +1136,159 @@ cover_ranges(struct fgraph *G, const nid *v, int cnt)
 	}
 }
 
+/*
+ * The ranges of a graph of machine integers whose types the caller gives
+ * (spirv.c's cover: tlo[i] > thi[i] for a node that is not an integer
+ * of a known width), from its constants and its operations, cut to each
+ * node's type where they leave it
+ */
+void
+fg_ranges(struct fgraph *G, const int64_t *tlo, const int64_t *thi)
+{
+	int pass, i, n = G->n ? G->n : 1;
+
+	G->lo = xcalloc((size_t)n, sizeof *G->lo);
+	G->hi = xcalloc((size_t)n, sizeof *G->hi);
+	G->ranged = xcalloc((size_t)n, 1);
+	/* the constants and the nodes priced as they are first (a caller's
+	 * leaves may come after their users), then the operations in order */
+	for (pass = 0; pass < 2; pass++)
+		for (i = 0; i < G->n; i++) {
+			int64_t lo = 0, hi = 0;
+			int ok, leaf = G->isk[i] || G->op[i] == O_NONE;
+			if (leaf != (pass == 0) || tlo[i] > thi[i] || G->fp[i])
+				continue;
+			if (G->isbool[i]) {
+				G->hi[i] = 1;
+				G->ranged[i] = 1;
+				continue;
+			}
+			if (G->isk[i]) {
+				/* a signed constant's bits: its value in the type */
+				lo = G->kv[i];
+				if (lo > thi[i] && thi[i] < (1LL << 61))
+					lo -= thi[i] - tlo[i] + 1;
+				ok = lo >= tlo[i] && lo <= thi[i];
+				hi = lo;
+			} else
+				ok = node_range(G, G->op[i], G->arg[i][0], G->arg[i][1],
+				    G->arg[i][2], &lo, &hi);
+			if (!ok || lo < tlo[i] || hi > thi[i]) {
+				lo = tlo[i];	/* the machine value wraps: its type */
+				hi = thi[i];
+			}
+			G->lo[i] = lo;
+			G->hi[i] = hi;
+			G->ranged[i] = 1;
+		}
+}
+
+/* the bits up to the highest of d */
+static uint64_t
+lowmask(uint64_t d)
+{
+	int b = 63;
+
+	if (!d)
+		return 0;
+	while (!(d >> b & 1))
+		b--;
+	return b == 63 ? ~0ULL : (2ULL << b) - 1;
+}
+
+/*
+ * Demanded bits (#45): which bits of each integer node anything reads,
+ * from the results (a pinned node, or one nothing in the graph reads:
+ * every bit of its width) back through the operations, the operands
+ * after their users (users have higher indices among the operations):
+ * an and with a constant reads that constant's bits, a left shift by c
+ * the result's bits moved down, a right shift by c the bits moved up (and
+ * the sign where the shift may copy it), an add, subtract or multiply
+ * every bit up to the highest read; anything else every bit.  width[i]
+ * is a node's bits, 0 for what is not an integer.
+ */
+void
+fg_demanded(struct fgraph *G, const int *width)
+{
+	int i, k, n = G->n ? G->n : 1;
+	uint64_t *full = xcalloc((size_t)n, sizeof *full);
+
+	G->dem = xcalloc((size_t)n, sizeof *G->dem);
+	for (i = 0; i < G->n; i++) {
+		int w = width[i];
+		full[i] = w <= 0 ? 0 : w >= 64 ? ~0ULL : (1ULL << w) - 1;
+		if (G->pinned[i] || G->uses[i] == 0 || G->op[i] == O_NONE)
+			G->dem[i] = full[i];
+	}
+	/* an operation priced as it is reads all of its operands */
+	for (i = 0; i < G->n; i++)
+		if (G->op[i] == O_NONE && !G->isk[i])
+			for (k = 0; k < 3; k++)
+				if (G->arg[i][k] >= 0)
+					G->dem[G->arg[i][k]] = full[G->arg[i][k]];
+	for (i = G->n - 1; i >= 0; i--) {
+		int a = G->arg[i][0], b = G->arg[i][1], c = G->arg[i][2];
+		uint64_t D = G->dem[i] & full[i], m;
+		int sh;
+		if (G->isk[i] || G->op[i] == O_NONE || !full[i])
+			continue;
+		switch (G->op[i]) {
+		case O_ADD: case O_SUB: case O_MUL: case O_NEG:
+			m = lowmask(D);
+			if (a >= 0) G->dem[a] |= m;
+			if (b >= 0) G->dem[b] |= m;
+			break;
+		case O_AND:
+			if (b >= 0 && G->isk[b])
+				G->dem[a] |= D & (uint64_t)G->kv[b];
+			else if (a >= 0 && G->isk[a])
+				G->dem[b] |= D & (uint64_t)G->kv[a];
+			else {
+				if (a >= 0) G->dem[a] |= D;
+				if (b >= 0) G->dem[b] |= D;
+			}
+			break;
+		case O_OR:
+			if (b >= 0 && G->isk[b])
+				G->dem[a] |= D & ~(uint64_t)G->kv[b];
+			else if (a >= 0 && G->isk[a])
+				G->dem[b] |= D & ~(uint64_t)G->kv[a];
+			else {
+				if (a >= 0) G->dem[a] |= D;
+				if (b >= 0) G->dem[b] |= D;
+			}
+			break;
+		case O_XOR: case O_NOT:
+			if (a >= 0) G->dem[a] |= D;
+			if (b >= 0) G->dem[b] |= D;
+			break;
+		case O_SHL:
+			sh = b >= 0 && G->isk[b] && G->kv[b] >= 0 && G->kv[b] <
+			    width[i] ? (int)G->kv[b] : -1;
+			if (a >= 0)
+				G->dem[a] |= sh >= 0 ? D >> sh : lowmask(D);
+			if (b >= 0)
+				G->dem[b] = full[b];
+			break;
+		case O_SHR:
+			sh = b >= 0 && G->isk[b] && G->kv[b] > 0 && G->kv[b] <
+			    width[i] ? (int)G->kv[b] : -1;
+			if (a >= 0)
+				G->dem[a] |= sh < 0 ? full[a] : ((D << sh) & full[a]) |
+				    (D >> (width[i] - sh) ? 1ULL << (width[a] - 1) : 0);
+			if (b >= 0)
+				G->dem[b] = full[b];
+			break;
+		default:
+			for (k = 0; k < 3; k++)
+				if (G->arg[i][k] >= 0)
+					G->dem[G->arg[i][k]] = full[G->arg[i][k]];
+		}
+		(void)c;
+	}
+	free(full);
+}
+
 /* the cover of the nodes v[0..cnt) (ascending nids: operands first) */
 static float
 cover_list(const struct model *m, const nid *v, int cnt, const nid *pins,
@@ -1074,6 +1308,7 @@ cover_list(const struct model *m, const nid *v, int cnt, const nid *pins,
 		G->f64[i] = TYK(t) == K_FLOAT && TYW(t) == 64;
 		G->isbool[i] = t == TY_BOOL;
 		G->uns[i] = TYK(t) == K_UINT || t == TY_BOOL;
+		G->islane[i] = op == O_VAR && sg_is_lane(g);
 		if (op == O_CONST) {
 			G->isk[i] = 1;
 			G->kv[i] = N.ki[g];
@@ -1121,8 +1356,15 @@ cover_list(const struct model *m, const nid *v, int cnt, const nid *pins,
 		if (e >= 0)
 			G->pinned[e] = 1;
 	}
-	if (wants_ranges(m))
+	if (wants_ranges(m)) {
+		int *w = xcalloc((size_t)(cnt ? cnt : 1), sizeof *w);
 		cover_ranges(G, v, cnt);
+		for (i = 0; i < cnt; i++)
+			w[i] = TY_SIZED(N.ty[v[i]]) && !TY_FP(N.ty[v[i]]) &&
+			    N.ty[v[i]] != TY_BOOL ? TYW(N.ty[v[i]]) : 0;
+		fg_demanded(G, w);
+		free(w);
+	}
 	return fg_cover(m, G);
 }
 

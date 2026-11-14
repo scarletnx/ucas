@@ -1,0 +1,26 @@
+# a map on scattered keys from a multiply-add and a shift, no value
+# table: ((x M + A) >> s) & mask, plus the least value, with M searched
+# and A solved for it (the offsets that serve every key are where arcs
+# mod 2^(s + b) meet).  phash weighs it against the value table: with
+# the check that x is a key it costs about what the table's load does
+# under gt1030, so it is listed, not taken
+op(x: u32) = match x { 3 => 1, 17 => 2, 40 => 1, 99 => 3, 120 => 2, _ => 0 }
+phash op
+# every input a key (x in 0..7) and a form that gives them: no key check
+# and no table, cheaper than the lookup's load
+cov(x: u8 in 0..7) = match x { 0 => 0, 1 => 3, 2 => 3, 3 => 2, 4 => 1, 5 => 0, 6 => 0, 7 => 3, _ => 0 }
+phash cov
+# twelve opcodes into four classes: no multiplier serves them, at a
+# shift up to 20 every one is tried (only M mod 2^(s + b) reaches the
+# field), and the search says so
+cls(x: u32) = match x { 7 => 1, 19 => 2, 23 => 1, 42 => 3, 57 => 2, 61 => 0, 88 => 3, 93 => 1, 105 => 2, 140 => 0, 177 => 3, 201 => 1, _ => 0 }
+phash cls
+# find, where the domain is the key set itself (the where clause): the
+# form needs no key check, and it is checked on every point like every
+# other match; ten keys, values from a multiplier drawn at random
+sel(x: u32 in 0..255) = match x { 3 => 1, 17 => 2, 40 => 0, 99 => 3, 120 => 0, 133 => 0, 170 => 2, 201 => 1, 230 => 2, 251 => 3, _ => 0 } where x == 3 || x == 17 || x == 40 || x == 99 || x == 120 || x == 133 || x == 170 || x == 201 || x == 230 || x == 251
+find sel 3
+# the same keys, values none of the multipliers searched gives: the
+# enumeration's forms only
+cl2(x: u32 in 0..255) = match x { 3 => 1, 17 => 2, 40 => 1, 99 => 3, 120 => 2, 133 => 0, 170 => 3, 201 => 1, 230 => 0, 251 => 2, _ => 0 } where x == 3 || x == 17 || x == 40 || x == 99 || x == 120 || x == 133 || x == 170 || x == 201 || x == 230 || x == 251
+find cl2 1

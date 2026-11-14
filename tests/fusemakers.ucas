@@ -1,0 +1,11 @@
+# A result modifier's classes (`on fadd fmul`) are among the first 64
+# (parse.c refuses others): an input made by an operation of a later
+# class, a float shuffle (sg_shuffle), is not one of them, and `models`
+# lists only the classes given.
+model sat : gt1030 { fuse fsat(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul }
+models
+use sat
+s1(x: f32, l: u32) = min(max(sg_shuffle(x, l), 0.0), 1.0)
+s2(x: f32, y: f32) = min(max(x + y, 0.0), 1.0)
+cost s1
+cost s2

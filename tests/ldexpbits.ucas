@@ -2,9 +2,15 @@
 # asfloat(asint(x) + (k << 23)) where |x| is normal (its range from its
 # definitions: 2^-126 at least, finite) and k, proved by SAT, keeps x * 2^k
 # normal, so the sign and the mantissa are x's (13 -> 3 under gt1030, where
-# ldexp is lowered).  An x that may be 0 takes it when it is an integer
-# converted (0, or 1 at least): a select keeps ldexp's 0 (13 -> 7).  A k
-# with no bound keeps its call.
+# ldexp is lowered).  Of any x (0, subnormal, no range at all) with k
+# proved in [-126, 127]: x times 2^k made by its exponent field,
+# x * asfloat((k << 23) + 0x3F800000), the correctly rounded x 2^k as
+# ldexp's is (13 -> 4); that is also the form for an x in [0.5, 2] whose k
+# may reach 127, past what keeps x 2^k normal.  A k with no bound, or one
+# that may leave [-126, 127] (here -127), keeps its call, but for a k up
+# to 254: x * 2^min(k, 127) * 2^(k - min(k, 127)), the first product
+# exact (or an overflow where x 2^k overflows too), the second one
+# rounding (13 -> 10); a k that may reach 255 keeps its call.
 simplify nofile nofunctions under gt1030
 ```glsl
 #version 450
@@ -20,5 +26,26 @@ void main() {
     o.f[i + 64u] = ldexp(n, k + 100);
     o.f[i + 128u] = ldexp(x, int(b.d[i + 128u]));
     o.f[i + 192u] = ldexp(float(b.d[i + 192u] & 255u), k);
+    float any = uintBitsToFloat(b.d[i + 320u]);
+    o.f[i + 256u] = ldexp(any, int(b.d[i + 384u] & 127u) - 64);
+    o.f[i + 320u] = ldexp(any, int(b.d[i + 448u] & 255u) - 127);
+    o.f[i + 384u] = ldexp(x, min(int(b.d[i + 512u] & 255u), 253) - 126);
+    o.f[i + 448u] = ldexp(any, min(int(b.d[i + 576u] & 511u), 380) - 126);
+    o.f[i + 512u] = ldexp(any, min(int(b.d[i + 640u] & 511u), 381) - 126);
+}
+```
+# where a multiply costs more than a compare and a select, an integer
+# converted keeps the field's form, its 0 kept by a select (13 -> 7)
+model slowmul : gt1030 { fmul: 8 }
+simplify nofile nofunctions under slowmul
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    int k = int(b.d[i + 64u] & 15u) - 8;
+    o.f[i] = ldexp(float(b.d[i] & 255u), k);
 }
 ```

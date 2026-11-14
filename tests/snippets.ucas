@@ -1,0 +1,30 @@
+# the snippet database: find's enumeration with no target, one program
+# per column of values on 32 fixed points, kept for the session or in
+# NAME.snip, grown a level of cost at a time and read back to go on.
+# find's own bank (1024 points) is full before it reaches this cost-3
+# program; the database's 32 points reach every program of cost 3
+f(a: u32, b: u32) = ((a + b) | (a - b)) & ~((a + b) & (a - b))
+find f 1
+# no database in the session: the one make grew for 2 inputs of 32 bits
+# under gt1030 (snippets/gt1030_2x32.snip)
+find f 1 snippets
+# one grown in the session is read first
+snippets grow inputs 2 width 32 cost 3
+find f 1 snippets
+# a function with no program of cost 3 or less in the database
+g(a: u32, b: u32) = (((a ^ b) << 1) | ((a ^ b) >> 31)) ^ 0xffffffff
+find g 1 snippets
+# a database on 8-bit inputs is not consulted for 32-bit ones
+snippets grow inputs 1 width 8 cost 2
+find f 1 snippets
+# 32 points do not tell every pair of 8-bit functions apart: a program
+# that matches there and differs elsewhere is said, not listed
+h(a: u8) = a == 77 ? 0 : a + 1
+find h 1 snippets
+# a file: started over, then grown on from where it stopped
+snippets grow snipt fresh inputs 1 width 8 cost 1
+snippets grow snipt inputs 1 width 8 cost 2
+k(a: u8) = (a + a) * 2
+find k 3 snippets snipt
+# another shape than the file's is refused, naming both
+snippets grow snipt inputs 2 width 8 cost 2

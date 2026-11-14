@@ -1,0 +1,76 @@
+# The operations #146 measured (tests/gt1030/results/2026-11-11.md): the
+# clustered sum, one operation a cluster size (sg_clustered_add(v, n),
+# classes sg_cluster2 ... sg_cluster32), NV's partition by a value and the
+# sum within a partition (sg_partition, sg_partitioned_add), and a barrier
+# of one subgroup (sg_barrier, in SPIR-V).  gt1030 lists none of their
+# classes; the prices of the model below are this test's.
+ca(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane * 10 + t, 4)
+show ca(0, 1)
+show ca(0, 6)
+ca2(t: u32 uniform, lane: u32 in 0..7) = subgroupClusteredAdd(lane * 10 + t, 2)
+show ca2(1, 5)
+# a cluster of the whole subgroup is its sum, of one lane the value
+ca8(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane * 10 + t, 8)
+show ca8
+ca1(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane * 10 + t, 1)
+show ca1
+
+# the partition: in lane 1, the lanes whose key is lane 1's (1 and 5);
+# the partitioned sum over them
+pa(t: u32 uniform, lane: u32 in 0..7) = sg_partition((lane + t) & 3)
+show pa(0, 1)
+show pa
+pd(t: u32 uniform, lane: u32 in 0..7) = sg_partitioned_add(lane * 10 + t, sg_partition(lane & 3))
+show pd(0, 1)
+show pd
+
+# under sg_active: the partition of the active lanes, an inactive lane
+# adds nothing
+pm(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_partitioned_add(lane * 10, sg_partition(lane & 3)) }
+show pm(0x0f, 1)
+show pm(0xff, 1)
+cm(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_clustered_add(lane * 10, 4) }
+show cm(0x0b, 1)
+
+# priced by their classes; find writes a clustered sum as a butterfly
+# inside the cluster, and one of bits as the ballot's bits of the cluster
+model cl : gt1030 { sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+cost ca
+cost ca model cl
+cost pd model cl
+find ca
+cb(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add((t >> lane) & 1, 4)
+find cb
+
+# refused: a cluster past the subgroup, not a power of two, of floats; a
+# partitioned sum over a mask sg_partition did not make
+cz(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane, 16)
+c3(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(t, 3)
+cf(t: f32 uniform, lane: u32 in 0..7) = sg_clustered_add(t, 4)
+pd2(m: u32 uniform, lane: u32 in 0..7) = sg_partitioned_add(lane, m)
+pf(t: f32 uniform, lane: u32 in 0..7) = sg_partition(t)
+
+# SPIR-V: 8 lanes whose x is 0 5 2 7 4 1 6 3 and k its low bit; a
+# partitioned sum over a ballot that is no partition is undefined (0
+# here, counted); a barrier of Subgroup scope is sg_barrier where the
+# model lists it, else a workgroup barrier, said
+animate exec %px = lane lanes 8 seed 1 nofile cl
+```spv
+%l = OpLoad %uint %px
+%m = OpIMul %uint %l %uint_5
+%x = OpBitwiseAnd %uint %m %uint_7
+%k = OpBitwiseAnd %uint %x %uint_1
+%c4 = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_4
+%c8 = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_8
+%pt = OpGroupNonUniformPartitionNV %v4uint %k
+%ps = OpGroupNonUniformIAdd %uint %uint_3 PartitionedReduceNV %x %pt
+%bad = OpGroupNonUniformIAdd %uint %uint_3 PartitionedReduceNV %x %uint_3
+OpControlBarrier %uint_3 %uint_3 %uint_264
+OpStore %y %ps
+```
+animate exec %px = lane lanes 8 seed 1 nofile
+```spv
+%l = OpLoad %uint %px
+OpControlBarrier %uint_3 %uint_3 %uint_264
+OpStore %y %l
+```

@@ -1,0 +1,59 @@
+> model ftz : gt1030 { float_controls: ftz32 rte32 }
+> use ftz
+cost model: ftz
+> spvsimplify nofile float
+  input %pa: float
+  input %pb: float
+  output %out: float (stored to; its values are listed after the run)
+simplify: 42 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under ftz (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  float controls, under ftz (its float_controls: the modes its device lets a module declare; adding one is a proposal, as the entry point's execution modes change):
+    DenormFlushToZero 32 (OpExecutionMode %main DenormFlushToZero 32, the DenormFlushToZero capability, SPV_KHR_float_controls below SPIR-V 1.4): every arithmetic result of the entry point is flushed then, so 2 flushes of subnormals written as instructions on such results do nothing and go, 12 a run; it differs only where a result's exact value is below 2^-126: Vulkan says "flushed to zero" and gives no sign (the written flush keeps x's), and such a value may be flushed even where it rounds to 2^-126 (which the written flush keeps).  Without a mode a driver may already flush any result; the mode makes it the rule
+    1 other flush stays: of a value no instruction flushes (a load, a phi, a select, a bitcast), which the mode may leave as it is
+    %s1 = OpBitcast %float %sf
+      a flush of %s = OpFAdd (6)
+    %p1 = OpSelect %float %pt %pz %p
+      a flush of %p = OpFMul (6)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %pa2 (compared with a constant), %la (compared with a constant)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under ftz (each component counted; step = compare + select, mix = subtract + fma): 15 -> 15 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+  input %pa: float
+  input %pb: float
+  output %out: float (stored to; its values are listed after the run)
+simplify: 29 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+> use ftz
+cost model: ftz
+> spvsimplify nofile nofunctions
+simplify: 45 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under ftz (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  float controls, under ftz (its float_controls: the modes its device lets a module declare; adding one is a proposal, as the entry point's execution modes change):
+    not proposed: 1 flush of subnormals written as instructions (6 a run) would go under DenormFlushToZero 32, but the module keeps denormals (DenormPreserve), which the mode would end for every result of the entry point
+    %s1 = OpBitcast %float %sf
+      a flush of %s = OpFAdd (6)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+> use ftz
+cost model: ftz
+> spvsimplify nofile nofunctions
+simplify: 45 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under ftz (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  float controls, under ftz (its float_controls: the modes its device lets a module declare; adding one is a proposal, as the entry point's execution modes change):
+    1 flush of subnormals written as instructions on results the entry point's DenormFlushToZero 32 already flushes (6 a run): it does nothing and could go
+    %s1 = OpBitcast %float %sf
+      a flush of %s = OpFAdd (6)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+> model badfc : gt1030 { float_controls: ftz33 }
+floatcontrols.ucas:148:40: error: float_controls: 'ftz33' is not a mode: rteN, rtzN, ftzN, preserveN or szinpN, N 16, 32 or 64 (none: not stated)
+    model badfc : gt1030 { float_controls: ftz33 }
+                                           ^

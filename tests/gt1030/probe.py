@@ -14,6 +14,9 @@ Each probe answers one issue of the "calibrate later" list (gt1030: #115-#122, #
   grid and precision, the blender's and the UNORM conversion's rounding, the BC4
   palette, REPEAT at large coordinates.
 - info: vulkaninfo's subTexelPrecisionBits.
+- lat: a class's latency, one warp and one dependent chain, in SM clocks a step (clockARB
+  around builds of 32 and 64 steps): the ALU classes, and loads and texture reads as chases
+  along one cycle through a table.
 
 What snx-shaderperf cannot set up (logic ops, stencil operations, MIN/MAX and advanced
 blending) is named in the report with what the probe needs, not skipped silently.
@@ -31,7 +34,7 @@ it shows the run goes through (lavapipe: VK_ICD_FILENAMES=.../lvp_icd.x86_64.jso
 Usage: probe.py [--sp PATH] [--out DIR] [--only NAME,...] [--issue N,...] [--runs N]
                 [--tries N] [--quick] [--list] [--ucas PATH] [--timeout S]
 """
-import argparse, json, math, os, re, shutil, struct, subprocess, sys, time
+import argparse, fnmatch, json, math, os, random, re, shutil, struct, subprocess, sys, time
 from fractions import Fraction
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,7 +46,7 @@ import run as R     # noqa: E402  its timing (snx-shaderperf, fadd beside) and t
 PRELUDE = R.PRELUDE
 A = None            # the options
 OUT = None          # the output folder
-FADD_NS = None      # fadd's ns a lane-step, from the last step run
+FADD_NS = None      # fadd's ns a lane-step, from the last fadd timed
 
 
 class ProbeError(Exception):
@@ -64,7 +67,7 @@ def step(name, issues, stp, ops, **kw):
     """a step of the corpus's shape (gen.py's t()), timed against fadd"""
     x = dict(step=stp, ops=ops, ty='uint', exts=[], decls='', pre='', post='', C=8, ring=None, iters=None,
              note='', sub='alu', A=8, wg=128, vkext=[], args=[], qual='', pre_iter='', body=None, prestep='',
-             poststep='')
+             poststep='', files={})
     x.update(kw)
     if x['ring'] is None:
         x['ring'] = any(p in (x['step'] or x['body'] or '') for p in ('{b}', '{c}', '{d}'))
@@ -112,6 +115,11 @@ step('exp_add_bits', [188], 'uintBitsToFloat(floatBitsToUint({a}) + ((floatBitsT
 step('exp_mul_conv', [188], '{a} * float(1u << (floatBitsToUint({b}) & 7u))',
      {'bitcast': 1, 'logic': 1, 'shift': 1, 'conv': 1, 'fmul': 1}, ty='float',
      note='the same as a shift, a conversion and a multiply')
+# --- #18, #19: a 64-bit division and remainder by a constant (multiply-high and shifts in 64 bits)
+step('u64_udiv_const', [18, 19], '({a} / 7ul) + {b}', {'x_u64_udivk': 1, 'x_i64add': 1}, ty='u64', exts=['i64'],
+     note='x / 7 on u64, x from the noise buffer (the corpus: u64_add 2.02, u64_mul 15.52)')
+step('u64_umod_const', [18, 19], '({a} % 7ul) + {b}', {'x_u64_umodk': 1, 'x_i64add': 1}, ty='u64', exts=['i64'],
+     note='x % 7 on u64')
 # --- #156: the catalogue's classes, each beside what it replaces
 step('bfe_builtin', [156], 'bitfieldExtract({a}, 7, 9) + {b}', {'bfe': 1, 'iadd': 1}, note='BFE, constant offset')
 step('bfe_shift_mask', [156], '(({a} >> 7u) & 0x1ffu) + {b}', {'shift': 1, 'logic': 1, 'iadd': 1},
@@ -129,9 +137,14 @@ step('mulhi', [156], 'umulhi({a}, {b}) + k', {'mulhi': 1, 'iadd': 1}, decls=G.UM
 step('mulhi_u64', [156], 'uint((uint64_t({a}) * uint64_t({b})) >> 32) + k', {'x_i64mul': 1, 'shift': 1, 'iadd': 1},
      exts=['i64'], note='the same through a u64 multiply and a shift')
 step('brev', [156], 'bitfieldReverse({a}) + {b}', {'brev': 1, 'iadd': 1}, note='BREV (the corpus: bitreverse 2.26)')
-step('med3_clamp', [156], 'clamp({a}, {b}, {c})', {'med3': 1}, lat=False, note='clamp of three chains')
-step('med3_minmax', [156], 'min(max({a}, {b}), {c})', {'minmax': 2}, note='the same as a max and a min')
-step('med3_fclamp', [156], 'clamp({a}, {b}, {c})', {'med3': 1}, ty='float', note='a float clamp of three chains')
+# clamp is undefined when its low bound is above its high one, so the bounds are kept apart: by their bits
+# (below 2^16 and from 2^16), in float by their signs (free source modifiers on sm_61)
+step('med3_clamp', [156], 'clamp({a}, {b} & 0xffffu, {c} | 0x10000u)', {'med3': 1, 'logic': 2}, lat=False,
+     note='clamp of three chains, the bounds ordered by two masks')
+step('med3_minmax', [156], 'min(max({a}, {b} & 0xffffu), {c} | 0x10000u)', {'minmax': 2, 'logic': 2},
+     note='the same as a max and a min')
+step('med3_fclamp', [156], 'clamp({a}, -abs({b}), abs({c}))', {'med3': 1}, ty='float',
+     note='a float clamp of three chains, the bounds ordered by their signs')
 step('sad4x8', [156], 'uint(abs(int({a} & 0xffu) - int({b} & 0xffu)) + abs(int(({a} >> 8u) & 0xffu) - '
      'int(({b} >> 8u) & 0xffu)) + abs(int(({a} >> 16u) & 0xffu) - int(({b} >> 16u) & 0xffu)) + '
      'abs(int({a} >> 24u) - int({b} >> 24u))) + {c}', {'sad4x8': 1, 'iadd': 1},
@@ -143,17 +156,23 @@ step('sg_ballot_slt', [144], 'int(subgroupBallot({a} < {b}).x) + {c}', {'sg_ball
      ty='int', exts=SG)
 step('sg_ballot_flt', [144], 'uintBitsToFloat(subgroupBallot({a} < {b}).x | 0x3f800000u) + {c}',
      {'sg_ballot': 1, 'cmp': 1, 'logic': 1, 'fadd': 1}, ty='float', exts=SG)
-step('sg_ballot_bool', [144], None, {'sg_ballot': 1, 'logic': 1, 'iadd': 1}, exts=SG, ring=False,
-     pre='bool pb = (s & 1u) != 0u;', body='{a} = subgroupBallot(pb).x + {a}; pb = !pb;',
-     note='a bool that is not a compare (a not of the last one)')
+probe('none', 'sg_ballot_bool', [144],
+      why='a bool that changes at every step without a compare does not exist in SPIR-V: a logical not of the '
+          'last one alternates, the driver makes both ballots once and the step is its add alone; the ballot of '
+          'a compare is measured above')
 step('sg_any_eq', [144], 'subgroupAny({a} == {b}) ? {c} : {d}', {'sg_vote': 1, 'cmp': 1, 'select': 1}, exts=SG)
 step('sg_all_ult', [144], 'subgroupAll({a} < {b}) ? {c} : {d}', {'sg_vote': 1, 'cmp': 1, 'select': 1}, exts=SG)
 step('sg_allequal', [144], 'subgroupAllEqual({a}) ? {b} : {c}', {'sg_vote': 1, 'select': 1}, exts=SG)
 # --- #145: the shuffle's forms without an add
 step('sg_shuffle_only', [145], 'subgroupShuffle({b}, {c} & 31u)', {'sg_shuffle': 1, 'logic': 1}, exts=SG)
 step('sg_shuffle_xor_only', [145], 'subgroupShuffleXor({b}, 1u)', {'x_shfl_xor': 1}, exts=SG)
-step('sg_broadcast_only', [145], 'subgroupBroadcast({b}, 5u)', {'x_shfl_bcast': 1}, exts=SG)
-step('sg_broadcast_first_only', [145], 'subgroupBroadcastFirst({b})', {'x_shfl_bcast_first': 1}, exts=SG)
+# a broadcast's result is the same in every lane, so a broadcast of it is its input: a ring of broadcasts
+# alone folds after one round; they keep the add of the corpus's sg_broadcast (beside a shuffle the add
+# costs nothing: sg_shuffle_xor_only against the corpus's sg_shuffle_xor)
+step('sg_broadcast_add', [145], 'subgroupBroadcast({a}, 5u) + {b}', {'x_shfl_bcast': 1, 'iadd': 1}, exts=SG,
+     note='with its add, the corpus sg_broadcast: a step of broadcasts alone folds')
+step('sg_broadcast_first_add', [145], 'subgroupBroadcastFirst({a}) + {b}', {'x_shfl_bcast_first': 1, 'iadd': 1},
+     exts=SG, note='with its add, the corpus sg_broadcast_first: a step of broadcasts alone folds')
 step('sg_rotate_only', [145], 'subgroupRotate({b}, 3u)', {'x_shfl_rotate': 1}, exts=SG + ['sgrot'])
 step('sg_quad_swap_only', [145], 'subgroupQuadSwapHorizontal({b})', {'x_shfl_quad': 1}, exts=SG)
 # --- #147: reductions, the exclusive scan, a table in a register
@@ -167,10 +186,26 @@ step('ubo_tab_read', [147], 'ubo.d[{a} & 31u].x + {b}', {'x_load_ubo_div': 1, 'l
      decls='layout(std140, set = 0, binding = 3) uniform U { uvec4 d[1024]; } ubo;\n',
      note='the same table in constant memory, a different entry in each lane')
 # --- #166: a constant table's load by its size
+def perm_table(n, seed=0x5eed):
+    """n u32 whose low bits move an index along a permutation: entry j holds pi(j) - j in its low log2(n)
+    bits (random above), so a walk i -> (i + t[i] + d) mod n keeps every lane on an entry of its own.  A
+    table that does not do this merges lanes: one affine in j (j k + c, k odd) sends every lane to one
+    entry in log2(n) steps, a random one leaves a few entries of 32 after a few hundred"""
+    rnd = random.Random(seed + n)
+    pi = list(range(n))
+    rnd.shuffle(pi)
+    sh = n.bit_length() - 1
+    return [((pi[j] - j) % n) | ((rnd.getrandbits(32 - sh) << sh) & 0xffffffff) for j in range(n)]
+
+
+def table_bytes(n):
+    return struct.pack('<%dI' % n, *perm_table(n))
+
+
 def _ctab(n):
     """a constant table of n u32 and how to read entry I: one OpConstantComposite holds at most
     65532 operands (the word count is 16 bits), so 256 KiB is 4 rows of 16384"""
-    v = ['0x%08xu' % ((j * 0x9e3779b1 + 0x7f4a7c15) & 0xffffffff) for j in range(n)]
+    v = ['0x%08xu' % x for x in perm_table(n)]
     if n <= 16384:
         return 'const uint tab[%d] = uint[](%s);\n' % (n, ', '.join(v)), 'tab[(I) & %du]' % (n - 1)
     rows = n // 16384
@@ -179,33 +214,48 @@ def _ctab(n):
         'tab[((I) >> 14) & %du][(I) & 16383u]' % (rows - 1))
 
 
-for _n, _kib in ((256, 1), (16384, 64), (65536, 256)):
+TB = 'layout(std430, set = 0, binding = 2) readonly buffer T { uint t[]; } tb;\n'
+
+
+def tbarg(n):
+    """the storage-buffer table: n entries of perm_table at binding 2, made when the probe runs"""
+    return dict(files={'table%d.bin' % n: lambda: table_bytes(n)}, args=['--bind', '0.2=file={data}/table%d.bin' % n])
+
+
+# NVIDIA's driver refuses a 64 KiB constant array (VK_ERROR_UNKNOWN): the sizes between show where it stops
+for _n, _kib in ((256, 1), (1024, 4), (4096, 16), (8192, 32), (16384, 64), (65536, 256)):
     _tab, _rd = _ctab(_n)
     _x = {'x_ctab%dk' % _kib: 1, 'logic': 1, 'iadd': 1}
     if _n > 16384:
         _x.update(logic=2, shift=1)
     # Mesa (lavapipe, RADV) compiles a 64 KiB constant array for more than 10 minutes: those run last
-    _slow = '; run last: Mesa takes over 10 minutes to compile it, so a timeout here is an answer too' \
-        if _n > 256 else ''
+    _slow = '; run last: a large constant array takes Mesa minutes to compile, so a timeout here is an answer ' \
+        'too' if _n > 256 else ''
     step('ctab%dk_random' % _kib, [166], '{a} + ' + _rd.replace('I', '{a} + {u}u'), _x, sub='mem', C=1,
          decls=_tab, slow=_n > 256, note='a %d KiB constant array, an index that the loaded value moves (random)%s%s'
          % (_kib, '; 4 rows of 64 KiB, as SPIR-V needs' if _n > 16384 else '', _slow))
     step('ctab%dk_seq' % _kib, [166], '{a} + ' + _rd.replace('I', 'ib + {u}u'), dict(_x), sub='mem', C=1,
          decls=_tab, slow=_n > 256, pre_iter='uint ib = gid + i * 64u;',
          note='the same, consecutive lanes on consecutive entries' + _slow)
-    step('ssbo%dk_random' % _kib, [166], '{a} + inb.data[({a} + {u}u) & %du]' % (_n - 1),
-         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
+    step('ssbo%dk_random' % _kib, [166], '{a} + tb.t[({a} + {u}u) & %du]' % (_n - 1),
+         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, decls=TB, **tbarg(_n),
          note='the same table in a storage buffer (random)')
-    step('ssbo%dk_seq' % _kib, [166], '{a} + inb.data[(ib + {u}u) & %du]' % (_n - 1),
-         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, pre_iter='uint ib = gid + i * 64u;',
-         note='the same table in a storage buffer (consecutive)')
+    step('ssbo%dk_seq' % _kib, [166], '{a} + tb.t[(ib + {u}u) & %du]' % (_n - 1),
+         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, pre_iter='uint ib = gid + i * 64u;', decls=TB,
+         **tbarg(_n), note='the same table in a storage buffer (consecutive)')
+# --- #65: the cache's size: #166's random walk over footprints from 128 KiB to 16 MiB (L2 is 512 KiB on GP108)
+CACHE_KIB = (128, 256, 512, 1024, 2048, 4096, 8192, 16384)
+for _kib in CACHE_KIB:
+    step('cache_%s' % ('%dk' % _kib if _kib < 1024 else '%dm' % (_kib // 1024)), [65],
+         '{a} + tb.t[({a} + {u}u) & %du]' % (_kib * 256 - 1), {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
+         decls=TB, **tbarg(_kib * 256), kib=_kib, note='a random walk over %d KiB' % _kib)
 # --- #168: a small texture as a table
 step('tex_table_r32ui', [168], '{a} + texelFetch(utex, ivec2(int({a} & 255u), 0), 0).x',
-     {'x_tex_fetch_r32ui': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, decls=UTEX,
-     args=['--bind', '0.5=format=r32_uint,size=256x1,pattern=noise,filter=nearest'],
+     {'x_tex_fetch_r32ui': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, decls=UTEX, files={'table256.bin': table_bytes(256)},
+     args=['--bind', '0.5=format=r32_uint,size=256x1,raw={data}/table256.bin,filter=nearest'],
      note='texelFetch of a 256-entry R32UI texture')
-step('ssbo_table_256', [168], '{a} + inb.data[{a} & 255u]', {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
-     note='the same 256 entries in a storage buffer')
+step('ssbo_table_256', [168], '{a} + tb.t[{a} & 255u]', {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
+     decls=TB, **tbarg(256), note='the same 256 entries in a storage buffer')
 step('tex_lerp_r8', [168], '{a} + textureLod(tex, vec2(fract({a}), 0.5), 0.0).x',
      {'x_tex_bilinear_r8': 1, 'conv': 1, 'fadd': 1}, ty='float', sub='mem', C=1, decls=TEX,
      args=texarg('r8_unorm', '256x1', 'linear'), note='a bilinear R8 read as a 256-entry interpolating table')
@@ -226,14 +276,21 @@ step('tex_nearest_repeat', [115], '{a} + textureLod(tex, vec2((float(ix + {u}) +
      note='NEAREST with REPEAT, the coordinate (i + 0.5) / n made in the step, past 1')
 step('tex_bilinear_r8', [118], TEXSTEP, {'x_tex_bilinear_r8': 1, 'fadd': 1}, ty='float', sub='mem', C=1,
      decls=TEX, pre_iter=UV, args=texarg('r8_unorm', '1024x1024', 'linear'), note='an R8 texture of the same size')
+# in and out of the cache with the same instructions: each read at a place of its own over the whole texture
+# (a hash of the lane and the iteration, then the step's offset of a golden-ratio fraction of the texture),
+# so a 4096x4096 texture (16 MiB of R8, 8 of BC4, over a 512 KiB L2) comes from DRAM and a 64x64 one (4 KiB)
+# from the cache; textureLodOffset's offsets of at most 8 texels would keep a step's reads in one line
+SCATTER = ('uint hs = (gid ^ (i * 0x9e3779b9u)) * 0x85ebca6bu; hs ^= hs >> 13; '
+           'vec2 uv = vec2(float(hs & 0xffffu), float(hs >> 16)) * (1.0 / 65536.0);')
+SCATSTEP = '{a} + textureLod(tex, uv + vec2(float({u}) * 0.618034, float({u}) * 0.381966), 0.0).x'
 for _f in ('bc4_unorm', 'r8_unorm'):
     for _filt in ('linear', 'nearest'):
         for _where, _size in (('cached', '64x64'), ('uncached', '4096x4096')):
-            step('%s_%s_%s' % (_f.split('_')[0], _filt, _where), [121], TEXSTEP,
-                 {'x_%s_%s' % (_f.split('_')[0], _filt): 1, 'fadd': 1}, ty='float', sub='mem', C=1, decls=TEX,
-                 pre_iter=UV, args=texarg(_f, _size, _filt),
-                 note='%s, %s, %s (%s)' % (_f, _filt, _size, 'repeats in the cache' if _where == 'cached'
-                                           else '16 MiB of R8 or 8 of BC4, read across'))
+            step('%s_%s_%s' % (_f.split('_')[0], _filt, _where), [121], SCATSTEP,
+                 {'x_%s_%s' % (_f.split('_')[0], _filt): 1, 'fadd': 3}, ty='float', sub='mem', C=1, decls=TEX,
+                 pre_iter=SCATTER, args=texarg(_f, _size, _filt),
+                 note='%s, %s, %s, a different place each read (%s); the step has 3 fadd' % (
+                     _f, _filt, _size, 'in the cache' if _where == 'cached' else 'out of the cache'))
 # --- #188 and #187 come with their alternatives above; #120, #207, #212 are units; the rest values
 
 probe('unit', 'setup_binding', [120], how='dispatch',
@@ -241,6 +298,14 @@ probe('unit', 'setup_binding', [120], how='dispatch',
 probe('absent', 'setup_upload', [120], needs='a timed upload: snx-shaderperf times dispatches and draws, '
       'not the copy of a texture')
 probe('unit', 'draw_empty', [212], how='draw', note='a draw of one point outside the target: no fragment')
+probe('unit', 'dispatch_empty', [53], how='dispatch_empty', note='a dispatch of one workgroup of 64 that does nothing')
+probe('absent', 'dispatch_indirect', [53], needs='vkCmdDispatchIndirect (snx-shaderperf dispatches directly only)',
+      key=r'(?i)indirect')
+probe('unit', 'export', [50], how='export',
+      note='1920x1080 rgba8: a compute imageStore of each pixel (8x8 workgroups) against a full-screen draw whose '
+           'fragment shader exports the same colour')
+probe('absent', 'blit_mip', [52], needs='a timed vkCmdBlitImage and a mip chain made by blits (snx-shaderperf '
+      'times dispatches and draws, not copies)', key=r'(?i)--blit')
 probe('unit', 'points', [212], how='points', note='points, one fragment each, into rgba8, and outside the target')
 probe('unit', 'rop_blend', [207], how='rop',
       note='points into R32_SFLOAT with no blending, ADD ONE ONE and SRC_ALPHA, ONE_MINUS_SRC_ALPHA (factors), '
@@ -260,8 +325,11 @@ probe('value', 'blend_rounding', [211], how='blend',
 probe('value', 'unorm_rounding', [211], how='unorm', queue='FILA 107 (#10)',
       note='k/255 + e for small e of both signs, written into rgba8_unorm and read back')
 probe('value', 'filter_weights', [116, 117], how='filter',
-      note='a 4x1 R8 ramp (0, 255, 37, 200) read bilinear at 4096 points between two texels, twice')
-probe('info', 'subtexel_bits', [117], note='vulkaninfo: VkPhysicalDeviceLimits.subTexelPrecisionBits')
+      note='a 4x1 R8 ramp (0, 255, 37, 200) read bilinear at 4096 points across two texel pairs, and every '
+           '2^-20 of a texel over the first 1/16 of one')
+probe('info', 'subtexel_bits', [117], how='subtexel', note='vulkaninfo: VkPhysicalDeviceLimits.subTexelPrecisionBits')
+probe('info', 'float_controls', [178], how='float_controls',
+      note='vulkaninfo: VkPhysicalDeviceFloatControlsProperties, the execution modes a module may declare')
 probe('value', 'repeat_large', [119], how='repeat',
       note='NEAREST REPEAT on a 256x1 R32UI table at (i + 0.5) / 256 for i near 0 and near +-2^22')
 probe('value', 'bc4_palette', [122], how='bc4',
@@ -274,6 +342,95 @@ probe('none', 'stage_io', [], queue='FILA 110-112 (#12)',
 probe('none', 'sg_operations', [146],
       why='measured (clustered add 19.44, partition 54.54, partitioned add 65.16, subgroup barrier 1.34); what '
           'is missing is ucas operations for them, not a measure')
+
+
+# --- latencies: one warp, one dependent chain, the SM clock (clockARB) read around the loop, builds of
+# LAT_U and 2 LAT_U steps; a step's latency is the clocks the second adds over the first, a step.  For
+# the model's latency (Liz, 2026-11-13), in SM clocks, which no clock speed moves.
+LAT_U = 32
+
+
+def lat(name, cls, stp, ty='uint', **kw):
+    """an ALU class's latency: the step with the chain it reads, as gen.py's latency builds"""
+    x = dict(step=stp, ops={cls: 1}, ty=ty, exts=[], decls='', pre='', post='', C=1, ring=None, iters=64,
+             note='', A=LAT_U, wg=32, vkext=[], args=[], qual='', pre_iter='', body=None, prestep='', poststep='',
+             files={})
+    x.update(kw)
+    x['latC'] = 2 if any(t in stp for t in ('{b}', '{c}', '{d}')) else 1
+    probe('lat', 'lat_' + name, [], how='alu', cls=cls, queue='latency', **x)
+
+
+lat('iadd', 'iadd', '{a} + {b}', note='IADD (the corpus: iadd 6.1)')
+lat('logic', 'logic', '({a} & {b}) | (~{a} & k)', note='one LOP3 of three inputs')
+lat('shift', 'shift', '{a} << {b}', note='SHL by a register (the corpus: shl_var 6.1)')
+lat('imul', 'imul', '{a} * {b}', note='the XMAD sequence of a 32-bit multiply (the corpus: imul 13.6)')
+lat('imad', 'imul', '{a} * {b} + k', note='a multiply-add: the XMAD chain with the add folded')
+lat('minmax', 'minmax', 'min({a}, {b})', note='IMNMX')
+lat('bitcnt', 'bitcnt', 'uint(bitCount({a}))', note='POPC')
+lat('conv', 'conv', 'uint(float({a}))', note='two conversions a step, I2F and F2I')
+lat('fadd', 'fadd', '{a} + {b}', ty='float', note='FADD (the corpus: fadd 6.1)')
+lat('fmul', 'fmul', '{a} * {b}', ty='float', note='FMUL')
+lat('ffma', 'fmul', 'fma({a}, {b}, kf2)', ty='float', note='FFMA')
+lat('fdiv', 'fdiv', '{b} / {a}', ty='float', note='a division: MUFU.RCP and its refinement')
+lat('fsqrt', 'fsqrt', 'sqrt({a})', ty='float', note='MUFU.RSQ and a multiply')
+lat('ftrans', 'ftrans', 'exp2({a})', ty='float', note='MUFU.EX2')
+lat('f64', 'f64', '{a} + {b}', ty='double', exts=['f64'], note='DADD (1/32 rate on GP108)')
+lat('dot4x8', 'dot4x8', 'udot4x8({a}, {b}, 0)', exts=['dot'], decls=G.DOT_DECLS, note='IDP4A')
+lat('sg_shuffle', 'sg_shuffle', 'subgroupShuffle({a}, {b})', exts=SG, note='SHFL (the corpus: sg_shuffle 31.1)')
+lat('sg_ballot', 'sg_ballot', 'subgroupBallot({a} < {b}).x', exts=SG, note='a compare and VOTE')
+lat('sg_add', 'sg_add', 'subgroupAdd({a}) + {b}', exts=SG, note='the reduction with its add')
+
+
+def cycle_table(n, seed=0xc1c1e):
+    """t[j] the entry after j on one cycle through all n (Sattolo's shuffle): a chase from any entry visits
+    every one before it comes back, so no short loop stays in a cache"""
+    rnd = random.Random(seed + n)
+    t = list(range(n))
+    for i in range(n - 1, 0, -1):
+        j = rnd.randrange(i)
+        t[i], t[j] = t[j], t[i]
+    return t
+
+
+def chase(name, cls, n, where, decls, read, args, files=None, init=None, pre='', out='a', iters=64, ty='uint',
+          note=''):
+    """a memory or texture class's latency: every lane follows the same cycle, so each step is one address
+    the step's own load must return before the next can start"""
+    probe('lat', 'lat_%s_%s' % (name, where), [], how='chase', cls=cls, n=n, decls=decls, read=read, args=args,
+          files=files or {}, init=init or 'uint a = pc.k2 %% %du;' % n, pre=pre, out=out, iters=iters, ty=ty,
+          queue='latency', note=note)
+
+
+def _tb(n):
+    # made when the probe runs: the 4M-entry tables take seconds
+    return {'cycle%d.bin' % n: lambda: struct.pack('<%dI' % n, *cycle_table(n))}
+
+
+for _n, _w in ((1024, 'l1'), (65536, 'l2'), (4194304, 'dram')):
+    chase('load', 'load' if _w != 'dram' else 'load_stream', _n, _w, TB, 'a = tb.t[a];',
+          ['--bind', '0.2=file={data}/cycle%d.bin' % _n], files=_tb(_n), iters=64 if _w != 'dram' else 16,
+          note='a storage buffer of %s, every lane on one cycle through it' % {'l1': '4 KiB', 'l2': '256 KiB',
+                                                                               'dram': '16 MiB'}[_w])
+chase('load', 'load_shared', 4096, 'shared', 'shared uint sm[4096];\n' + TB, 'a = sm[a];',
+      ['--bind', '0.2=file={data}/cycle4096.bin'], files=_tb(4096), pre='for (uint j = gid; j < 4096u; j += 32u) sm[j] = tb.t[j]; barrier();',
+      note='workgroup memory, 16 KiB')
+chase('load', 'load_ubo', 1024, 'ubo', 'layout(std140, set = 0, binding = 3) uniform U { uvec4 d[1024]; } ubo;\n',
+      'a = ubo.d[a].x;', ['--bind', '0.3=file={data}/cycle1024x4.bin'],
+      files={'cycle1024x4.bin': lambda: b''.join(struct.pack('<4I', v, 0, 0, 0) for v in cycle_table(1024))},
+      note='a uniform buffer of 1024 uvec4 (16 KiB): the constant cache, one address a step')
+for _n, _wh, _w in ((1024, (32, 32), 'cached'), (4194304, (2048, 2048), 'dram')):
+    chase('tex_fetch', 'tex_fetch', _n, _w, UTEX, 'a = texelFetch(utex, ivec2(int(a %% %du), int(a / %du)), 0).x;'
+          % (_wh[0], _wh[0]), ['--bind', '0.5=format=r32_uint,size=%dx%d,raw={data}/cycle%d.bin,filter=nearest'
+                                % (_wh[0], _wh[1], _n)], files=_tb(_n), iters=64 if _w == 'cached' else 16,
+          note='texelFetch of a %dx%d R32UI texture holding the cycle (the index math is in the step)' % _wh)
+    chase('tex_sample', 'tex_sample', _n, _w, 'layout(set = 0, binding = 5) uniform sampler2D tex;\n',
+          'uv = textureLod(tex, uv, 0.0).xy;', ['--bind', '0.5=format=rg32_sfloat,size=%dx%d,raw={data}/uv%d.bin,'
+                                                'filter=linear,wrap=repeat' % (_wh[0], _wh[1], _n)],
+          files={'uv%d.bin' % _n: (lambda n=_n, w=_wh: b''.join(struct.pack('<2f', ((v % w[0]) + 0.5) / w[0], (
+              (v // w[0]) + 0.5) / w[1]) for v in cycle_table(n)))},
+          init='vec2 uv = vec2(0.5 / %d.0, 0.5 / %d.0);' % _wh, out='floatBitsToUint(uv.x)', ty='vec2',
+          iters=64 if _w == 'cached' else 16,
+          note='a bilinear read of a %dx%d RG32F texture whose texels hold the next texel\'s centre' % _wh)
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +519,9 @@ def run_step(p):
     ref = fadd_entry()
     shaders = [os.path.join(HERE, ref['files']['a']), os.path.join(HERE, ref['files']['b'])] + files
     test = dict(chains=x['C'], unroll=[Aun, 2 * Aun], iters=iters)
-    extra = timing_args() + ['--size', str(lanes)] + list(x['args'])
+    write_files(x['files'])
+    extra = timing_args() + ['--size', str(lanes)] + [a.replace('{data}', os.path.join(OUT, 'data'))
+                                                      for a in x['args']]
     for v in x['vkext']:
         extra += ['--ext', v]
     best = None
@@ -380,7 +539,7 @@ def run_step(p):
         err = abs(cost) * ((tp['x']['err'] / tp['x']['ns']) ** 2 + (tp['ref']['err'] / tp['ref']['ns']) ** 2) ** 0.5
         if best is None or err / abs(cost) < best['err'] / abs(best['cost']):
             best = dict(cost=cost, err=err, tries=attempt + 1, fadd_ns=tp['ref']['ns'],
-                        bytes_per_step=tp['x']['bytes_per_step'], iters=iters, lanes=lanes)
+                        bytes_per_step=tp['x']['bytes_per_step'], iters=iters, lanes=lanes, clock_mhz=R.sm_clock(d))
         if err <= A.max_rel_err * abs(cost):
             break
     FADD_NS = best['fadd_ns']
@@ -400,6 +559,25 @@ def in_fadd(ns):
     if FADD_NS is None:
         raise ProbeError('no fadd run before this unit: nothing to convert ns into fadd steps')
     return ns / FADD_NS
+
+
+def fadd_now(tag):
+    """fadd's ns a lane-step from a run of its own, just before a unit's runs: the SM clock moves between
+    runs (1.2 to 1.9 GHz), so a unit converts into fadd steps by the fadd timed beside it"""
+    global FADD_NS
+    ref = fadd_entry()
+    lanes = 4096 if A.quick else 65536
+    iters = 2 if A.quick else ref['iters']
+    shaders = [os.path.join(HERE, ref['files']['a']), os.path.join(HERE, ref['files']['b'])]
+    d = sp(R.sp_cmd('', shaders, iters, timing_args() + ['--size', str(lanes)])[1:], log_path('fadd_%s.log' % tag))
+    (ta, ea), (tb, eb) = per_rep(d['shaders'][0]), per_rep(d['shaders'][1])
+    steps = d['shaders'][0]['invocations_per_rep'] * iters * ref['unroll'][0] * ref['chains']
+    if tb <= ta:
+        if not A.quick:
+            raise ProbeError('fadd.b ran no slower than fadd.a (%.3g ns, %.3g ns): no fadd to convert by' % (tb, ta))
+        tb = ta + steps * 1e-3    # a smoke run's grid is too small to time: a placeholder of 1 ps
+    FADD_NS = (tb - ta) / steps
+    return dict(fadd_ns=FADD_NS, fadd_err_ns=(ea * ea + eb * eb) ** 0.5 / steps, fadd_clock_mhz=R.sm_clock(d))
 
 
 # --- shaders of the unit and value probes ----------------------------------------
@@ -428,6 +606,16 @@ void main() {
     uint i = gl_GlobalInvocationID.x;
     atomicAdd(of.f[(i * pc.stride) % (pc.w * pc.h)], 1.0);
 }
+'''
+CS_EMPTY = '''#version 460
+layout(local_size_x = 64) in;
+void main() {}
+'''
+CS_STORE = '''#version 460
+// each invocation writes its own pixel of a w x h rgba8 image
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 6, rgba8) uniform writeonly image2D img;
+void main() { imageStore(img, ivec2(gl_GlobalInvocationID.xy), vec4(1.0, 1.0, 1.0, 0.5)); }
 '''
 CS_BIND0 = '''#version 460
 layout(local_size_x = 128) in;
@@ -584,41 +772,125 @@ def ulps(got, want):
     return abs(got - want) / ulp32(max(abs(got), abs(want), 2.0 ** -126))
 
 
+def write_files(files):
+    """a probe's data files into OUT/data (a callable makes its bytes when the probe runs)"""
+    for fn, data in files.items():
+        write(fn, data() if callable(data) else data)
+
+
+def subst(args):
+    return [a.replace('{data}', os.path.join(OUT, 'data')) for a in args]
+
+
+def lat_shader(p, U):
+    """a chase's GLSL: one warp, the chain p['read'] U times an iteration, the SM clock around the loop"""
+    return ''.join(['#version 460\n', '#extension GL_ARB_shader_clock : require\n',
+                    '#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require\n',
+                    '// %s: latency, UNROLL %d\n' % (p['name'], U), 'layout(local_size_x = 32) in;\n', G.HEADER_PC,
+                    'layout(std430, set = 0, binding = 1) buffer Out { uint data[]; } outb;\n', p['decls'],
+                    'void main() {\n', '    uint gid = gl_GlobalInvocationID.x;\n'] +
+                   (['    %s\n' % p['pre']] if p['pre'] else []) +
+                   ['    %s\n' % p['init'], '    uint64_t c0 = clockARB();\n',
+                    '    for (uint i = 0u; i < pc.iters; i++) {\n'] + ['        %s\n' % p['read']] * U +
+                   ['    }\n', '    uint64_t c1 = clockARB();\n', '    outb.data[2u * gid] = %s;\n' % p['out'],
+                    '    outb.data[2u * gid + 1u] = uint(c1 - c0);\n', '}\n'])
+
+
+def lat_run(p, shaders, iters, chains):
+    """the U and 2U builds in one run of one warp; lane 0's clocks give the clocks a step"""
+    out = dump('lat_%s.bin' % p['name'])
+    sp(R.sp_cmd('', shaders, iters, ['--size', '32', '--runs', '3', '--warmup', '2', '--warmup-ms', '20', '--check',
+                                     '--dump', '0.1=' + out, '--json', '--quiet', '--no-smi', '--compile-runs', '1'] +
+                subst(p['args']))[1:], log_path(p['name'] + '.log'))
+    clk = []
+    for k in range(2):
+        path = out.replace('.bin', '-%d.bin' % k)
+        if not os.path.exists(path):
+            raise ProbeError('snx-shaderperf wrote no %s' % os.path.basename(path))
+        clk.append(struct.unpack('<2I', open(path, 'rb').read(8))[1])
+    return dict(cycles=(clk[1] - clk[0]) / (iters * LAT_U * chains), clocks=clk, iters=iters, chains=chains)
+
+
+def lat_alu(p):
+    x = dict(p, name=p['name'])
+    write_files(x['files'])
+    files = [compile_glsl('%s.%s' % (p['name'], t), G.gen_compute(x, U, True), 'comp')
+             for t, U in (('la', LAT_U), ('lb', 2 * LAT_U))]
+    return lat_run(p, files, 2 if A.quick else p['iters'], x['latC'])
+
+
+def lat_chase(p):
+    write_files(p['files'])
+    files = [compile_glsl('%s.%s' % (p['name'], t), lat_shader(p, U), 'comp') for t, U in (('la', LAT_U),
+                                                                                              ('lb', 2 * LAT_U))]
+    return lat_run(p, files, 2 if A.quick else p['iters'], 1)
+
+
+LATS = dict(alu=lat_alu, chase=lat_chase)
+
+
 # --- units ------------------------------------------------------------------------
 
 def unit_setup_binding(p):
+    f = fadd_now(p['name'])
     a = compile_glsl('setup_bind0', CS_BIND0, 'comp')
     b = compile_glsl('setup_bind1', CS_BIND1, 'comp')
     d = sp([a, b, '--size', '128', '--bind', '0.5=format=rgba8_unorm,size=4x4,pattern=noise'] + timing_args(),
            log_path('setup_binding.log'))
     (ta, ea), (tb, eb) = per_rep(d['shaders'][0]), per_rep(d['shaders'][1])
-    return dict(ns_base=ta, ns_one_more=tb, ns_binding=tb - ta, err_ns=(ea * ea + eb * eb) ** 0.5,
-                fadd_steps=in_fadd(tb - ta))
+    return dict(f, ns_base=ta, ns_one_more=tb, ns_binding=tb - ta, err_ns=(ea * ea + eb * eb) ** 0.5,
+                fadd_steps=in_fadd(tb - ta), clock_mhz=R.sm_clock(d))
 
 
 def unit_draw_empty(p):
+    f = fadd_now(p['name'])
     vs = compile_glsl('vs_points', VS_POINTS, 'vert')
     fs = compile_glsl('fs_one', FS_ONE, 'frag')
     d = sp([vs, '--fs', fs, '--topology', 'points', '--vertices', '1', '--size', '256x256', '--push', 'w=u32:256',
             '--push', 'h=u32:256', '--push', 'stride=u32:1', '--push', 'off=f32:4.0'] + timing_args(),
            log_path('draw_empty.log'))
     t, e = per_rep(d['shaders'][0])
-    return dict(ns_draw=t, err_ns=e, fadd_steps=in_fadd(t))
+    return dict(f, ns_draw=t, err_ns=e, fadd_steps=in_fadd(t), clock_mhz=R.sm_clock(d))
 
 
 def unit_points(p):
     vs = compile_glsl('vs_points', VS_POINTS, 'vert')
     fs = compile_glsl('fs_one', FS_ONE, 'frag')
     n = 4096 if A.quick else 262144
-    r = {}
+    r = fadd_now(p['name'])
     for tag, off in (('onscreen', '0.0'), ('offscreen', '4.0')):
         d = sp([vs, '--fs', fs, '--topology', 'points', '--vertices', str(n), '--size', '256x256', '--push',
                 'w=u32:256', '--push', 'h=u32:256', '--push', 'stride=u32:1', '--push', 'off=f32:' + off] +
                timing_args(),
                log_path('points_%s.log' % tag))
         t, e = per_rep(d['shaders'][0])
-        r[tag] = dict(ns_vertex=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n))
+        r[tag] = dict(ns_vertex=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n), clock_mhz=R.sm_clock(d))
     r['vertices'] = n
+    return r
+
+
+def unit_dispatch_empty(p):
+    f = fadd_now(p['name'])
+    cs = compile_glsl('cs_empty', CS_EMPTY, 'comp')
+    d = sp([cs, '--size', '64'] + timing_args(), log_path('dispatch_empty.log'))
+    t, e = per_rep(d['shaders'][0])
+    return dict(f, ns_dispatch=t, err_ns=e, fadd_steps=in_fadd(t), clock_mhz=R.sm_clock(d))
+
+
+def unit_export(p):
+    """a pixel written by compute (imageStore) and by a draw (the fragment's export), the same format and size"""
+    r = fadd_now(p['name'])
+    W, H = (256, 256) if A.quick else (1920, 1080)
+    cs = compile_glsl('cs_store', CS_STORE, 'comp')
+    fs = compile_glsl('fs_one', FS_ONE, 'frag')
+    for tag, args in (('compute', [cs, '--size', '%dx%d' % (W, H), '--bind',
+                                   '0.6=format=rgba8_unorm,size=%dx%d' % (W, H)]),
+                      ('draw', [fs, '--size', '%dx%d' % (W, H)])):
+        d = sp(args + timing_args(), log_path('export_%s.log' % tag))
+        t, e = per_rep(d['shaders'][0])
+        r[tag] = dict(ns_pixel=t / (W * H), err_ns=e / (W * H), fadd_steps=in_fadd(t / (W * H)),
+                      clock_mhz=R.sm_clock(d))
+    r['pixels'] = W * H
     return r
 
 
@@ -632,18 +904,21 @@ def unit_rop(p):
     for where, w, stride in (('l2', 256, 1), ('dram', 4096, 61)):
         if A.quick and where == 'dram':
             w = 512
+        r['fadd_' + where] = fadd_now('%s_%s' % (p['name'], where))
         for blend in ('none', 'add', 'alpha'):
             d = sp([vs, '--fs', fs, '--topology', 'points', '--vertices', str(n), '--size', '%dx%d' % (w, w),
                     '--rt', '0=r32_sfloat', '--blend', blend, '--push', 'w=u32:%d' % w, '--push', 'h=u32:%d' % w,
                     '--push', 'stride=u32:%d' % stride, '--push', 'off=f32:0.0'] + timing_args(),
                    log_path('rop_%s_%s.log' % (blend, where)))
             t, e = per_rep(d['shaders'][0])
-            r['%s_%s' % (blend, where)] = dict(ns_point=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n))
+            r['%s_%s' % (blend, where)] = dict(ns_point=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n),
+                                               clock_mhz=R.sm_clock(d))
         d = sp([cs, '--size', str(n), '--buffer-size', '%dM' % max(1, w * w * 4 >> 20), '--ext',
                 'VK_EXT_shader_atomic_float', '--push', 'w=u32:%d' % w, '--push', 'h=u32:%d' % w,
                 '--push', 'stride=u32:%d' % stride] + timing_args(), log_path('rop_atomic_%s.log' % where))
         t, e = per_rep(d['shaders'][0])
-        r['atomic_%s' % where] = dict(ns_atomic=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n))
+        r['atomic_%s' % where] = dict(ns_atomic=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n),
+                                      clock_mhz=R.sm_clock(d))
     return r
 
 
@@ -747,52 +1022,79 @@ def value_unorm(p):
     return dict(values=len(vals), round_nearest=near, other_neighbour=other, examples=off)
 
 
+RAMP = (0, 255, 37, 200)      # the 4x1 R8 texture the filter probe reads
+FILTER_N = 4096               # samples across each of two texel pairs
+FILTER_FINE_BITS = 20         # the fine sweep's spacing, 2^-20 of a texel
+FILTER_FINE = 1 << 16         # its samples: the first 1/16 of the pair (0, 255)
+
+
+def filter_coords():
+    """(first texel, x, u) of every read of the filter probe: x the position between the pair's two texels
+    in texel units, u the coordinate on the 4-wide texture (4 u - 1/2 = texel + x, every u exact in f32).
+    The pairs (0, 255) and (37, 200) at FILTER_N points, then (0, 255) every 2^-20 over its first 1/16,
+    finer than any weight grid the result can show, so a change lands on a grid point or between two"""
+    pts = [(0, j / FILTER_N) for j in range(FILTER_N)] + [(2, j / FILTER_N) for j in range(FILTER_N)] + \
+        [(0, j / 2.0 ** FILTER_FINE_BITS) for j in range(FILTER_FINE)]
+    return [(t, x, (t + 0.5 + x) / 4.0) for t, x in pts]
+
+
+def grid_weight(x, bits, mode):
+    """x on a grid of 2^bits steps, truncated or to the nearest (ties up, as a fixed-point add of a half)"""
+    g = 1 << bits
+    k = math.floor(x * g) if mode == 'truncate' else math.floor(x * g + 0.5)
+    return Fraction(k, g)
+
+
+def filter_analysis(got):
+    """what the reads of filter_coords() say: the weight grid, its rounding, the blend's error"""
+    n, F = FILTER_N, FILTER_FINE
+    coarse, fine = got[:2 * n], got[2 * n:2 * n + F]
+    r = dict(distinct=len(set(coarse[:n])), samples=n)
+    changes = [j for j in range(1, F) if fine[j] != fine[j - 1]]
+    gaps = sorted({b - a for a, b in zip(changes, changes[1:])})
+    r['fine_changes'] = len(changes)
+    r['grid_bits'] = r['weights_round'] = None
+    if len(changes) < 2:
+        r['grid_note'] = '%s in the first 1/16 of a texel: a grid of 5 bits or coarser' % (
+            'one change' if changes else 'no change')
+    elif len(gaps) > 1 or gaps[0] & (gaps[0] - 1):
+        r['grid_note'] = 'irregular: the changes are %s to %s samples of 2^-%d apart' % (
+            gaps[0], gaps[-1], FILTER_FINE_BITS)
+    else:
+        step = gaps[0]
+        if step == 1:
+            r['grid_note'] = 'a change at every sample: a grid of %d bits or finer' % FILTER_FINE_BITS
+        else:
+            r['grid_bits'] = FILTER_FINE_BITS - step.bit_length() + 1
+            offs = sorted({c % step for c in changes})
+            r['change_offsets'] = [o / step for o in offs]
+            r['weights_round'] = 'truncate' if offs == [0] else 'nearest' if offs == [step // 2] else 'other'
+    # the blend against the weighted sum at the weight the grid gives (the exact weight when unseen)
+    worst, exact = 0.0, True
+    for k, (t, x, u) in enumerate(filter_coords()[:2 * n]):
+        a, b = Fraction(RAMP[t], 255), Fraction(RAMP[t + 1], 255)
+        w = grid_weight(x, r['grid_bits'], r['weights_round']) if r['weights_round'] in ('truncate', 'nearest') \
+            else Fraction(x)
+        want = a + w * (b - a)
+        worst = max(worst, abs(Fraction(coarse[k]) - want))
+        exact = exact and f32bits(coarse[k]) == f32bits(round_f32(want, 'even'))
+    r['error_against'] = 'its grid weight' if r['weights_round'] in ('truncate', 'nearest') else 'the exact weight'
+    r['max_error_abs'] = float(worst)
+    r['max_error_255'] = float(worst * 255)
+    r['blend_exact'] = exact
+    return r
+
+
 def value_filter(p):
-    pgm = write('ramp.pgm', b'P5\n4 1\n255\n' + bytes([0, 255, 37, 200]))
-    n = 4096
-    us = [f32((0.5 + j / n) / 4.0) for j in range(n)] + [f32((2.5 + j / n) / 4.0) for j in range(n)]
-    ub = write('filter_u.bin', b''.join(struct.pack('<f', u) for u in us))
+    pgm = write('ramp.pgm', b'P5\n4 1\n255\n' + bytes(RAMP))
+    co = filter_coords()
+    ub = write('filter_u.bin', b''.join(struct.pack('<f', u) for t, x, u in co))
     cs = compile_glsl('cs_sample', CS_SAMPLE, 'comp')
     out = dump('filter_r.bin')
-    sp([cs, '--size', str(2 * n), '--bind', '0.0=file=' + ub, '--bind',
+    sp([cs, '--size', str(len(co)), '--bind', '0.0=file=' + ub, '--bind',
         '0.5=format=r8_unorm,file=%s,filter=linear,wrap=clamp' % pgm, '--check', '--dump', '0.1=' + out,
         '--runs', '2', '--warmup', '1', '--warmup-ms', '1', '--compile-runs', '1', '--json', '--quiet'], log_path('filter.log'))
-    got = struct.unpack('<%df' % (2 * n), read_dump(out, 8 * n))
-    r = {}
-    for side, (t0, t1), seg in (('0_255', (0, 255), got[:n]), ('37_200', (37, 200), got[n:])):
-        a, b = t0 / 255.0, t1 / 255.0
-        distinct = sorted(set(seg))
-        # the weight each result stands for, and where along w it changes
-        steps = [j for j in range(1, n) if seg[j] != seg[j - 1]]
-        r[side] = dict(distinct=len(distinct), changes=len(steps), first_changes=[j / n for j in steps[:4]])
-    # the grid: as many weights as distinct results on the 0..1 side (2^b, or 2^b + 1 when the
-    # weight rounds to nearest and reaches 1)
-    lv = r['0_255']['distinct']
-    bits = round(math.log2(lv)) if lv > 2 else None
-    r['grid_bits'] = bits
-    if not bits:
-        return r
-    g = 2 ** bits
-    sides = (((0, 255), got[:n]), ((37, 200), got[n:]))
-    # where along a grid step the 0..1 results change: just past a grid point when the weight is
-    # truncated, near the middle when it rounds to nearest (the samples are 1/16 of a step apart
-    # for an 8-bit grid, so a change shows up to 1/16 late)
-    seg = got[:n]
-    offs = [((jj / n) * g) % 1.0 for jj in range(1, n) if seg[jj] != seg[jj - 1]]
-    r['change_offsets'] = [min(offs), max(offs)] if offs else []
-    mid = sum(1 for o in offs if 0.25 <= o < 0.75)
-    r['weights_round'] = 'nearest' if offs and mid == len(offs) else 'truncate' if offs and mid == 0 else 'unclear'
-    # the blend's own error: each result against the weighted sum at the grid weight it stands for
-    wu = wa = 0.0
-    for (t0, t1), seg in sides:
-        a, b = t0 / 255.0, t1 / 255.0
-        for gv in seg:
-            q = round((gv - a) / (b - a) * g) / g
-            e = a + q * (b - a)
-            wa, wu = max(wa, abs(gv - e)), max(wu, ulps(gv, e))
-    r['max_error_ulps'], r['max_error_abs'] = wu, wa
-    r['max_error_255'] = wa * 255
-    return r
+    return filter_analysis(struct.unpack('<%df' % len(co), read_dump(out, 4 * len(co))))
 
 
 def value_repeat(p):
@@ -859,25 +1161,64 @@ def value_bc4(p):
                 off_entries=len(entries), examples=entries[:10])
 
 
-def info_subtexel(p):
-    out = run_tool(['vulkaninfo'], log_path('vulkaninfo.log'), 120)
-    gpus = []
-    cur = None
-    for line in out.splitlines():
+# VkPhysicalDeviceFloatControlsProperties' fields and the word the model's `float_controls:` takes for each
+FC_WORDS = (('shaderRoundingModeRTEFloat', 'rte'), ('shaderRoundingModeRTZFloat', 'rtz'),
+            ('shaderDenormFlushToZeroFloat', 'ftz'), ('shaderDenormPreserveFloat', 'preserve'),
+            ('shaderSignedZeroInfNanPreserveFloat', 'szinp'))
+
+
+def vulkaninfo_devices(text):
+    """each device vulkaninfo prints: its name, subTexelPrecisionBits and the float controls it reports true"""
+    gpus, cur = [], None
+    for line in text.splitlines():
         s = line.strip()
-        if s.startswith('deviceName') and '=' in s:
-            cur = dict(name=s.split('=', 1)[1].strip())
+        if '=' not in s:
+            continue
+        key, val = (t.strip() for t in s.split('=', 1))
+        if key == 'deviceName':
+            cur = dict(name=val, fc={})
             gpus.append(cur)
-        elif s.startswith('subTexelPrecisionBits') and '=' in s and cur is not None and 'subtexel' not in cur:
-            cur['subtexel'] = int(s.split('=', 1)[1].strip())
-    if not gpus or not any('subtexel' in g for g in gpus):
+        elif cur is None:
+            continue
+        elif key == 'subTexelPrecisionBits' and 'subtexel' not in cur:
+            cur['subtexel'] = int(val)
+        else:
+            for field, word in FC_WORDS:
+                m = re.fullmatch(field + r'(16|32|64)', key)
+                if m and word + m.group(1) not in cur['fc']:
+                    cur['fc'][word + m.group(1)] = val == 'true'
+    return gpus
+
+
+def the_card(gpus, need):
+    """the GT 1030 among the devices that report need, else the first that does"""
+    have = [g for g in gpus if need(g)]
+    if not have:
+        return None
+    return next((g for g in have if '1030' in g['name']), have[0])
+
+
+def info_subtexel(p):
+    gpus = vulkaninfo_devices(run_tool(['vulkaninfo'], log_path('vulkaninfo.log'), 120))
+    pick = the_card(gpus, lambda g: 'subtexel' in g)
+    if not pick:
         raise ProbeError('vulkaninfo printed no subTexelPrecisionBits (raw/vulkaninfo.log)')
-    pick = next((g for g in gpus if '1030' in g['name'] and 'subtexel' in g), None) or \
-        next(g for g in gpus if 'subtexel' in g)
-    return dict(device=pick['name'], subtexel=pick['subtexel'], devices=gpus)
+    return dict(device=pick['name'], subtexel=pick['subtexel'], devices=[g['name'] for g in gpus])
 
 
-UNITS = dict(dispatch=unit_setup_binding, draw=unit_draw_empty, points=unit_points, rop=unit_rop)
+def info_float_controls(p):
+    gpus = vulkaninfo_devices(run_tool(['vulkaninfo'], log_path('vulkaninfo_fc.log'), 120))
+    pick = the_card(gpus, lambda g: g['fc'])
+    if not pick:
+        raise ProbeError('vulkaninfo printed no VkPhysicalDeviceFloatControlsProperties (raw/vulkaninfo_fc.log)')
+    return dict(device=pick['name'], words=sorted(w for w, on in pick['fc'].items() if on), fields=pick['fc'])
+
+
+INFOS = dict(subtexel=info_subtexel, float_controls=info_float_controls)
+
+
+UNITS = dict(dispatch=unit_setup_binding, draw=unit_draw_empty, points=unit_points, rop=unit_rop,
+             dispatch_empty=unit_dispatch_empty, export=unit_export)
 VALUES = dict(blend=value_blend, unorm=value_unorm, filter=value_filter, repeat=value_repeat, bc4=value_bc4)
 
 
@@ -916,12 +1257,13 @@ def model_lines(res):
     if c is not None and f is not None:
         L.append(('fuse fsat(a: float) = min(max(a, 0.0), 1.0) : %g on fadd fmul' % q8(c - f),
                   '#186 %s against %s: %.2f' % (note('fsat_fma'), note('fma_contract'), c - f)))
-    for cls, n, minus in (('bfe', 'bfe_builtin', 1), ('brev', 'brev', 1), ('mulhi', 'mulhi', 1),
-                          ('funnel', 'funnel', 1), ('byteperm', 'byteswap', 1), ('med3', 'med3_clamp', 0),
-                          ('sad4x8', 'sad4x8', 1)):
+    for cls, n, minus, what in (('bfe', 'bfe_builtin', 1, 'its add'), ('brev', 'brev', 1, 'its add'),
+                                ('mulhi', 'mulhi', 1, 'its add'), ('funnel', 'funnel', 1, 'its add'),
+                                ('byteperm', 'byteswap', 1, 'its add'), ('med3', 'med3_clamp', 2, 'its two masks'),
+                                ('sad4x8', 'sad4x8', 1, 'its add')):
         c = cost(n)
         if c is not None:
-            L.append(('%s: %g' % (cls, q8(c - minus)), '#156 %s%s' % (note(n), ' less its add' if minus else '')))
+            L.append(('%s: %g' % (cls, q8(c - minus)), '#156 %s less %s' % (note(n), what)))
     c = cost('tex_nearest')
     if c is not None:
         L.append(('tex_nearest: %g' % q8(c - 1), '#115 %s less its add' % note('tex_nearest')))
@@ -930,15 +1272,34 @@ def model_lines(res):
     if 'subtexel' in st:
         L.append(('subtexel: %d' % st['subtexel'], '#117 vulkaninfo on %s%s' % (
             st['device'], '; the filter probe sees a weight grid of %s bits' % fw['grid_bits']
-            if fw.get('grid_bits') else '')))
-    if fw.get('max_error_ulps') is not None:
-        u = fw['max_error_ulps']
-        L.append(('tex_within: %g' % max(0.125, math.ceil(u * 8) / 8),
-                  '#116 the bilinear R8 result against the weighted sum at its grid weight: at most %.3g ulps, '
-                  '%.3g absolute (%.3g of an 8-bit step)%s' % (u, fw['max_error_abs'], fw['max_error_255'],
-                                                                '; none measured, written as 1/8' if u == 0 else '')))
-        L.append(('', '#116 the weights: on a grid of %d bits, %s (the results change at %s of a step)' % (
-            fw['grid_bits'], fw['weights_round'], ' to '.join('%.3g' % o for o in fw['change_offsets']))))
+            if fw.get('grid_bits') else '; the filter probe: %s' % fw['grid_note'] if fw.get('grid_note') else '')))
+    if 'blend_exact' in fw:
+        grid = ('weights on a grid of %d bits, %s' % (fw['grid_bits'], 'truncated' if fw['weights_round'] ==
+                'truncate' else 'to the nearest' if fw['weights_round'] == 'nearest' else 'neither truncated nor '
+                'to the nearest')) if fw['grid_bits'] else fw['grid_note']
+        if fw['blend_exact'] and fw['weights_round'] in ('truncate', 'nearest'):
+            L.append(('tex_within: 0.5', '#116 every bilinear R8 result is the f32 nearest the weighted sum at its '
+                      'grid weight; %s' % grid))
+        else:
+            L.append(('', '#116 tex_within (ulps of the result) not written: the bilinear R8 result is at most %.3g '
+                      '(%.3g of an 8-bit step) from the weighted sum at %s, an absolute error; %s' % (
+                          fw['max_error_abs'], fw['max_error_255'], fw['error_against'], grid)))
+    cs = [(p['kib'], res[p['name']]['cost']) for p in P if p['name'].startswith('cache_') and 'cost' in
+          res.get(p['name'], {})]
+    if len(cs) >= 3:
+        base = cs[0][1]
+        knee = next((i for i, (k, c) in enumerate(cs) if c >= 2 * base), None)
+        if knee:
+            L.append(('cache: %d' % (cs[knee - 1][0] * 1024), '#65 a random walk a step: %s; the last footprint '
+                      'below twice the %d KiB one' % (', '.join('%d KiB %.2f' % kc for kc in cs), cs[0][0])))
+        else:
+            L.append(('', '#65 no knee: every footprint below twice the %d KiB one (%s)' % (
+                cs[0][0], ', '.join('%d KiB %.2f' % kc for kc in cs))))
+        used.update(p['name'] for p in P if p['name'].startswith('cache_'))
+    fc = res.get('float_controls', {})
+    if 'words' in fc:
+        L.append(('float_controls: %s' % (' '.join(fc['words']) or 'none'),
+                  '#178 vulkaninfo on %s: VkPhysicalDeviceFloatControlsProperties' % fc['device']))
     rb = res.get('rop_blend', {})
     br = res.get('blend_rounding', {})
     if br.get('add_moved') and br.get('add_unblended') == br['add_moved']:
@@ -954,11 +1315,16 @@ def model_lines(res):
         if 'cost' in r and n not in used:
             p = next(p for p in P if p['name'] == n)
             extra.append('%s %s: %.2f +- %.2f' % (', '.join('#%d' % i for i in p['issues']), n, r['cost'], r['err']))
-    for n in ('setup_binding', 'draw_empty'):
+    for n in ('setup_binding', 'draw_empty', 'dispatch_empty'):
         if 'fadd_steps' in res.get(n, {}):
             p = next(p for p in P if p['name'] == n)
             extra.append('%s %s: %.3g fadd steps (%.3g ns)' % (', '.join('#%d' % i for i in p['issues']), n,
-                         res[n]['fadd_steps'], res[n].get('ns_binding', res[n].get('ns_draw'))))
+                         res[n]['fadd_steps'], res[n].get('ns_binding', res[n].get('ns_draw',
+                                                                                    res[n].get('ns_dispatch')))))
+    if 'compute' in res.get('export', {}):
+        x = res['export']
+        extra.append('#50 a pixel by imageStore: %.3g fadd steps; by a draw\'s export: %.3g' % (
+            x['compute']['fadd_steps'], x['draw']['fadd_steps']))
     return L, extra
 
 
@@ -976,6 +1342,10 @@ def model_text(res, dev):
     if extra:
         out.append('  # measured, with no class or parameter in ucas yet (cost a step over fadd):\n')
         out += ['  #   %s\n' % e for e in extra]
+    lats = [(p, res[p['name']]) for p in P if p['kind'] == 'lat' and 'cycles' in res.get(p['name'], {})]
+    if lats:
+        out.append('  # latencies, SM clocks a dependent step of one warp (no latency in a ucas model yet):\n')
+        out += ['  #   %s (%s): %.1f\n' % (p['name'], p['cls'], r['cycles']) for p, r in lats]
     out.append('}\n')
     return ''.join(out)
 
@@ -986,16 +1356,24 @@ def model_text(res, dev):
 def summary(p, r):
     """what a unit or value probe found, in a line"""
     n = p['name']
+    if p['kind'] == 'lat':
+        return '%.1f SM clocks a step (class %s)' % (r['cycles'], p['cls'])
     if n == 'setup_binding':
         return 'one more sampler: %.3g ns a dispatch (%.3g +- %.2g), %.3g fadd steps' % (
             r['ns_binding'], r['ns_one_more'], r['err_ns'], r['fadd_steps'])
+    if n == 'dispatch_empty':
+        return 'an empty dispatch: %.3g ns, %.3g fadd steps' % (r['ns_dispatch'], r['fadd_steps'])
+    if n == 'export':
+        return '; '.join('%s: %.3g ns a pixel, %.3g fadd steps' % (k, r[k]['ns_pixel'], r[k]['fadd_steps'])
+                         for k in ('compute', 'draw'))
     if n == 'draw_empty':
         return 'a draw with no fragment: %.3g ns, %.3g fadd steps' % (r['ns_draw'], r['fadd_steps'])
     if n == 'points':
         return '; '.join('%s: %.3g ns a point, %.3g fadd steps' % (k, r[k]['ns_vertex'], r[k]['fadd_steps'])
                          for k in ('onscreen', 'offscreen'))
     if n == 'rop_blend':
-        return '; '.join('%s: %.3g fadd steps' % (k, v['fadd_steps']) for k, v in r.items() if isinstance(v, dict))
+        return '; '.join('%s: %.3g fadd steps' % (k, v['fadd_steps']) for k, v in r.items()
+                         if isinstance(v, dict) and 'fadd_steps' in v)
     if n == 'blend_rounding':
         if r['add_moved'] and r['add_unblended'] == r['add_moved']:
             return 'NOT BLENDED: the target holds the second value alone at every pixel (the device cannot blend ' \
@@ -1009,15 +1387,18 @@ def summary(p, r):
             r['round_nearest'], r['values'], r['other_neighbour'], (' (e.g. %s)' % r['examples'][0])
             if r['examples'] else '')
     if n == 'filter_weights':
-        if not r.get('grid_bits'):
-            return 'no weight grid seen: %s distinct results' % r['0_255']['distinct']
-        return ('a weight grid of %d bits (%d distinct results from 0 to 1), the weight %s (the results change '
-                'at %s of a grid step); the blend at most %.3g ulps, %.3g absolute (%.3g of an 8-bit step), from '
-                'the weighted sum at its grid weight' % (
-                    r['grid_bits'], r['0_255']['distinct'], 'truncated' if r['weights_round'] == 'truncate' else
-                    'rounded to nearest' if r['weights_round'] == 'nearest' else 'neither truncated nor rounded',
-                    ' to '.join('%.3g' % o for o in r['change_offsets']), r['max_error_ulps'], r['max_error_abs'],
-                    r['max_error_255']))
+        grid = ('a weight grid of %d bits, the weight %s (the results change %s)' % (
+            r['grid_bits'], {'truncate': 'truncated', 'nearest': 'rounded to nearest'}.get(
+                r['weights_round'], 'neither truncated nor rounded to nearest'),
+            'at a grid point' if r['weights_round'] == 'truncate' else 'half a grid step past one'
+            if r['weights_round'] == 'nearest' else 'at %s of a grid step' % ', '.join(
+                '%.3g' % o for o in r['change_offsets']))) if r['grid_bits'] else r['grid_note']
+        return '%s; %d distinct results of %d from 0 to 1; the blend %s the weighted sum at %s' % (
+            grid, r['distinct'], r['samples'], 'is the f32 nearest' if r['blend_exact'] else
+            'is at most %.3g (%.3g of an 8-bit step) from' % (r['max_error_abs'], r['max_error_255']),
+            r['error_against'])
+    if n == 'float_controls':
+        return 'on %s: %s' % (r['device'], ' '.join(r['words']) or 'none')
     if n == 'subtexel_bits':
         return 'subTexelPrecisionBits %d on %s' % (r['subtexel'], r['device'])
     if n == 'repeat_large':
@@ -1030,6 +1411,15 @@ def summary(p, r):
     return json.dumps(r)[:600]
 
 
+def fadd_note(p, r):
+    """a unit's fadd, timed just before it (rop's: before its L2 runs)"""
+    f = r.get('fadd_l2', r) if p['kind'] == 'unit' else {}
+    if not f.get('fadd_ns'):
+        return ''
+    return ' (fadd timed just before: %.3g ps a lane-step%s)' % (
+        f['fadd_ns'] * 1e3, (', SM %d MHz' % f['fadd_clock_mhz']) if f.get('fadd_clock_mhz') else '')
+
+
 def report(res, dev, model, ucas_check):
     L = ['# GT 1030 probes\n\n',
          'Device: %s (%s). %s\n\n' % (dev.get('name'), dev.get('driver_info'),
@@ -1038,33 +1428,38 @@ def report(res, dev, model, ucas_check):
                                       'the fadd lane-step of the step run before them.'),
          'model.ucas: %s\n\n' % ucas_check]
     issues = sorted({i for p in P for i in p['issues']})
-    for i in issues + [None]:
-        ps = [p for p in P if (i in p['issues'] if i else not p['issues']) and p['name'] in res]
+    for i in issues + [None, 'lat']:
+        ps = [p for p in P if (i in p['issues'] if isinstance(i, int) else not p['issues'] and
+                               (p['kind'] == 'lat') == (i == 'lat')) and p['name'] in res]
         if not ps:
             continue
-        L.append('## %s\n\n' % ('#%d' % i if i else 'The queue\'s lines with no issue'))
+        L.append('## %s\n\n' % ('#%d' % i if isinstance(i, int) else 'Latencies (SM clocks a dependent step, one '
+                                  'warp)' if i == 'lat' else 'The queue\'s lines with no issue'))
         for p in ps:
             r = res.get(p['name'], {})
-            head = '- `%s`%s' % (p['name'], (' (and %s)' % p['queue']) if p.get('queue') and i else '')
+            head = '- `%s`%s' % (p['name'], (' (and %s)' % p['queue']) if p.get('queue') and isinstance(i, int)
+                                 else '')
             if p['kind'] == 'step':
                 if 'cost' in r:
                     pr = r.get('ucas_price')
-                    L.append('%s: %.2f +- %.2f fadd%s%s. %s\n' % (
+                    L.append('%s: %.2f +- %.2f fadd%s%s%s. %s\n' % (
                         head, r['cost'], r['err'], (', B/step %.0f' % r['bytes_per_step'])
                         if r.get('bytes_per_step') is not None else '',
-                        (', gt1030 prices it %g' % pr) if pr is not None else '', p['note']))
+                        (', gt1030 prices it %g' % pr) if pr is not None else '',
+                        (', SM %d MHz' % r['clock_mhz']) if r.get('clock_mhz') else '', p['note']))
                 else:
                     L.append('%s: FAILED: %s. %s\n' % (head, r.get('error', 'not run'), p['note']))
             elif p['kind'] == 'absent':
                 L.append('%s: not run: needs %s%s\n' % (head, p['needs'], ('; this snx-shaderperf has something '
                          'named %s now, so the probe can be written' % p['key']) if r.get('tool_has_it') else ''))
             elif p['kind'] == 'none':
-                L.append('%s (%s): no probe: %s\n' % (head, p.get('queue', ''), p['why']))
+                L.append('%s%s: no probe: %s\n' % (head, (' (%s)' % p['queue']) if p.get('queue') and i is None else '',
+                                                    p['why']))
             else:
                 if 'error' in r:
                     L.append('%s: FAILED: %s\n' % (head, r['error']))
                 else:
-                    L.append('%s: %s. %s\n' % (head, p['note'], summary(p, r)))
+                    L.append('%s: %s. %s%s\n' % (head, p['note'], summary(p, r), fadd_note(p, r)))
         L.append('\n')
     L.append('## Model\n\n```\n%s```\n' % model)
     with open(os.path.join(OUT, 'report.md'), 'w') as fh:
@@ -1094,12 +1489,32 @@ def ucas_reads(path):
 
 # ---------------------------------------------------------------------------
 
+def choose(only_text, issue_text):
+    """the probes --only (names or patterns) and --issue pick, both when both are given"""
+    only = [o.strip() for o in only_text.split(',')] if only_text else None
+    if only:
+        unknown = [o for o in only if not any(fnmatch.fnmatchcase(p['name'], o) for p in P)]
+        if unknown:
+            sys.exit('probe.py: no probe named %s (--list shows them)' % ', '.join(unknown))
+    issues = None
+    if issue_text:
+        try:
+            issues = {int(t.strip().lstrip('#')) for t in issue_text.split(',')}
+        except ValueError:
+            sys.exit('probe.py: --issue %s: issue numbers, comma-separated' % issue_text)
+        unknown = issues - {i for p in P for i in p['issues']}
+        if unknown:
+            sys.exit('probe.py: no probe for issue %s (--list shows them)' % ', '.join('#%d' % i for i in unknown))
+    return [p for p in P if (not only or any(fnmatch.fnmatchcase(p['name'], o) for o in only)) and
+            (not issues or set(p['issues']) & issues)]
+
+
 def main():
     global A, OUT
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--sp', default=os.path.expanduser('~/ScarletNX/build/rel/snx-shaderperf'))
     ap.add_argument('--out', default=os.path.expanduser('~/ucas/work/gt1030/probe-' + time.strftime('%Y%m%d-%H%M%S')))
-    ap.add_argument('--only', help='probes by name, comma-separated')
+    ap.add_argument('--only', help="probes by name, comma-separated; a name may be a pattern ('lat_*')")
     ap.add_argument('--issue', help='probes of these issues, comma-separated numbers')
     ap.add_argument('--runs', type=int, default=20)
     ap.add_argument('--tries', type=int, default=3, help='runs of a step whose interval is wide')
@@ -1114,20 +1529,7 @@ def main():
             print('%-26s %-6s %s' % (p['name'], p['kind'], ', '.join('#%d' % i for i in p['issues']) or
                                      p.get('queue', '')))
         return 0
-    only = set(A.only.split(',')) if A.only else None
-    if only:
-        unknown = only - {p['name'] for p in P}
-        if unknown:
-            sys.exit('probe.py: no probe named %s (--list shows them)' % ', '.join(sorted(unknown)))
-    issues = None
-    if A.issue:
-        try:
-            issues = {int(s.strip().lstrip('#')) for s in A.issue.split(',')}
-        except ValueError:
-            sys.exit('probe.py: --issue %s: issue numbers, comma-separated' % A.issue)
-        unknown = issues - {i for p in P for i in p['issues']}
-        if unknown:
-            sys.exit('probe.py: no probe for issue %s (--list shows them)' % ', '.join('#%d' % i for i in unknown))
+    chosen = choose(A.only, A.issue)
     for tool in (A.sp, 'glslangValidator', 'spirv-val'):
         if not shutil.which(tool) and not os.access(tool, os.X_OK):
             sys.exit('probe.py: %s not found' % tool)
@@ -1136,11 +1538,7 @@ def main():
         os.makedirs(os.path.join(OUT, d), exist_ok=True)
     helptext = subprocess.run([A.sp, '--help'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
     res, dev = {}, {}
-    chosen = [p for p in P if (not only or p['name'] in only) and (not issues or set(p['issues']) & issues)]
-    # the steps first: each unit converts by the fadd of the step run before it
-    if any(p['kind'] == 'unit' for p in chosen) and not any(p['kind'] == 'step' for p in chosen):
-        chosen = [next(p for p in P if p['name'] == 'fma_contract')] + chosen
-    order = {'step': 0, 'unit': 1, 'value': 2, 'info': 3, 'absent': 4, 'none': 5}
+    order = {'step': 0, 'lat': 1, 'unit': 2, 'value': 3, 'info': 4, 'absent': 5, 'none': 6}
     chosen.sort(key=lambda p: (bool(p.get('slow')), order[p['kind']]))
     t0 = time.time()
     for k, p in enumerate(chosen):
@@ -1153,8 +1551,10 @@ def main():
                 r.update(UNITS[p['how']](p))
             elif p['kind'] == 'value':
                 r.update(VALUES[p['how']](p))
+            elif p['kind'] == 'lat':
+                r.update(LATS[p['how']](p))
             elif p['kind'] == 'info':
-                r.update(info_subtexel(p))
+                r.update(INFOS[p['how']](p))
             elif p['kind'] == 'absent':
                 r['tool_has_it'] = bool(p.get('key') and re.search(p['key'], helptext))
         except ProbeError as e:
@@ -1175,6 +1575,12 @@ def main():
     with open(path, 'w') as fh:
         fh.write(model)
     check = ucas_reads(path)
+    if 'REFUSED' in check and '\n  float_controls:' in model:
+        # a ucas from before float_controls (#558) takes the rest of the model
+        model = model.replace('\n  float_controls:', '\n  # (this ucas refuses float_controls) float_controls:')
+        with open(path, 'w') as fh:
+            fh.write(model)
+        check = '%s (float_controls commented out; the first read: %s)' % (ucas_reads(path), check)
     report(res, dev, model, check)
     failed = [n for n, r in res.items() if 'error' in r]
     print('\n' + model)

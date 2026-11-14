@@ -1,0 +1,32 @@
+# SPIR-V's 64-bit OpIAdd, OpIMul and OpShift* priced by iadd64, imul64
+# and shift64 where the model lists them (tests/int64cost.ucas for the
+# expression form): the high word of a u64 product, once at the 32-bit
+# prices and once at the 64-bit ones, against one OpUMulExtended
+model hi : gt1030 { mulhi: 8.5 }
+model hi64 : hi { iadd64: 2, imul64: 15.5, shift64: 2 }
+simplify nofile nofunctions under hi
+```glsl
+#version 450
+#extension GL_ARB_gpu_shader_int64 : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 2) readonly buffer R { uint r[]; } a;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint x = a.r[i], y = a.r[i + 64u];
+    b.d[i] = uint((uint64_t(x) * uint64_t(y)) >> 32);
+}
+```
+simplify nofile nofunctions under hi64
+```glsl
+#version 450
+#extension GL_ARB_gpu_shader_int64 : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 2) readonly buffer R { uint r[]; } a;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint x = a.r[i], y = a.r[i + 64u];
+    b.d[i] = uint((uint64_t(x) * uint64_t(y)) >> 32);
+}
+```

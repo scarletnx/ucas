@@ -100,6 +100,7 @@ struct P {
 	int sg_depth;     /* inside a subgroup operation's arguments */
 	nid sgmask;       /* sg_active(m): the lanes that run, or 0 (all) */
 	int sgops;        /* subgroup operations built so far */
+	int fusepat;      /* parsing a fusion's pattern (parse_fuse) */
 	/*
 	 * Loop states (bit = slot) that follow a value per lane (cs_loop):
 	 * a subgroup operation reads each one's copy in the other lanes, as a
@@ -483,15 +484,25 @@ static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
  * lane) reads the lane it runs in.
  */
 enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT,
-	SGF_SEG, SGF_SORT, SGF_ACTIVE, SGF_DERIV };
+	SGF_SEG, SGF_SORT, SGF_ACTIVE, SGF_DERIV, SGF_QUAD, SGF_QBCAST,
+	SGF_CLUSTER, SGF_PART, SGF_PADD };
 static const struct sgfn {
 	const char *name, *glsl;
 	int kind, op, arity;
+	int k;		/* a quad swap: the lane bits it flips */
 } sgfns[] = {
 	{"sg_ballot", "subgroupBallot", SGF_OP, O_SGBALLOT, 1},
 	{"sg_any", "subgroupAny", SGF_OP, O_SGANY, 1},
 	{"sg_all", "subgroupAll", SGF_OP, O_SGALL, 1},
 	{"sg_add", "subgroupAdd", SGF_OP, O_SGADD, 1},
+	{"sg_min", "subgroupMin", SGF_OP, O_SGMIN, 1},
+	{"sg_max", "subgroupMax", SGF_OP, O_SGMAX, 1},
+	{"sg_and", "subgroupAnd", SGF_OP, O_SGAND, 1},
+	{"sg_or", "subgroupOr", SGF_OP, O_SGOR, 1},
+	{"sg_xor", "subgroupXor", SGF_OP, O_SGXOR, 1},
+	{"sg_clustered_add", "subgroupClusteredAdd", SGF_CLUSTER, O_SGCADD2, 2},
+	{"sg_partition", "subgroupPartitionNV", SGF_PART, O_SGPART, 1},
+	{"sg_partitioned_add", "subgroupPartitionedAddNV", SGF_PADD, O_SGPADD, 2},
 	{"sg_shuffle", "subgroupShuffle", SGF_OP, O_SGSHUF, 2},
 	{"sg_scan", "subgroupInclusiveAdd", SGF_OP, O_SGSCAN, 1},
 	{"sg_exclusive", "subgroupExclusiveAdd", SGF_EXCL, O_SGSCAN, 1},
@@ -505,7 +516,13 @@ static const struct sgfn {
 	{"sg_dfdx", "dFdxFine", SGF_DERIV, O_SGDDX, 1},
 	{"sg_dfdy", "dFdyFine", SGF_DERIV, O_SGDDY, 1},
 	{"sg_fwidth", "fwidthFine", SGF_DERIV, O_SGFWIDTH, 1},
-	{NULL, NULL, 0, 0, 0}
+	/* a quad is 4 lanes, bit 0 its column and bit 1 its row */
+	{"sg_quad_swap_h", "subgroupQuadSwapHorizontal", SGF_QUAD, O_SGSHUF, 1,
+	    1},
+	{"sg_quad_swap_v", "subgroupQuadSwapVertical", SGF_QUAD, O_SGSHUF, 1, 2},
+	{"sg_quad_swap_d", "subgroupQuadSwapDiagonal", SGF_QUAD, O_SGSHUF, 1, 3},
+	{"sg_quad_broadcast", "subgroupQuadBroadcast", SGF_QBCAST, O_SGSHUF, 2},
+	{NULL, NULL, 0, 0, 0, 0}
 };
 
 static const struct sgfn *
@@ -590,6 +607,62 @@ sg_active_decl(struct P *p, nid m, int W)
 	    (int64_t)((1ULL << W) - 1)));
 }
 
+/* what an inactive lane gives a reduction: the value that changes no
+ * other (the type's largest for a min, smallest for a max, every bit for
+ * an and, none for an or and an xor) */
+static nid
+sg_identity_of(const struct sgfn *g, nid v)
+{
+	ty_t t = N.ty[v];
+	int w, sg;
+
+	if (t == TY_BOOL || TYK(t) == K_LIT)
+		t = TY(K_UINT, 32);
+	if ((g->op == O_SGMIN || g->op == O_SGMAX) && TYK(t) != K_UINT &&
+	    TYK(t) != K_SINT)
+		fail("%s under sg_active takes a machine integer (uN, iN), whose "
+		    "inactive lanes give the type's %s: %s has none", g->name,
+		    g->op == O_SGMIN ? "largest" : "smallest", ty_str(t));
+	w = TYW(t);
+	sg = TYK(t) == K_SINT;
+	switch (g->op) {
+	case O_SGMIN:
+		return sg ? mk_const_i(t, (int64_t)((1ULL << (w - 1)) - 1)) :
+		    mk_un(O_NOT, mk_const_i(t, 0));
+	case O_SGMAX:
+		return sg ? mk_const_i(t, w == 64 ? INT64_MIN :
+		    -(int64_t)(1ULL << (w - 1))) : mk_const_i(t, 0);
+	case O_SGAND:
+		return mk_un(O_NOT, mk_const_i(t, 0));
+	}
+	return mk_const_i(t, 0);
+}
+
+/* m is a ballot sg_partition made: the node, or under sg_active the node
+ * and the mask of the lanes that run */
+static int
+sg_is_partition(struct P *p, nid m)
+{
+	while (N.op[m] == O_CAST)
+		m = N.a[m];
+	if (N.op[m] == O_SGPART)
+		return 1;
+	return N.op[m] == O_AND && p->sgmask && ((N.op[N.a[m]] == O_SGPART &&
+	    N.b[m] == p->sgmask) || (N.op[N.b[m]] == O_SGPART &&
+	    N.a[m] == p->sgmask));
+}
+
+/* the lane of here's quad that subgroupQuadBroadcast reads: (here & ~3)
+ * | i, i in 0..3 */
+static nid
+sg_quad_lane(nid here, nid i)
+{
+	ty_t u = TY(K_UINT, 32);
+
+	return mk_bin(O_OR, mk_bin(O_AND, mk_cast(u, here), mk_const_i(u,
+	    ~3u)), mk_cast(u, i));
+}
+
 /* a shuffle under sg_active: undefined when the lane it reads is not
  * active */
 static nid
@@ -606,6 +679,12 @@ sg_masked_shuffle(struct P *p, const struct sgfn *g, nid v, nid *args,
 	case SGF_BCAST1:
 		i = mk_const_i(u, 0);
 		break;
+	case SGF_QUAD:
+		i = mk_bin(O_XOR, mk_cast(u, here), mk_const_i(u, g->k));
+		break;
+	case SGF_QBCAST:
+		i = sg_quad_lane(here, args[1]);
+		break;
 	case SGF_ROT:
 		i = mk_bin(O_MOD, mk_bin(O_ADD, mk_cast(u, here), mk_cast(u,
 		    args[1])), mk_const_i(u, W));
@@ -614,8 +693,11 @@ sg_masked_shuffle(struct P *p, const struct sgfn *g, nid v, nid *args,
 		i = args[1];
 	}
 	v = mk_sg(O_SGSHUF, v, i, w);
-	return mk_sel(sg_active_bit(p->sgmask, mk_cast(u, i)), v,
+	v = mk_sel(sg_active_bit(p->sgmask, mk_cast(u, i)), v,
 	    mk_undef(N.ty[v]));
+	/* past the quad: undefined */
+	return g->kind == SGF_QBCAST && !is_const(args[1]) ? mk_sel(mk_bin(O_LT,
+	    mk_cast(u, args[1]), mk_const_i(u, 4)), v, mk_undef(N.ty[v])) : v;
 }
 
 static nid
@@ -625,7 +707,11 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	int64_t lo, hi;
 	nid w, v, here = 0;
 
-	if (n != g->arity && !(g->op == O_SGSCAN && g->kind == SGF_OP && n == 2))
+	/* a scan, a clustered sum and a partition take the lane they are
+	 * for as one argument more, as they are printed when it is not the
+	 * lane itself */
+	if (n != g->arity && !(n == g->arity + 1 && ((g->op == O_SGSCAN &&
+	    g->kind == SGF_OP) || g->kind == SGF_CLUSTER || g->kind == SGF_PART)))
 		fail("%s takes %d argument%s", g->name, g->arity,
 		    g->arity == 1 ? "" : "s");
 	if (j >= 0 && TY_ISINT(p->fn->p[j].ty)) {
@@ -633,7 +719,12 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		if (lo == 0 && hi >= 1 && hi < SG_MAXW)
 			W = (int)hi + 1;
 	}
-	if (!W)
+	/* a fusion's pattern matches any size (fuse.c): 32 to build it,
+	 * without the active model, which the prelude's own models are
+	 * parsed before there is */
+	if (p->fusepat && (W < 2 || W > SG_MAXW))
+		W = 32;
+	if (!W && model_active())
 		W = (int)model_active()->par[MP_WARP];
 	if (W < 2 || W > SG_MAXW)
 		fail("%s needs the subgroup's size: give the function a "
@@ -696,9 +787,24 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	if (g->kind == SGF_ACTIVE)
 		return sg_active_decl(p, args[0], W);
 	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
-	    g->kind == SGF_ROT || g->kind == SGF_SORT || g->kind == SGF_DERIV))
+	    g->kind == SGF_ROT || g->kind == SGF_SORT || g->kind == SGF_DERIV ||
+	    g->kind == SGF_QUAD || g->kind == SGF_QBCAST ||
+	    g->kind == SGF_CLUSTER || g->kind == SGF_PART || g->kind == SGF_PADD))
 		fail("%s is a value per lane: give the function a parameter "
 		    "lane: u32 in 0..%d", g->name, W - 1);
+	if (g->kind == SGF_PADD && !sg_is_partition(p, args[1]))
+		fail("%s takes the ballot sg_partition gives (%s is not one): on "
+		    "the card another has a value only when it is a partition, "
+		    "each lane's mask naming the lanes of its part, its own "
+		    "among them, which the other lanes' masks cannot be checked "
+		    "for here", g->name, node_str(args[1]));
+	if ((g->kind == SGF_QUAD || g->kind == SGF_QBCAST) && W % 4)
+		fail("%s reads quads of 4 lanes: a subgroup of %d lanes has none",
+		    g->name, W);
+	if (g->kind == SGF_QBCAST && is_const(args[1]) && (N.ki[args[1]] < 0 ||
+	    N.ki[args[1]] > 3))
+		fail("%s: the lane it reads is one of its quad, 0 to 3, not %lld",
+		    g->name, (long long)N.ki[args[1]]);
 	p->sgops++;
 	if (p->sgmask) {
 		/* the inactive lanes: no bit in a ballot, nothing to a vote, a
@@ -714,12 +820,50 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 			v = mk_bin(O_LOR, v, mk_un(O_LNOT, act));
 		else if (g->op == O_SGADD || g->op == O_SGSCAN)
 			v = mk_sel(act, v, mk_const_i(N.ty[v], 0));
+		else if (g->kind == SGF_CLUSTER || g->kind == SGF_PADD)
+			v = mk_sel(act, v, mk_const_i(N.ty[v], 0));
+		else if (g->kind == SGF_PART)
+			/* the partition of the active lanes */
+			return mk_bin(O_AND, mk_sg(O_SGPART, v, n == 2 ? args[1] :
+			    here, w), p->sgmask);
+		else if (g->op >= O_SGMIN && g->op <= O_SGXOR) {
+			if (N.ty[v] == TY_BOOL || TYK(N.ty[v]) == K_LIT)
+				v = mk_cast(TY(K_UINT, 32), v);
+			v = mk_sel(act, v, sg_identity_of(g, v));
+		}
 		else
 			return sg_masked_shuffle(p, g, v, args, here, W);
 	}
 	switch (g->kind) {
 	case SGF_DERIV:
 		return mk_sg(g->op, v, here, w);
+	case SGF_CLUSTER: {
+		/* one operation a cluster size; a cluster of the whole
+		 * subgroup is its sum, of one lane the lane's own value */
+		int64_t cn = is_const(args[1]) ? N.ki[args[1]] : 0;
+		nid at = n == 3 ? args[2] : here, map[SG_LANE_SLOT + 1];
+		if (cn < 1 || cn > W || (cn & (cn - 1)))
+			fail("%s: the cluster is a constant power of two from 1 to the "
+			    "subgroup's %d lanes, not %s", g->name, W,
+			    node_str(args[1]));
+		if (cn == W)
+			return mk_sg(O_SGADD, v, w, 0);
+		if (cn == 1) {
+			memset(map, 0, sizeof map);
+			map[SG_LANE_SLOT] = mk_cast(TY(K_UINT, 32), at);
+			return subst(v, map, SG_LANE_SLOT + 1);
+		}
+		{
+			int op = O_SGCADD2;
+			while (SGCADD_N(op) < cn)
+				op++;
+			return mk_sg(op, v, at, w);
+		}
+	}
+	case SGF_PART:
+		return mk_sg(O_SGPART, v, n == 2 ? args[1] : here, w);
+	case SGF_PADD:
+		return mk_sg(O_SGPADD, v, args[1], w);
 	case SGF_EXCL:
 		v = mk_sg(O_SGSCAN, v, here, w);
 		return mk_bin(O_SUB, v, mk_cast(N.ty[v], args[0]));
@@ -759,6 +903,15 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		return mk_sg(O_SGSHUF, v, args[1], w);
 	case SGF_BCAST1:
 		return mk_sg(O_SGSHUF, v, mk_const_i(TY_LIT, 0), w);
+	case SGF_QUAD:
+		return mk_sg(O_SGSHUF, v, mk_bin(O_XOR, mk_cast(TY(K_UINT, 32),
+		    here), mk_const_i(TY(K_UINT, 32), g->k)), w);
+	case SGF_QBCAST:
+		/* undefined when the lane it reads is past the quad */
+		v = mk_sg(O_SGSHUF, v, sg_quad_lane(here, args[1]), w);
+		return is_const(args[1]) ? v : mk_sel(mk_bin(O_LT,
+		    mk_cast(TY(K_UINT, 32), args[1]), mk_const_i(TY(K_UINT, 32), 4)),
+		    v, mk_undef(N.ty[v]));
 	case SGF_ROT:
 		return mk_sg(O_SGSHUF, v, mk_bin(O_MOD, mk_bin(O_ADD,
 		    mk_cast(TY(K_UINT, 32), here), mk_cast(TY(K_UINT, 32),
@@ -960,24 +1113,31 @@ ident(struct P *p)
 			    "(table, x)", IS_FETCH(kind) && na == TEX_OFFNAME ?
 			    " and a constant offset last" : "");
 		if (kind == O_TEX_BILINEAR) {
+			int nm = (int)n;
+			/* the name as written, without its grid's bits */
+			while (nm > 0 && s[nm - 1] >= '0' && s[nm - 1] <= '9')
+				nm--;
 			if (!is_const(args[1]) || !TY_ISINT(N.ty[args[1]]) ||
 			    N.ki[args[1]] < 1 || N.ki[args[1]] > 0xffffff)
-				fail("tex_bilinear's width is a constant from 1 to "
-				    "16777215, not %s", node_str(args[1]));
-			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]), args[0],
-			    args[2], args[3]);
+				fail("%.*s's width is a constant from 1 to "
+				    "16777215, not %s", nm, s, node_str(args[1]));
+			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]) | wk,
+			    args[0], args[2], args[3]);
 		}
 		if (kind == O_TEX_TRILINEAR) {
-			int k;
+			int k, nm = (int)n;
+			/* the name as written, without its grid's bits */
+			while (nm > 0 && s[nm - 1] >= '0' && s[nm - 1] <= '9')
+				nm--;
 			for (k = 1; k <= 2; k++)
 				if (!is_const(args[k]) ||
 				    !TY_ISINT(N.ty[args[k]]) || N.ki[args[k]] < 1 ||
 				    N.ki[args[k]] > 0xffffff)
-					fail("tex_trilinear's %s is a constant "
-					    "from 1 to 16777215, not %s", k == 1 ?
+					fail("%.*s's %s is a constant from 1 to "
+					    "16777215, not %s", nm, s, k == 1 ?
 					    "width" : "height", node_str(args[k]));
 			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]) |
-			    TEX_KH(N.ki[args[2]]), args[0], args[3],
+			    TEX_KH(N.ki[args[2]]) | wk, args[0], args[3],
 			    tex_args(args[4], args[5]));
 		}
 		if (kind == O_TEX_COMPARE) {
@@ -1513,8 +1673,29 @@ parse_expr(struct P *p, int minbp)
 		}
 		skip_cont(p);
 		if (bp == BP_CMP) {
+			if (op == O_NONE && pk(p) == T_LC) {	/* x in {a, b} */
+				nid any = 0;
+				adv(p);
+				do {
+					nid v = parse_expr(p, BP_CMP + 1);
+					nid e = mk_bin(O_EQ, lhs, v);
+					any = any ? mk_bin(O_LOR, any, e) : e;
+				} while (accept(p, T_COMMA));
+				expect(p, T_RC);
+				lhs = any;
+				prevcmp = 0;
+				lastjux = 0;
+				continue;
+			}
 			if (op == O_NONE) {   /* x in a..b */
 				nid lo = parse_expr(p, BP_CMP + 1), hi;
+				if (pk(p) == T_COMMA)
+					fail("`in` before a list without braces has two "
+					    "readings: the values `in {%.*s, ...}`, or one "
+					    "value and the next condition after the comma; "
+					    "write the braces, or a range a..b",
+					    (int)p->t->len[p->i - 1], p->t->src +
+					    p->t->off[p->i - 1]);
 				expect(p, T_DOTDOT);
 				hi = parse_expr(p, BP_CMP + 1);
 				c = mk_bin(O_LAND, mk_bin(O_GE, lhs, lo),
@@ -1679,6 +1860,58 @@ parse_range(struct P *p, struct param *pp, int *realrange)
 		fail("empty range");
 }
 
+/*
+ * A parameter's values listed, `x: u32 in {3, 17, 40}`: parse_params
+ * keeps them here and parse_def makes them a conjunct of the where clause
+ * (x == 3 || x == 17 || x == 40), which the domain enumerates as a list
+ * (eval.c, where_set); the parameter's range is their hull.
+ */
+#define PSET_MAX 128
+static struct {
+	int n[MAXP];
+	int64_t v[MAXP][PSET_MAX];
+} psets;
+
+static void
+parse_set(struct P *p, struct param *pp, int j)
+{
+	int64_t lo = 0, hi = 0;
+	int k;
+
+	expect(p, T_LC);
+	psets.n[j] = 0;
+	do {
+		int64_t v;
+		double r;
+		int real = 0;
+		if (psets.n[j] == PSET_MAX)
+			fail("%s: at most %d values in a list", sym_str(pp->name),
+			    PSET_MAX);
+		parse_bound(p, &v, &r, &real);
+		if (real)
+			fail("%s: a list of values is of integers", sym_str(pp->name));
+		if (pp->ty && TY_ISINT(pp->ty) && TY_SIZED(pp->ty) &&
+		    int_norm(pp->ty, v) != v)
+			fail("%s: %lld is not a %s", sym_str(pp->name), (long long)v,
+			    ty_str(pp->ty));
+		for (k = 0; k < psets.n[j] && psets.v[j][k] != v; k++)
+			;
+		if (k < psets.n[j])
+			continue;	/* a value listed twice is one value */
+		psets.v[j][psets.n[j]++] = v;
+		if (psets.n[j] == 1 || v < lo)
+			lo = v;
+		if (psets.n[j] == 1 || v > hi)
+			hi = v;
+	} while (accept(p, T_COMMA));
+	expect(p, T_RC);
+	pp->ranged = 1;
+	pp->lo = lo;
+	pp->hi = hi;
+	pp->rlo = (double)lo;
+	pp->rhi = (double)hi;
+}
+
 static void
 parse_params(struct P *p, struct func *f, int *typed)
 {
@@ -1688,6 +1921,7 @@ parse_params(struct P *p, struct func *f, int *typed)
 	ty_t t;
 	int rr;
 
+	memset(psets.n, 0, sizeof psets.n);
 	expect(p, T_LP);
 	if (accept(p, T_RP))
 		return;
@@ -1718,8 +1952,12 @@ parse_params(struct P *p, struct func *f, int *typed)
 			pp->uniform = 1;
 		else if (accept_kw(p, "lanes"))
 			pp->lanes = 1;
-		if (accept_kw(p, "in"))
-			parse_range(p, pp, &rr);
+		if (accept_kw(p, "in")) {
+			if (pk(p) == T_LC)
+				parse_set(p, pp, f->np);
+			else
+				parse_range(p, pp, &rr);
+		}
 		if (accept_kw(p, "uniform"))
 			pp->uniform = 1;
 		else if (accept_kw(p, "lanes"))
@@ -1847,6 +2085,21 @@ parse_def(struct P *p)
 		p->i = end;
 	}
 	expect_eos(p);
+	for (j = 0; j < tmp.np; j++)
+		if (psets.n[j]) {
+			/* the listed values as a conjunct of the where clause */
+			nid x = mk_var((uint32_t)j, tmp.p[j].name, tmp.p[j].ty), c = 0;
+			int k;
+			if (!TY_ISINT(tmp.p[j].ty))
+				fail("%s: a list of values is for an integer parameter, "
+				    "not %s", sym_str(tmp.p[j].name), ty_str(tmp.p[j].ty));
+			for (k = 0; k < psets.n[j]; k++) {
+				nid e = mk_bin(O_EQ, x, mk_const_i(tmp.p[j].ty,
+				    psets.v[j][k]));
+				c = c ? mk_bin(O_LOR, c, e) : e;
+			}
+			cond = cond ? mk_bin(O_LAND, c, cond) : c;
+		}
 	if (p->autop && tmp.np > 0) {
 		struct sbuf b = {0};
 		for (j = 0; j < tmp.np; j++)
@@ -1862,6 +2115,45 @@ parse_def(struct P *p)
 	p->fn = NULL;
 	p->autop = 0;
 	p->nb = 0;
+}
+
+/* rule NAME(a: T, ...) = L => R: kept by find.c, proved there */
+static void
+parse_rule(struct P *p)
+{
+	struct func tmp;
+	int typed[MAXP] = {0}, j;
+	nid l, r;
+
+	memset(&tmp, 0, sizeof tmp);
+	tmp.name = tsym(p, p->i);
+	adv(p);
+	if (pk(p) != T_LP)
+		fail("rule %s: name its variables with their type: rule %s(a: u32) "
+		    "= L => R", sym_str(tmp.name), sym_str(tmp.name));
+	parse_params(p, &tmp, typed);
+	for (j = 0; j < tmp.np; j++)
+		if (!typed[j])
+			fail("rule %s: %s has no type (rule %s(a: u32) = L => R)",
+			    sym_str(tmp.name), sym_str(tmp.p[j].name),
+			    sym_str(tmp.name));
+		else if (tmp.p[j].ranged)
+			fail("rule %s: %s takes every value of its type: a rule "
+			    "holds for all of them (a range or a list is for a "
+			    "function)", sym_str(tmp.name), sym_str(tmp.p[j].name));
+	expect(p, T_ASSIGN);
+	p->fn = &tmp;
+	p->sgmask = 0;
+	p->sgops = 0;
+	p->nb = 0;
+	l = parse_expr(p, 0);
+	expect(p, T_ARROW);
+	r = parse_expr(p, 0);
+	expect_eos(p);
+	p->fn = NULL;
+	notes_flush();
+	tmp.body = l;
+	cmd_rule(&tmp, l, r);
 }
 
 /* a function argument to a command: a name, or an anonymous expression */
@@ -2187,6 +2479,31 @@ parse_basis(struct P *p)
 	expect_eos(p);
 }
 
+/* a variable of pattern e that is not one of its np inputs, or 0 */
+static nid
+pat_stray(nid e, int np, int depth)
+{
+	nid r;
+	uint32_t j;
+
+	if (e == 0 || depth > 64)
+		return 0;
+	if (N.op[e] == O_VAR)
+		return N.ki[e] < 0 || N.ki[e] >= np ? e : 0;
+	if (N.op[e] == O_CONST)
+		return 0;
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			if ((r = pat_stray(N.lst[N.a[e] + j], np, depth + 1)) != 0)
+				return r;
+		return 0;
+	}
+	if ((r = pat_stray(N.a[e], np, depth + 1)) != 0 ||
+	    (r = pat_stray(N.b[e], np, depth + 1)) != 0)
+		return r;
+	return pat_stray(N.c[e], np, depth + 1);
+}
+
 /*
  * In a model: `fuse NAME(a: int, ...) = PATTERN : COST [contract] [in
  * CLASS ...] [on CLASS ...]`, `fuse NAME = lut K : COST`, `nofuse NAME`
@@ -2196,7 +2513,8 @@ parse_basis(struct P *p)
 static void
 parse_fuse(struct P *p, struct model *m)
 {
-	static const char *const kinds[] = {"int", "float", "const", "any"};
+	static const char *const kinds[] = {"int", "float", "const", "any",
+	    "lane"};
 	struct fusion f;
 	struct func tmp;
 	int off = is_kw(p, "nofuse"), k;
@@ -2222,9 +2540,9 @@ parse_fuse(struct P *p, struct model *m)
 			tmp.p[tmp.np].name = f.pname[tmp.np] = tsym(p, p->i);
 			adv(p);
 			expect(p, T_COLON);
-			for (k = 0; k < 4 && !is_kw(p, kinds[k]); k++)
+			for (k = 0; k < 5 && !is_kw(p, kinds[k]); k++)
 				;
-			if (k == 4 && pk(p) == T_ID) {
+			if (k == 5 && pk(p) == T_ID) {
 				/* uN, sN: an integer of a proved width */
 				int bits = 0;
 				size_t q;
@@ -2239,13 +2557,28 @@ parse_fuse(struct P *p, struct model *m)
 					k = FP_INT;
 				}
 			}
-			if (k == 4)
-				fail("a fusion's input is int, float, const, any, or an "
-				    "integer of a proved width (u1 to u%d, s1 to s%d)",
-				    FUSE_MAXBITS, FUSE_MAXBITS);
+			if (k == 5)
+				fail("a fusion's input is int, float, const, any, lane, "
+				    "or an integer of a proved width (u1 to u%d, s1 to "
+				    "s%d)", FUSE_MAXBITS, FUSE_MAXBITS);
+			if (k == FP_LANE && tmp.p[tmp.np].name != sym_cstr("lane"))
+				fail("a fusion's lane input is named lane (lane: lane), "
+				    "as a function's lane parameter is: %s: lane",
+				    sym_str(tmp.p[tmp.np].name));
 			adv(p);
 			f.pkind[tmp.np] = (uint8_t)k;
 			tmp.p[tmp.np].ty = k == FP_FLOAT ? TY_F32 : TY_INT;
+			/*
+			 * in a subgroup operation's operand an input is what the
+			 * lane computes there, not a value per lane read across
+			 * the lanes (sg_apply): it stays the pattern's input
+			 */
+			tmp.p[tmp.np].uniform = k != FP_LANE;
+			if (k == FP_LANE) {
+				tmp.p[tmp.np].ranged = 1;
+				tmp.p[tmp.np].lo = 0;
+				tmp.p[tmp.np].hi = 31;
+			}
 			tmp.np++;
 		} while (accept(p, T_COMMA));
 		expect(p, T_RP);
@@ -2265,10 +2598,24 @@ parse_fuse(struct P *p, struct model *m)
 		p->fn = &tmp;
 		p->sgmask = 0;
 		p->sgops = 0;
+		p->fusepat = 1;
 		f.pat = parse_expr(p, 0);
+		p->fusepat = 0;
 		p->fn = NULL;
+		/* the lane in an operand is the lane input, as sg_priced
+		 * makes it in what the pattern is matched against */
+		for (k = 0; k < f.np; k++)
+			if (f.pkind[k] == FP_LANE)
+				f.pat = sg_flat(f.pat, mk_var((uint32_t)k, f.pname[k],
+				    tmp.p[k].ty));
 		if (N.op[f.pat] == O_VAR || N.op[f.pat] == O_CONST)
 			fail("a fusion's pattern is an operation");
+		if ((v = pat_stray(f.pat, f.np, 0)) != 0)
+			fail("%s in the pattern of fusion %s is none of its inputs "
+			    "(%s): a pattern is an expression over its inputs alone%s",
+			    node_str(v), sym_str(f.name), node_str(f.pat),
+			    sg_is_lane(v) ? "; the lane's index is an input lane: "
+			    "lane" : "");
 	}
 	expect(p, T_COLON);
 	do {
@@ -2407,6 +2754,37 @@ parse_model(struct P *p)
 				m->fold[j][1] = ty[1];
 				m->nfold++;
 			}
+			continue;
+		}
+		if (n == 14 && !memcmp(s, "float_controls", 14)) {
+			/* float_controls: rte32 ftz32 ...: the modes the device
+			 * lets a module declare; none: not stated */
+			int bits = 0, w;
+			adv(p);
+			if (!accept(p, T_COLON))
+				expect(p, T_ASSIGN);
+			if (accept_kw(p, "none")) {
+				m->par[MP_FLOAT_CONTROLS] = 0;
+				continue;
+			}
+			while (pk(p) == T_ID) {
+				size_t wn;
+				const char *ws = ttext(p, p->i, &wn);
+				for (w = 0; w < FC_NWORD; w++)
+					if (strlen(fc_word[w]) == wn && !memcmp(ws,
+					    fc_word[w], wn))
+						break;
+				if (w == FC_NWORD)
+					fail("float_controls: '%.*s' is not a mode: rteN, "
+					    "rtzN, ftzN, preserveN or szinpN, N 16, 32 or "
+					    "64 (none: not stated)", (int)wn, ws);
+				bits |= 1 << w;
+				adv(p);
+			}
+			if (!bits)
+				fail("float_controls: expected the modes (rte32 ftz32 "
+				    "...) or none");
+			m->par[MP_FLOAT_CONTROLS] = (float)bits;
 			continue;
 		}
 		k = (n == 3 && !memcmp(s, "all", 3)) ? -1 : cclass_find(s, n);
@@ -3047,6 +3425,22 @@ statement(struct P *p)
 				}
 				else if (accept_kw(p, "advice"))
 					spirv_advice_opt(1);
+				else if (accept_kw(p, "overdraw")) {
+					/* the fragments a pixel gets, for the advice's
+					 * early fragment tests */
+					nid nn;
+					double v;
+					if (pk(p) != T_NUM)
+						fail("simplify: overdraw K needs the fragments a "
+						    "pixel gets, a number from 1");
+					nn = number(p);
+					v = TY_FP(N.ty[nn]) ? N.kr[nn] : (double)N.ki[nn];
+					if (!(v >= 1) || v > 1e6)
+						fail("simplify: overdraw K is the fragments a "
+						    "pixel gets, from 1 to 1e6, not %g", v);
+					spirv_overdraw_opt(v);
+					spirv_advice_opt(1);
+				}
 				else if (accept_kw(p, "texture")) {
 					/* the descriptor the host binds a table's texture
 					 * at: the read is written into the module */
@@ -3135,6 +3529,74 @@ statement(struct P *p)
 			cmd_approx(p);
 			return;
 		}
+		if (is_kw(p, "rule") && !func_find(tsym(p, p->i)) &&
+		    p->i + 2 < p->t->n && p->t->kind[p->i + 1] == T_ID &&
+		    p->t->kind[p->i + 2] == T_LP) {
+			adv(p);
+			parse_rule(p);
+			return;
+		}
+		if (is_kw(p, "rules") && !func_find(tsym(p, p->i))) {
+			int nin = 2, w = 32, cost = 3;
+			double secs = 10;
+			adv(p);
+			if (!accept_kw(p, "infer"))
+				fail("rules infer [inputs N] [width W] [cost C] [seconds S]");
+			for (;;) {
+				if (is_kw(p, "inputs"))
+					nin = opt_int(p, "inputs", nin);
+				else if (is_kw(p, "width"))
+					w = opt_int(p, "width", w);
+				else if (is_kw(p, "cost"))
+					cost = opt_int(p, "cost", cost);
+				else if (accept_kw(p, "seconds")) {
+					nid v = number(p);
+					secs = TY_FP(N.ty[v]) ? N.kr[v] : (double)N.ki[v];
+				} else
+					break;
+			}
+			expect_eos(p);
+			notes_flush();
+			cmd_rules_infer(nin, w, cost, secs);
+			return;
+		}
+		if (is_kw(p, "snippets") && !func_find(tsym(p, p->i))) {
+			char sname[96] = "";
+			int nin = 2, w = 32, cost = 4, fresh = 0;
+			double secs = 10;
+			adv(p);
+			if (!accept_kw(p, "grow"))
+				fail("snippets grow [NAME] [fresh] [inputs N] [width W] "
+				    "[cost C] [seconds S]");
+			if (pk(p) == T_ID && !is_kw(p, "inputs") && !is_kw(p, "width") &&
+			    !is_kw(p, "cost") && !is_kw(p, "seconds") &&
+			    !is_kw(p, "fresh")) {
+				size_t sn;
+				const char *ss = ttext(p, p->i, &sn);
+				snprintf(sname, sizeof sname, "%.*s", (int)sn, ss);
+				adv(p);
+			}
+			for (;;) {
+				if (is_kw(p, "inputs"))
+					nin = opt_int(p, "inputs", nin);
+				else if (is_kw(p, "width"))
+					w = opt_int(p, "width", w);
+				else if (is_kw(p, "cost"))
+					cost = opt_int(p, "cost", cost);
+				else if (accept_kw(p, "seconds")) {
+					nid v = number(p);
+					secs = TY_FP(N.ty[v]) ? N.kr[v] : (double)N.ki[v];
+				} else if (accept_kw(p, "fresh"))
+					fresh = 1;
+				else
+					break;
+			}
+			expect_eos(p);
+			notes_flush();
+			cmd_snippets_grow(sname[0] ? sname : NULL, nin, w, cost, secs,
+			    fresh);
+			return;
+		}
 		if (CMD("help")) {
 			help();
 			return;
@@ -3200,6 +3662,14 @@ statement(struct P *p)
 			const char *cs = ttext(p, p->i, &cn);
 			snprintf(cmd, sizeof cmd, "%.*s", (int)cn, cs);
 			adv(p);
+			if (!strcmp(cmd, "gates") && is_kw(p, "npn") &&
+			    !func_find(tsym(p, p->i))) {
+				adv(p);
+				expect_eos(p);
+				notes_flush();
+				cmd_npn();
+				return;
+			}
 			f = cmd_func(p);
 			if (!strcmp(cmd, "show")) {
 				expect_eos(p);
@@ -3305,15 +3775,25 @@ statement(struct P *p)
 				notes_flush();
 				cmd_gates(f, b, maxc, emit);
 			} else if (!strcmp(cmd, "find")) {
-				int want = 5, maxc = 0, stoke;
+				int want = 5, maxc = 0, stoke, snip, saturate;
 				uint32_t fnm2 = f->name;
+				char sname[96] = "";
 				if (pk(p) == T_NUM)
 					want = (int)N.ki[number(p)];
 				maxc = opt_int(p, "max", 0);
 				stoke = accept_kw(p, "stoke");	/* then the MCMC search */
+				saturate = accept_kw(p, "saturate");
+				snip = accept_kw(p, "snippets");
+				if (snip && pk(p) == T_ID) {
+					size_t sn;
+					const char *ss = ttext(p, p->i, &sn);
+					snprintf(sname, sizeof sname, "%.*s", (int)sn, ss);
+					adv(p);
+				}
 				expect_eos(p);
 				notes_flush();
-				cmd_find(f, want, NULL, maxc);
+				cmd_find(f, want, NULL, maxc, snip, sname[0] ? sname :
+				    NULL, saturate);
 				if (stoke)
 					stoke_find(func_find(fnm2));
 			} else if (!strcmp(cmd, "cost")) {
@@ -3595,6 +4075,7 @@ run_source1(const char *src, const char *file, int echo)
 			p->abs_depth = 0;
 			p->fnarg = 0;
 			p->nb = 0;
+			p->fusepat = 0;
 			fflush(stdout);
 			rep_failed();
 			if (nlp_asked)

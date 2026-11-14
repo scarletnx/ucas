@@ -155,10 +155,16 @@ enum {
 	 * sum over the lanes; shuffle(v, i): v in lane i; scan(v, l): the
 	 * sum of v over lanes 0..l; dfdx, dfdy, fwidth (v, l): the
 	 * difference of v across lane l's quad pair along x or y, and
-	 * |dfdx| + |dfdy| (see sg.c for the exact semantics)
+	 * |dfdx| + |dfdy|; min, max, and, or, xor: the reduction over the
+	 * lanes; a clustered sum, one operation a cluster size (v, l): the
+	 * sum over l's cluster; partition (k, l): the ballot of the lanes
+	 * whose k is l's; partitioned add (v, m): the sum over the lanes of
+	 * m, a partition's ballot (see sg.c for the exact semantics)
 	 */
 	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN, O_SGDDX,
-	O_SGDDY, O_SGFWIDTH,
+	O_SGDDY, O_SGFWIDTH, O_SGMIN, O_SGMAX, O_SGAND, O_SGOR, O_SGXOR,
+	O_SGCADD2, O_SGCADD4, O_SGCADD8, O_SGCADD16, O_SGCADD32, O_SGPART,
+	O_SGPADD,
 	/*
 	 * inst.c: single instructions that targets have, each defined by an
 	 * expression over the operations above (bit fields, bit reversal,
@@ -246,7 +252,9 @@ enum {
 #define O_DOT_LAST O_SUDOT8X4S
 #define IS_DOT(op) ((op) >= O_DOT_FIRST && (op) <= O_DOT_LAST)
 #define O_SG_FIRST O_SGBALLOT
-#define O_SG_LAST O_SGFWIDTH
+#define O_SG_LAST O_SGPADD
+#define IS_SGCADD(op) ((op) >= O_SGCADD2 && (op) <= O_SGCADD32)
+#define SGCADD_N(op) (2 << ((op) - O_SGCADD2))	/* its cluster's lanes */
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
 #define O_ASTC_FIRST O_ASTC_PART
 #define O_ASTC_LAST O_ASTC_F16
@@ -501,6 +509,21 @@ enum {
 	/* a depth compare read of a D32_SFLOAT texture with the linear
 	 * filter (tex_compare), absent unless listed */
 	C_TEX_COMPARE,
+	/*
+	 * An add (subtract, negate), a multiply (its low 64 bits) and a
+	 * shift in an integer type wider than 32 bits, which a 32-bit
+	 * machine makes of several instructions.  A model that does not
+	 * list one prices the operation as its 32-bit class (int64_class).
+	 */
+	C_IADD64, C_IMUL64, C_SHIFT64,
+	/* the reductions over the lanes other than the sum (sg.c: REDUX on
+	 * sm80, emulated before it), absent unless listed */
+	C_SG_MIN, C_SG_MAX, C_SG_AND, C_SG_OR, C_SG_XOR,
+	/* a clustered sum, one class a cluster size; the partition of the
+	 * lanes by a value (MATCH), the sum within a partition, a subgroup's
+	 * execution barrier (sg.c), absent unless listed */
+	C_SG_CLUSTER2, C_SG_CLUSTER4, C_SG_CLUSTER8, C_SG_CLUSTER16,
+	C_SG_CLUSTER32, C_SG_PART, C_SG_PADD, C_SG_BARRIER,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
@@ -528,9 +551,17 @@ int div_class(nid n);		/* model.c: an integer / or %'s class */
  * spirv.c (memory):
  *   cache       bytes a storage buffer's accesses may reach and stay
  *               resident; past it they stream (load_stream ...)
+ * spirv.c (float controls):
+ *   float_controls  the execution modes the device lets a module declare
+ *               (VkPhysicalDeviceFloatControlsProperties), FC_* bits
+ *               over fc_word
  */
 enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_SUBTEXEL, MP_TEX_WITHIN,
-	MP_NAN_PAYLOAD, MP_CACHE, MP_NPAR };
+	MP_NAN_PAYLOAD, MP_CACHE, MP_FLOAT_CONTROLS, MP_NPAR };
+/* float_controls' words, a bit each: rte16 .. szinp64 (model.c) */
+#define FC_NWORD 15
+extern const char *const fc_word[FC_NWORD];
+enum { FC_FTZ32 = 1 << 7 };	/* (the order of fc_word) */
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];
@@ -543,6 +574,8 @@ struct model {
 extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);
 int cclass_available(const struct model *m, int k);
+/* an integer add, multiply or shift's class at type t's width */
+int int64_class(const struct model *m, ty_t t, int k);
 void model_classes_text(struct sbuf *b, const struct model *m);
 void model_names(char *out, size_t n);
 struct model *model_new(uint32_t name);
@@ -636,6 +669,7 @@ nid sg_flat(nid e, nid to);	/* node.c: the bound lane replaced by to */
 /* f's body as one lane runs it: what cost and find price */
 nid sg_priced(const struct func *f, nid e);
 int sg_class(int op);		/* its cost class */
+int sg_combine_op(int op);	/* a reduction's two-value operation */
 int sg_width(nid n);		/* W of a subgroup node */
 /* the operation spelled out over its W lanes, operands already lowered */
 nid sg_expand(int op, nid a, nid b, nid c);
@@ -742,6 +776,7 @@ uint32_t plan_loc(const struct plan *p, nid g);
 #define COLF(p, k) (&(p)->vf[(size_t)(k)*CH])
 
 /* domain iteration */
+#define DI_MAXSET 128
 struct diter {
 	const struct func *f;
 	int np;
@@ -749,6 +784,9 @@ struct diter {
 	double rlo[MAXP], rhi[MAXP];
 	uint8_t real[MAXP];          /* 1 real grid; keys: 2 f32, 3 f64, 4 f16 */
 	uint8_t narrowed[MAXP];      /* bounds tightened by the where clause */
+	uint16_t nset[MAXP];         /* > 0: the where clause confines the
+	                              * parameter to setv[j][0..nset[j]) */
+	int64_t setv[MAXP][DI_MAXSET];
 	int exhaustive;
 	uint64_t total, pos, limit;
 	uint32_t rsteps;
@@ -804,12 +842,33 @@ struct gprog {
 int gates_synth(const struct basis *bs, int nin, uint64_t tt, uint64_t care,
     int maxcost, uint64_t budget, struct gprog *out);
 int gates_lut_imm(int tt, int n);
+void cmd_npn(void);		/* npn.c: `gates npn` */
 /* find.c for programs: candidate forms of f's body (not yet proved),
  * searched up to maxcost or seconds; why[k] says what each is */
 int find_cands(struct func *f, int maxcost, double seconds, nid *out,
     char (*why)[96], int max);
 extern uint64_t gates_budget;
-void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost);
+void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost,
+    int snip, const char *snipname, int saturate);
+/* a rewrite rule: l = r for every value of the pattern variables pv
+ * (O_VAR nodes of type ty), proved when it was kept */
+struct rwrule {
+	nid l, r;
+	nid pv[3];
+	int nin;
+	ty_t ty;
+};
+/* egraph.c: the cheapest member of root's class after equality
+ * saturation with the written rules and the ones given */
+nid egraph_best(nid root, const struct rwrule *rr, int nr, char *stat,
+    size_t nstat);
+/* find.c: `rule NAME(a: T, ...) = L => R`, proved, kept for find */
+void cmd_rule(const struct func *f, nid l, nid r);
+/* find.c: snippets grow [NAME] ...: the enumeration with no target */
+void cmd_snippets_grow(const char *name, int nin, int w, int maxcost,
+    double seconds, int fresh);
+/* find.c: rules infer ...: rules from the enumeration's dearer twins */
+void cmd_rules_infer(int nin, int w, int maxcost, double seconds);
 void cmd_more(int want);
 void cmd_fit(struct func *g, struct func *f, int metric);
 void error_measured(const struct func *f, nid approx, double *maxabs,
@@ -894,7 +953,8 @@ void spirv_sink_int(void);
  * through the texture unit at that descriptor (-1, -1: proposed only) */
 void spirv_tex_binding(int set, int binding);
 int spirv_sink_known(const char *fmt);
-void spirv_advice_opt(int on);	/* report what could leave the shader */
+void spirv_advice_opt(int on);
+void spirv_overdraw_opt(double k);	/* advice: fragments a pixel gets */	/* report what could leave the shader */
 void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);

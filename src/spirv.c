@@ -1513,6 +1513,29 @@ cat_class(int k, int fb)
 	return cclass_available(model_active(), k) ? k : fb;
 }
 
+/* is type st (a scalar or a vector's component) an integer wider than 32 */
+static int
+wide_int(int st)
+{
+	const struct sty *y;
+
+	if (st < 0 || V.id[st].kind != K_TYPE)
+		return 0;
+	y = T(st);
+	if (y->k == S_VEC && y->e >= 0 && V.id[y->e].kind == K_TYPE)
+		y = T(y->e);
+	return y->k == S_INT && y->w > 32;
+}
+
+/* an add, multiply or shift's class: its 64-bit one where the type is
+ * that wide and the model lists it */
+static int
+int_class(int k, int st)
+{
+	return wide_int(st) ? cat_class(k == C_IADD ? C_IADD64 : k == C_IMUL ?
+	    C_IMUL64 : C_SHIFT64, k) : k;
+}
+
 static int
 cost_class(const char *op, const char *ext, int st, double *mul)
 {
@@ -1541,9 +1564,9 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 	}
 	if (!strcmp(op, "OpIAdd") || !strcmp(op, "OpISub") ||
 	    !strcmp(op, "OpSNegate"))
-		return C_IADD;
+		return int_class(C_IADD, st);
 	if (!strcmp(op, "OpIMul"))
-		return C_IMUL;
+		return int_class(C_IMUL, st);
 	if (!strcmp(op, "OpUDiv"))
 		return C_IDIV;
 	if (!strcmp(op, "OpSDiv"))
@@ -1565,7 +1588,7 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 	    !strcmp(op, "OpFMod"))
 		return C_FDIV;
 	if (!strncmp(op, "OpShift", 7))
-		return C_SHIFT;
+		return int_class(C_SHIFT, st);
 	if (!strncmp(op, "OpBitwise", 9) || !strcmp(op, "OpNot") ||
 	    !strncmp(op, "OpLogical", 9))
 		return C_LOGIC;
@@ -2668,6 +2691,7 @@ static int exec_idot(const struct sins *I, uint32_t mask, int rt);
 static int exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc);
 static void sgx_reset(void);
 static void sgx_notes(void);
+static int sg_barrier_priced(void);
 
 static void
 exec_one(const struct sins *I, uint32_t mask)
@@ -2935,9 +2959,17 @@ exec_one(const struct sins *I, uint32_t mask)
 	}
 	if (!strcmp(I->op, "OpControlBarrier") ||
 	    !strcmp(I->op, "OpMemoryBarrier")) {
-		emit(I, I_BARRIER, C_BARRIER, I->op[2] == 'C' ?
-		    model_active()->c[C_BARRIER] : model_active()->c[C_BARRIER] / 2,
-		    mask);
+		/* a control barrier of Subgroup execution scope (3) waits for
+		 * one subgroup only: sg_barrier, where the model lists it */
+		int es = I->op[2] == 'C' && I->nop > 0 ? opid(I, 0) : -1;
+		if (es >= 0 && V.id[es].kind == K_CONST && V.id[es].c[0] == 3 &&
+		    sg_barrier_priced())
+			emit(I, I_BARRIER, C_SG_BARRIER,
+			    model_active()->c[C_SG_BARRIER], mask);
+		else
+			emit(I, I_BARRIER, C_BARRIER, I->op[2] == 'C' ?
+			    model_active()->c[C_BARRIER] :
+			    model_active()->c[C_BARRIER] / 2, mask);
 		return;
 	}
 	if (!strncmp(I->op, "OpAtomic", 8)) {
@@ -5233,12 +5265,12 @@ ins_cost_b(const char *op, const char *ext, int rt, int b)
 	if (cls == C_IDIV || cls == C_SDIV || cls == C_IREM || cls == C_SREM) {
 		if (b >= 0 && const_of(b, &v)) {
 			int w = int_width(rt), sg = cls == C_SDIV || cls == C_SREM;
+			int ks = int_class(C_SHIFT, rt), ka = int_class(C_IADD, rt);
 			if (v > 1 && !(v & (v - 1)) && (!sg || (w > 0 && w <= 64 &&
 			    !(v >> (w - 1)))))
-				return !sg ? m->c[cls == C_IDIV ? C_SHIFT : C_LOGIC] :
-				    cls == C_SDIV ? 3 * m->c[C_SHIFT] + m->c[C_IADD] :
-				    2 * m->c[C_SHIFT] + 2 * m->c[C_IADD] +
-				    m->c[C_LOGIC];
+				return !sg ? m->c[cls == C_IDIV ? ks : C_LOGIC] :
+				    cls == C_SDIV ? 3 * m->c[ks] + m->c[ka] :
+				    2 * m->c[ks] + 2 * m->c[ka] + m->c[C_LOGIC];
 			cls = C_DIVK(cls);
 		}
 	}
@@ -8335,6 +8367,22 @@ pack_format(const struct sins *I)
 
 static double fprice_ins(const char *op, const char *ext, int rt);
 
+/*
+ * The loops' f32 sums (lsum_of), found by the integer pass, where the
+ * ranges and SAT can run, and read by the float pass by the phi's name
+ */
+struct lsum {
+	char s[40], t[40];	/* the phi's and the term's names */
+	char src[160];		/* the add's source line, or "" */
+	int64_t n;		/* the loop's passes */
+	double tlo, thi;	/* the term's range (s - t: -t's) */
+	double lo, hi;		/* every partial sum as written */
+	double plain, kahan;	/* the adds' rounding against the exact sum */
+	char why[160];		/* a sum with no bound: why, else "" */
+};
+static struct lsum lsums[32];
+static int nlsums;
+
 /* float arithmetic under a value put together from lanes (a construct,
  * a shuffle, an extract or a copy of one) */
 static int
@@ -8357,6 +8405,33 @@ float_under(int v, int depth)
 		return 0;
 	for (i = 1; i < I->nop; i++)
 		if (I->opnd[i][0] == '%' && float_under(idx(I->opnd[i]), depth + 1))
+			return 1;
+	return 0;
+}
+
+/* a loop's f32 sum (lsums) under a value put together from lanes: a root
+ * when a sink asks how far its adds' rounding takes the stored value */
+static int
+lsum_under(int v, int depth)
+{
+	const struct sins *I;
+	int i;
+
+	if (v < 0 || SP.def[v] < 0 || depth > 8)
+		return 0;
+	I = &V.in[SP.def[v]];
+	if (!strcmp(I->op, "OpPhi")) {
+		for (i = 0; i < nlsums; i++)
+			if (!strcmp(lsums[i].s, V.id[v].tok))
+				return 1;
+		return 0;
+	}
+	if (strcmp(I->op, "OpCompositeConstruct") && strcmp(I->op,
+	    "OpVectorShuffle") && strcmp(I->op, "OpCompositeExtract") &&
+	    strcmp(I->op, "OpCopyObject"))
+		return 0;
+	for (i = 1; i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && lsum_under(idx(I->opnd[i]), depth + 1))
 			return 1;
 	return 0;
 }
@@ -8547,6 +8622,7 @@ fx_new(struct fxg *g, int op, int a, int b, int c, int ins, int sid)
 	return g->nn++;
 }
 
+
 static int fx_build(struct fxg *g, int id, int lane, int depth);
 
 static int
@@ -8577,6 +8653,36 @@ fx_leaf(struct fxg *g, int id, int lane)
 		    INFINITY, 1);
 		if (in < 0)
 			return -1;
+		/* a loop's sum: the range its partial sums take as written,
+		 * and its rounding as written and compensated, for the sink */
+		if (!g->in[in].assumed && !g->in[in].lsum_n) {
+			const struct model *m = model_active();
+			int q;
+			for (q = 0; q < nlsums; q++) {
+				const struct lsum *L = &lsums[q];
+				struct fxin *f = &g->in[in];
+				if (strcmp(L->s, V.id[id].tok))
+					continue;
+				snprintf(f->lsum_s, sizeof f->lsum_s, "%s", L->s);
+				snprintf(f->lsum_src, sizeof f->lsum_src, "%s", L->src);
+				if (L->why[0]) {
+					snprintf(f->lsum_why, sizeof f->lsum_why, "%s",
+					    L->why);
+					continue;
+				}
+				f->lo = (float)L->lo;
+				f->hi = (float)L->hi;
+				f->nan = 0;
+				f->lsum_n = (long)L->n;
+				f->lsum_plain = L->plain;
+				f->lsum_kahan = L->kahan;
+				f->lsum_cost = m->c[C_FADD];
+				f->lsum_kcost = 4 * m->c[C_FADD];
+				f->lsum_tlo = L->tlo;
+				f->lsum_thi = L->thi;
+				snprintf(f->lsum_t, sizeof f->lsum_t, "%s", L->t);
+			}
+		}
 		n = fx_new(g, FX_IN, -1, -1, -1, -1, id);
 	}
 	if (n >= 0)
@@ -9520,7 +9626,8 @@ float_pass(const char *text, int *changed)
 		/* a stored value is usually put together from its lanes: the
 		 * arithmetic is under the construct */
 		if (v < 0 || SP.def[v] < 0 || !is_float_t(V.id[v].type) ||
-		    !float_under(v, 0))
+		    !(float_under(v, 0) || (!disc && (imgfmt || fsink.abs > 0 ||
+		    fsink.rel > 0) && lsum_under(v, 0))))
 			continue;
 		/* a value compared or converted twice is one such root; one
 		 * also stored is a root both ways, and a rewrite of what they
@@ -10548,11 +10655,18 @@ float_pass(const char *text, int *changed)
  */
 enum { FQ_CONST, FQ_DRAW, FQ_PRIM, FQ_VERTEX, FQ_SCREEN, FQ_RUN };
 static int advice_on;
+static double adv_overdraw;	/* fragments a pixel gets; 0: not said */
 
 void
 spirv_advice_opt(int on)
 {
 	advice_on = on;
+}
+
+void
+spirv_overdraw_opt(double k)
+{
+	adv_overdraw = k;
 }
 
 static int
@@ -11099,28 +11213,35 @@ adv_reads_decorated(int id, const char *d, int depth)
 	return 0;
 }
 
-/* the instruction of the module that does something besides writing
- * its outputs (a store to memory others see, an atomic, an image
- * write): its index, -1 none */
+/* the first instruction of the module that does something besides
+ * writing its outputs (a store to memory others see, an atomic, an image
+ * write): its index, -1 none; *n (when given) how many there are */
 static int
-adv_effect(void)
+adv_effect(int *n)
 {
-	int k;
+	int k, first = -1, c = 0;
 
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
-		if (!strncmp(I->op, "OpAtomic", 8) || !strcmp(I->op,
-		    "OpImageWrite"))
-			return k;
-		if (!strcmp(I->op, "OpStore") && I->nop >= 1) {
+		int e = !strncmp(I->op, "OpAtomic", 8) || !strcmp(I->op,
+		    "OpImageWrite");
+		if (!e && !strcmp(I->op, "OpStore") && I->nop >= 1) {
 			int chain, var = mem_base_var(idx(I->opnd[0]), &chain);
 			const char *sc = var >= 0 ? mem_sc(var) : "";
-			if (var < 0 || (strcmp(sc, "Output") && strcmp(sc, "Function")
-			    && strcmp(sc, "Private")))
-				return k;
+			e = var < 0 || (strcmp(sc, "Output") && strcmp(sc, "Function")
+			    && strcmp(sc, "Private"));
 		}
+		if (!e)
+			continue;
+		if (first < 0)
+			first = k;
+		c++;
+		if (n == NULL)
+			break;
 	}
-	return -1;
+	if (n)
+		*n = c;
+	return first;
 }
 
 /*
@@ -11175,7 +11296,7 @@ adv_clip(struct sbuf *rep, const struct model *m, const uint8_t *fq)
 		else
 			continue;
 		if (eff == -2)
-			eff = adv_effect();
+			eff = adv_effect(NULL);
 		if (adv_reads_decorated(va, "NoPerspective", 0))
 			why = "the value reads a noperspective varying, and a clip "
 			    "distance is interpolated in clip space";
@@ -11225,6 +11346,170 @@ adv_clip(struct sbuf *rep, const struct model *m, const uint8_t *fq)
 	}
 	if (n)
 		rep_end();
+}
+
+/* a variable decorated BuiltIn b in storage class sc (NULL: any): its id,
+ * -1 none */
+static int
+adv_builtin_var(const char *b, const char *sc)
+{
+	int k, j;
+
+	for (k = 0; k < V.nin && strcmp(V.in[k].op, "OpFunction"); k++) {
+		const struct sins *I = &V.in[k];
+		int v;
+		if (strcmp(I->op, "OpDecorate") || I->nop < 3 || strcmp(I->opnd[1],
+		    "BuiltIn") || strcmp(I->opnd[2], b))
+			continue;
+		v = idx(I->opnd[0]);
+		for (j = 0; j < V.nin; j++)
+			if (!strcmp(V.in[j].op, "OpVariable") && V.in[j].res == v &&
+			    V.in[j].nop >= 2 && (!sc || !strcmp(V.in[j].opnd[1], sc)))
+				return v;
+	}
+	return -1;
+}
+
+/* the entry point's execution mode m: 1, else 0 */
+static int
+adv_mode(const char *m)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpExecutionMode") && V.in[k].nop >= 2 &&
+		    !strcmp(V.in[k].opnd[1], m))
+			return 1;
+	return 0;
+}
+
+/*
+ * Early fragment tests (#54): a fragment shader with effects others see
+ * (a store to a buffer or an image, an atomic) runs for every fragment,
+ * the hidden ones too, since running the depth and stencil tests first
+ * would drop those effects: the tests stay late.  EarlyFragmentTests
+ * (`layout(early_fragment_tests) in;`) runs them first, so a fragment
+ * they reject skips the whole shader.  Offered where nothing the shader
+ * does moves the tests' inputs or results: no depth or stencil output
+ * (the early tests use the rasterised depth), no discard and no sample
+ * mask (with early tests the depth and stencil are written before the
+ * shader, so a fragment it then drops would still write them).  A
+ * proposal: hidden fragments stop storing.  Not priced: no model prices
+ * a fragment's whole run.
+ */
+static void
+adv_early(struct sbuf *rep, const struct model *m)
+{
+	int k, eff = -1, neff = 0, kill = -1, depth, stencil, mask, cons;
+	const char *why = NULL;
+	char sl[160];
+
+	if (adv_mode("EarlyFragmentTests"))
+		return;
+	eff = adv_effect(&neff);
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (kill < 0 && (!strcmp(I->op, "OpKill") || !strcmp(I->op,
+		    "OpTerminateInvocation") || !strcmp(I->op,
+		    "OpDemoteToHelperInvocation") || !strcmp(I->op,
+		    "OpDemoteToHelperInvocationEXT")))
+			kill = k;
+	}
+	if (eff < 0)
+		return;		/* nothing keeps the tests late: a driver may
+				 * already run them first */
+	depth = adv_builtin_var("FragDepth", "Output") >= 0 ||
+	    adv_mode("DepthReplacing");
+	stencil = adv_builtin_var("FragStencilRefEXT", "Output") >= 0;
+	mask = adv_builtin_var("SampleMask", "Output") >= 0;
+	cons = adv_mode("DepthGreater") || adv_mode("DepthLess") ||
+	    adv_mode("DepthUnchanged");
+	if (depth || stencil)
+		why = cons ? "the shader writes its depth or stencil, which early "
+		    "tests cannot see (its conservative depth mode keeps a driver's "
+		    "own early rejection where the written depth moves the way the "
+		    "test allows)" : "the shader writes its depth or stencil, which "
+		    "early tests cannot see; DepthGreater or DepthLess "
+		    "(`layout(depth_greater) out float gl_FragDepth;`) lets a driver "
+		    "reject early where the written depth only moves away from what "
+		    "the test keeps, which this module does not show";
+	else if (kill >= 0 || mask)
+		why = kill >= 0 ? "the shader discards: with early tests the depth "
+		    "and stencil are written before it runs, so a discarded fragment "
+		    "would still write them; it holds for a pipeline that writes "
+		    "neither (a depth test with writes off)" : "the shader writes "
+		    "gl_SampleMask: with early tests the depth and stencil are "
+		    "written before it runs, for samples it then drops; it holds for "
+		    "a pipeline that writes neither";
+	if (!rep->n)
+		sb_printf(rep, "advice (changes outside the module; nothing here is "
+		    "rewritten), priced under %s:\n", sym_str(m->name));
+	sb_printf(rep, "  early fragment tests (EarlyFragmentTests, "
+	    "`layout(early_fragment_tests) in;`: the depth and stencil tests "
+	    "run before the shader, so a fragment they reject does not run; "
+	    "not priced: %s has no price for a fragment's whole run):\n",
+	    sym_str(m->name));
+	rep_list("advice_early");
+	rep_obj(NULL);
+	rep_int("effects", neff);
+	rep_str("first_effect", V.in[eff].text);
+	rep_int("line", ins_line(eff));
+	if (why) {
+		sb_printf(rep, "    not offered: %s\n", why);
+		rep_str("early_tests", "not offered");
+		rep_str("why", why);
+	} else {
+		sb_printf(rep, "    offered: the shader has %d effect%s others see "
+		    "and writes no depth, stencil or sample mask and never "
+		    "discards; without the mode its hidden fragments must run for "
+		    "those effects, so the tests wait for it; with it a hidden "
+		    "fragment skips the whole shader, and stores nothing (a "
+		    "proposal: what hidden fragments stored is no longer stored)\n",
+		    neff, neff == 1 ? "" : "s");
+		rep_str("early_tests", "offered");
+	}
+	if (adv_overdraw >= 1 && !depth && !stencil) {
+		/* what the overdraw makes of it, in runs of the shader a pixel
+		 * (a run is not priced as a whole) */
+		double K = adv_overdraw, H = 0;
+		int j;
+		for (j = 1; K == floor(K) && j <= (int)K; j++)
+			H += 1.0 / j;
+		if (!why) {
+			sb_printf(rep, "    with overdraw %g (fragments a pixel): late "
+			    "tests run the shader %g times a pixel; early tests once "
+			    "front to back (%g runs saved)", K, K, K - 1);
+			if (H > 0)
+				sb_printf(rep, ", H_%g = %.3g times in a random order (%.3g "
+				    "saved)", K, H, K - H);
+			sb_printf(rep, ", %g times back to front (none saved); a "
+			    "depth-only prepass makes it once in any order, for the "
+			    "vertices again and %g depth-only fragments a pixel\n", K,
+			    K);
+		} else
+			sb_printf(rep, "    with overdraw %g (fragments a pixel): it runs "
+			    "%g times a pixel; a depth-only prepass (the discard's test "
+			    "and the depth in a pass of its own, then this shader on an "
+			    "EQUAL test) runs it once, %g runs saved, for the vertices "
+			    "again and %g fragments of the prepass a pixel\n", K, K, K - 1,
+			    K);
+		rep_num("overdraw", K);
+		rep_num("runs_saved_front_to_back", K - 1);
+		if (H > 0 && !why)
+			rep_num("runs_saved_in_random_order", K - H);
+	}
+	sb_printf(rep, "    %s\n", V.in[eff].text);
+	src_line(ins_line(eff), sl, sizeof sl);
+	if (sl[0])
+		sb_printf(rep, "  %s", sl);
+	if (why && kill >= 0 && !depth && !stencil) {
+		sb_printf(rep, "    %s\n", V.in[kill].text);
+		src_line(ins_line(kill), sl, sizeof sl);
+		if (sl[0])
+			sb_printf(rep, "  %s", sl);
+	}
+	rep_end();
+	rep_end();
 }
 
 /*
@@ -11905,13 +12190,15 @@ advice_pass(const char *text, int asked)
 	if (!strcmp(stage, "Fragment")) {
 		adv_clip(&rep, m, fq);
 		adv_pointcoord(&rep, m, fq);
+		adv_early(&rep, m);
 	}
 	if (!rep.n && asked)
 		sb_printf(&rep, "advice: nothing in this module depends only on "
 		    "its uniforms or its flat inputs, is affine in its varyings "
 		    "or in gl_FragCoord, is what a vertex format or an instance "
-		    "divisor computes, is a discard the clipper could do, or is a "
-		    "point sprite's coordinate\n");
+		    "divisor computes, is a discard the clipper could do, is a "
+		    "point sprite's coordinate, or keeps the depth test after a "
+		    "fragment shader with effects\n");
 	if (rep.n)
 		fputs(rep.p, stdout);
 	free(rep.p);
@@ -12697,6 +12984,439 @@ f_range(int id, int depth)
 	return r;
 }
 
+/* does id's definition read s (through operands, within depth) */
+static int
+lsum_reads(int id, int s, int depth, uint8_t *seen)
+{
+	const struct sins *I;
+	int o;
+
+	id = res_of(id);
+	if (id == s)
+		return 1;
+	if (seen[id] || SP.def[id] < 0)
+		return 0;
+	if (depth > 64)
+		return 1;
+	seen[id] = 1;
+	I = &V.in[SP.def[id]];
+	for (o = 0; o < I->nop; o++)
+		if (I->opnd[o][0] == '%' && idx(I->opnd[o]) >= 0 &&
+		    lsum_reads(idx(I->opnd[o]), s, depth + 1, seen))
+			return 1;
+	return 0;
+}
+
+/*
+ * A loop's f32 sum (#47): id is an f32 phi of a structured loop's
+ * header, s0 from before the loop and s + t (t + s, s - t) from the
+ * continue target, that add read by the phi alone and t not reading s;
+ * the loop's passes a constant n (a break leaves sooner: fewer adds, and
+ * every bound below grows with the passes).  With s0's and t's ranges
+ * finite, the exact partial sums of the f32 terms are S(k) in [s0lo + k
+ * tlo, s0hi + k thi].  Each add rounds, fl(a + b) = (a + b)(1 + d), |d|
+ * <= u, and 2^-126 more for a result or an operand a GPU may flush to 0.
+ * As written, e(k) <= e(k-1) (1 + u) + u |S(k)|.  Kahan's compensated
+ * sum, y = t - c, w = s + y, c = (w - s) - y, s = w: s - c is off by
+ * E(k) <= E(k-1) + u (2 + 2u + u^2) A + u^2 (2 + u) B, with A = |t - c|
+ * <= |t| + C(k-1), B = |s + y| <= |S(k)| + E(k-1) + u A, and |c| <= C(k)
+ * = u (1 + u)^2 (A + B); s itself by E(k) + C(k).  The bounds are the
+ * most over k (a partial sum read in the loop).  1; -1 for a sum of
+ * that shape with no bound (L->why); 0 when it is not one
+ */
+static int
+lsum_of(int id, struct lsum *L)
+{
+	const double u = 0x1p-24, fl = 0x1p-126, up = 1 + 0x1p-40;
+	int kp, lb, k, h = -1, mg = -1, ct = -1, i, s0 = -1, nx = -1, t, sub = 0;
+	int iv = -1;
+	int64_t n, iv0, ivd;
+	const struct sins *P, *A;
+	struct frng f0, ft;
+	double e = 0, E = 0, C = 0, mp = 0, mk = 0, xm, lo, hi;
+	uint8_t *seen;
+
+	id = res_of(id);
+	kp = SP.def[id];
+	if (kp < 0 || strcmp(V.in[kp].op, "OpPhi") || V.in[kp].nop != 5 ||
+	    scalar_float_w(idx(V.in[kp].opnd[0])) != 32)
+		return 0;
+	P = &V.in[kp];
+	/* its block, and the block's loop merge */
+	for (lb = kp; lb >= 0 && strcmp(V.in[lb].op, "OpLabel"); lb--)
+		;
+	if (lb < 0)
+		return 0;
+	h = V.in[lb].res;
+	for (k = lb + 1; k < V.nin; k++) {
+		const char *op = V.in[k].op;
+		if (!strcmp(op, "OpLoopMerge") && V.in[k].nop >= 2) {
+			mg = idx(V.in[k].opnd[0]);
+			ct = idx(V.in[k].opnd[1]);
+			break;
+		}
+		if (!strcmp(op, "OpLabel") || !strcmp(op, "OpBranch") ||
+		    !strcmp(op, "OpBranchConditional") || !strcmp(op, "OpSwitch") ||
+		    !strncmp(op, "OpReturn", 8))
+			break;
+	}
+	if (h < 0 || mg < 0 || ct < 0)
+		return 0;
+	for (i = 1; i + 1 < P->nop; i += 2)
+		if (idx(P->opnd[i + 1]) == ct)
+			nx = res_of(idx(P->opnd[i]));
+		else
+			s0 = res_of(idx(P->opnd[i]));
+	if (nx < 0 || s0 < 0 || SP.def[nx] < 0 || SP.uses[nx] != 1)
+		return 0;
+	A = &V.in[SP.def[nx]];
+	if (A->nop != 3 || (strcmp(A->op, "OpFAdd") && strcmp(A->op, "OpFSub")))
+		return 0;
+	if (res_of(idx(A->opnd[1])) == id)
+		t = res_of(idx(A->opnd[2]));
+	else if (!strcmp(A->op, "OpFAdd") && res_of(idx(A->opnd[2])) == id)
+		t = res_of(idx(A->opnd[1]));
+	else
+		return 0;
+	sub = A->op[3] == 'S';
+	if (t == id)
+		return 0;
+	memset(L, 0, sizeof *L);
+	snprintf(L->s, sizeof L->s, "%s", V.id[id].tok);
+	snprintf(L->t, sizeof L->t, "%s", V.id[t].tok);
+	src_line(ins_line(SP.def[nx]), L->src, sizeof L->src);
+	seen = xcalloc((size_t)V.nid + 1, 1);
+	i = lsum_reads(t, id, 0, seen);
+	free(seen);
+	if (i) {
+		snprintf(L->why, sizeof L->why, "the term %s reads the sum, so "
+		    "the terms are not the loop's own", L->t);
+		return -1;
+	}
+	n = loop_trips_iv(h, mg, ct, &iv, &iv0, &ivd);
+	if (n < 1 || n > (1 << 24)) {
+		snprintf(L->why, sizeof L->why, "the loop's passes are not a "
+		    "constant (i from a constant, i < K or i <= K, i + a constant)%s",
+		    n > (1 << 24) ? " up to 2^24" : "");
+		return -1;
+	}
+	f0 = f_range(s0, 0);
+	ft = f_range(t, 0);
+	if (!f0.ok || !isfinite(f0.lo) || !isfinite(f0.hi) || !ft.ok ||
+	    !isfinite(ft.lo) || !isfinite(ft.hi)) {
+		snprintf(L->why, sizeof L->why, "%s %s has no finite range from "
+		    "its definitions and the assumptions", ft.ok &&
+		    isfinite(ft.lo) && isfinite(ft.hi) ? "its start" : "the term",
+		    ft.ok && isfinite(ft.lo) && isfinite(ft.hi) ? V.id[s0].tok :
+		    L->t);
+		return -1;
+	}
+	if (sub) {
+		double q = ft.lo;
+		ft.lo = -ft.hi;
+		ft.hi = -q;
+	}
+	xm = fmax(fabs(ft.lo), fabs(ft.hi));
+	if (!(fmax(fabs(f0.lo), fabs(f0.hi)) + (double)n * xm < 0x1p100)) {
+		snprintf(L->why, sizeof L->why, "its partial sums may reach 2^100");
+		return -1;
+	}
+	for (k = 1; k <= n; k++) {
+		double Sk = fmax(fabs(f0.lo + k * ft.lo), fabs(f0.hi + k * ft.hi)),
+		    a, b;
+		/* as written: one add */
+		e = (e * (1 + u) + u * Sk + 2 * fl) * up;
+		mp = fmax(mp, e);
+		/* compensated: four adds */
+		a = xm + C;
+		b = Sk + E + u * a;
+		E = (E + u * (2 + 2 * u + u * u) * a + u * u * (2 + u) * b + 8 *
+		    fl) * up;
+		C = (u * (1 + u) * (1 + u) * (a + b) + 2 * fl) * up;
+		mk = fmax(mk, E + C);
+	}
+	lo = f0.lo + fmin(0, n * ft.lo) - mp;
+	hi = f0.hi + fmax(0, n * ft.hi) + mp;
+	L->n = n;
+	L->tlo = ft.lo;
+	L->thi = ft.hi;
+	L->lo = f_down(lo);
+	L->hi = f_up(hi);
+	L->plain = mp;
+	L->kahan = mk;
+	(void)iv;
+	return 1;
+}
+
+/* ---- float controls (#178): what an execution mode does for free ---- */
+
+/* id is a scalar 32-bit constant whose bits are b */
+static int
+k_bits(int id, uint32_t b)
+{
+	id = res_of(id);
+	return V.id[id].kind == K_CONST && !V.id[id].spec && V.id[id].nc <= 1 &&
+	    (uint32_t)V.id[id].c[0] == b;
+}
+
+/* the instruction defining id when its op is op, else NULL */
+static const struct sins *
+def_op(int id, const char *op)
+{
+	int d = id >= 0 ? SP.def[res_of(id)] : -1;
+
+	return d >= 0 && !strcmp(V.in[d].op, op) ? &V.in[d] : NULL;
+}
+
+/* a binary instruction with operands a and b in either order */
+static int
+either(const struct sins *I, int a, int b)
+{
+	int x = res_of(idx(I->opnd[1])), y = res_of(idx(I->opnd[2]));
+
+	return I->nop >= 3 && ((x == a && y == b) || (x == b && y == a));
+}
+
+/* an operand of I that is not a constant with bits k: the other one */
+static int
+other_than_k(const struct sins *I, uint32_t k)
+{
+	if (I->nop < 3)
+		return -1;
+	if (k_bits(idx(I->opnd[2]), k))
+		return res_of(idx(I->opnd[1]));
+	if (k_bits(idx(I->opnd[1]), k))
+		return res_of(idx(I->opnd[2]));
+	return -1;
+}
+
+/*
+ * A flush of an f32's subnormals written as instructions, the two forms
+ * a translator writes for a device that cannot declare it: on the bits,
+ * asfloat((asuint(x) & 0x7f800000) == 0 ? asuint(x) & 0x80000000 :
+ * asuint(x)), and on the value, abs(x) < 2^-126 ? x * 0.0 : x.  k is the
+ * result's instruction (the last bitcast, or the select): x, else -1;
+ * ins[] the pattern's instructions (*n of them, k first)
+ */
+static int
+fc_flush(int k, int *ins, int *n)
+{
+	const struct sins *I = &V.in[k], *S, *C, *E, *G, *M, *A, *B;
+	int x, b, sel = -1;
+
+	*n = 0;
+	if (!strcmp(I->op, "OpBitcast") && I->nop == 2 && I->res >= 0 &&
+	    scalar_float_w(idx(I->opnd[0])) == 32 && (S = def_op(idx(I->opnd[1]),
+	    "OpSelect")) != NULL && S->nop == 4) {
+		/* on the bits: sel = e == 0 ? sign : bits */
+		C = def_op(idx(S->opnd[1]), "OpIEqual");
+		b = res_of(idx(S->opnd[3]));
+		G = def_op(idx(S->opnd[2]), "OpBitwiseAnd");
+		B = def_op(b, "OpBitcast");
+		if (C == NULL || G == NULL || B == NULL || B->nop != 2 ||
+		    other_than_k(G, 0x80000000u) != b)
+			return -1;
+		x = res_of(idx(B->opnd[1]));
+		if (scalar_float_w(V.id[x].type) != 32)
+			return -1;
+		E = def_op(other_than_k(C, 0), "OpBitwiseAnd");
+		if (E == NULL || other_than_k(E, 0x7f800000u) != b)
+			return -1;
+		ins[(*n)++] = k;
+		ins[(*n)++] = SP.def[res_of(idx(I->opnd[1]))];
+		ins[(*n)++] = (int)(C - V.in);
+		ins[(*n)++] = (int)(E - V.in);
+		ins[(*n)++] = (int)(G - V.in);
+		ins[(*n)++] = SP.def[b];
+		return x;
+	}
+	if (!strcmp(I->op, "OpSelect") && I->nop == 4 && I->res >= 0 &&
+	    scalar_float_w(idx(I->opnd[0])) == 32) {
+		/* on the value: abs(x) < 2^-126 ? x * 0.0 : x */
+		x = res_of(idx(I->opnd[3]));
+		C = def_op(idx(I->opnd[1]), "OpFOrdLessThan");
+		M = def_op(idx(I->opnd[2]), "OpFMul");
+		if (C == NULL || C->nop != 3 || !k_bits(idx(C->opnd[2]),
+		    0x00800000u) || M == NULL || other_than_k(M, 0) != x)
+			return -1;
+		A = def_op(idx(C->opnd[1]), "OpExtInst");
+		if (A == NULL || A->nop != 4 || idx(A->opnd[1]) != V.glsl ||
+		    strcmp(A->opnd[2], "FAbs") || res_of(idx(A->opnd[3])) != x)
+			return -1;
+		ins[(*n)++] = k;
+		ins[(*n)++] = (int)(C - V.in);
+		ins[(*n)++] = (int)(M - V.in);
+		ins[(*n)++] = (int)(A - V.in);
+		(void)sel;
+		return x;
+	}
+	return -1;
+}
+
+/* x's instruction must flush a subnormal result under DenormFlushToZero
+ * (Vulkan's list: the arithmetic, the conversions, the GLSL functions);
+ * its name, else NULL */
+static const char *
+fc_flushes(int x)
+{
+	static const char *const core[] = {"OpFConvert", "OpFNegate", "OpFAdd",
+	    "OpFSub", "OpFMul", "OpFDiv", "OpFRem", "OpFMod", "OpDot",
+	    "OpVectorTimesScalar", NULL};
+	static const char *const ext[] = {"Round", "RoundEven", "Trunc", "FAbs",
+	    "Floor", "Ceil", "Fract", "Radians", "Degrees", "Sin", "Cos", "Tan",
+	    "Asin", "Acos", "Atan", "Sinh", "Cosh", "Tanh", "Asinh", "Acosh",
+	    "Atanh", "Atan2", "Pow", "Exp", "Log", "Exp2", "Log2", "Sqrt",
+	    "InverseSqrt", "FMin", "FMax", "FClamp", "FMix", "Step",
+	    "SmoothStep", "Fma", "Length", "Distance", "NMin", "NMax",
+	    "NClamp", NULL};
+	int d = SP.def[res_of(x)];
+	const struct sins *I;
+
+	if (d < 0)
+		return NULL;
+	I = &V.in[d];
+	if (in_list(I->op, core))
+		return I->op;
+	if (!strcmp(I->op, "OpExtInst") && I->nop >= 3 && V.glsl >= 0 &&
+	    idx(I->opnd[1]) == V.glsl && in_list(I->opnd[2], ext))
+		return I->opnd[2];
+	return NULL;
+}
+
+/*
+ * DenormFlushToZero for f32 (#178), where the model says the device can
+ * declare it (`float_controls: ftz32`): under it every arithmetic result
+ * of the entry point is flushed, so a flush written as instructions on
+ * such a result does nothing and goes.  A proposal (the entry point's
+ * execution modes change), stated with its differences: Vulkan says
+ * "flushed to zero" and gives no sign where the written flush keeps x's,
+ * and a result whose exact value is below 2^-126 may be flushed even
+ * where it rounds to 2^-126.  Not where the module keeps denormals
+ * (DenormPreserve) or has more than one entry point.
+ */
+static struct fcjson {
+	char flush[160], of[24];
+	double cost;
+	int line;
+} fcj[64];
+static int nfcj;
+
+static void
+fc_pass(struct sbuf *rep)
+{
+	const struct model *m = model_active();
+	int k, j, nent = 0, keep = -1, already = 0, nflush = 0, nstay = 0;
+	int ins[8], n;
+	double saved = 0;
+	struct sbuf lines = {0};
+
+	nfcj = 0;
+	if (!((int)m->par[MP_FLOAT_CONTROLS] & FC_FTZ32))
+		return;
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpEntryPoint"))
+			nent++;
+		if (!strcmp(I->op, "OpExecutionMode") && I->nop >= 2 &&
+		    !strcmp(I->opnd[1], "DenormPreserve") && keep < 0)
+			keep = k;
+		if (!strcmp(I->op, "OpExecutionMode") && I->nop >= 3 &&
+		    !strcmp(I->opnd[1], "DenormFlushToZero") &&
+		    !strcmp(I->opnd[2], "32"))
+			already = 1;
+	}
+	for (k = 0; k < SP.orig_nin; k++) {
+		const char *by;
+		double c = 0;
+		char sl[160];
+		int x;
+		if (SP.dead[k] || (x = fc_flush(k, ins, &n)) < 0)
+			continue;
+		if ((by = fc_flushes(x)) == NULL) {
+			nstay++;
+			continue;
+		}
+		/* what goes: the pattern's instructions nothing else reads */
+		for (j = 1; j < n; j++) {
+			int r = V.in[ins[j]].res, inside = 0, z, o;
+			for (z = 0; z < n; z++)
+				for (o = 0; o < V.in[ins[z]].nop; o++)
+					inside += V.in[ins[z]].opnd[o][0] == '%' &&
+					    res_of(idx(V.in[ins[z]].opnd[o])) == r;
+			if (inside == SP.uses[r])
+				c += adv_price(&V.in[ins[j]]);
+		}
+		c += adv_price(&V.in[ins[0]]);
+		saved += c;
+		if (nflush++ < 8) {
+			sb_printf(&lines, "    %s\n      a flush of %s = %s (%g)\n",
+			    V.in[k].text, V.id[x].tok, by, c);
+			src_line(ins_line(k), sl, sizeof sl);
+			if (sl[0])
+				sb_printf(&lines, "  %s", sl);
+		}
+		if (nfcj < 64) {
+			struct fcjson *f = &fcj[nfcj++];
+			snprintf(f->flush, sizeof f->flush, "%s", V.in[k].text);
+			snprintf(f->of, sizeof f->of, "%s", by);
+			f->cost = c;
+			f->line = ins_line(k);
+		}
+	}
+	if (!nflush)
+		goto out;
+	if (nflush > 8)
+		sb_printf(&lines, "    ... and %d more\n", nflush - 8);
+	if (already)
+		sb_printf(rep, "    %d flush%s of subnormals written as instructions "
+		    "on results the entry point's DenormFlushToZero 32 already "
+		    "flushes (%g a run): %s nothing and could go\n", nflush,
+		    nflush == 1 ? "" : "es", saved, nflush == 1 ? "it does" :
+		    "they do");
+	else if (keep >= 0 || nent != 1)
+		sb_printf(rep, "    not proposed: %d flush%s of subnormals written as "
+		    "instructions (%g a run) would go under DenormFlushToZero 32, "
+		    "but %s\n", nflush, nflush == 1 ? "" : "es", saved, keep >= 0 ?
+		    "the module keeps denormals (DenormPreserve), which the mode "
+		    "would end for every result of the entry point" : "the module "
+		    "has more than one entry point, and the modes are each one's");
+	else
+		sb_printf(rep, "    DenormFlushToZero 32 (OpExecutionMode %%main "
+		    "DenormFlushToZero 32, the DenormFlushToZero capability, "
+		    "SPV_KHR_float_controls below SPIR-V 1.4): every arithmetic "
+		    "result of the entry point is flushed then, so %d flush%s of "
+		    "subnormals written as instructions on such results %s nothing "
+		    "and %s, %g a run; it differs only where a result's exact "
+		    "value is below 2^-126: Vulkan says \"flushed to zero\" and "
+		    "gives no sign (the written flush keeps x's), and such a value "
+		    "may be flushed even where it rounds to 2^-126 (which the "
+		    "written flush keeps).  Without a mode a driver may already "
+		    "flush any result; the mode makes it the rule\n", nflush,
+		    nflush == 1 ? "" : "es", nflush == 1 ? "does" : "do",
+		    nflush == 1 ? "goes" : "go", saved);
+	if (!already && keep < 0 && nent == 1 && nstay)
+		sb_printf(rep, "    %d other flush%s stay%s: of %s no instruction "
+		    "flushes (a load, a phi, a select, a bitcast), which the mode "
+		    "may leave as it is\n", nstay, nstay == 1 ? "" : "es", nstay == 1 ?
+		    "s" : "", nstay == 1 ? "a value" : "values");
+	sb_puts(rep, lines.p ? lines.p : "");
+out:
+	free(lines.p);
+}
+
+/* every f32 phi that is a loop's sum, for the float pass */
+static void
+lsum_pass(void)
+{
+	int k;
+
+	nlsums = 0;
+	for (k = 0; k < SP.orig_nin && nlsums < 32; k++)
+		if (!SP.dead[k] && !strcmp(V.in[k].op, "OpPhi") && V.in[k].res >= 0 &&
+		    lsum_of(V.in[k].res, &lsums[nlsums]) != 0)
+			nlsums++;
+}
+
 static struct cvx {
 	char res[40], rt[40], x[40], xt[40], op[40], k[40], kt[40];
 	char from[160], src[160];
@@ -12707,6 +13427,11 @@ static struct cvx {
 	int zero;		/* form 9: x may be 0 (an integer converted,
 				 * else 1 or more in magnitude): a select keeps
 				 * it; kt2 the bool type */
+	int ksg;		/* form 9: k's type is signed */
+	int mul;		/* form 9: x times 2^k made by its exponent
+				 * field, k in [-126, 127] (x anything); 2:
+				 * k in [-126, 254], by 2^min(k, 127) then
+				 * the rest (fx: the GLSL import) */
 	char kt2[40];
 	char fx[40];		/* forms 10, 11: the f32 x log2 reads */
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
@@ -12832,6 +13557,44 @@ log2_int(int id, int user, int *xf, int *alone)
 	return i;
 }
 
+/*
+ * Every value the 32-bit integer k takes (its definitions and the
+ * assumptions) is in [lo, hi], proved by SAT
+ */
+static int
+k_within(int k, int64_t lo, int64_t hi)
+{
+	int t = V.id[k].type, sg;
+	int64_t tlo, thi;
+	struct word *wk, cl, ch;
+	lit goal, out = 0;
+
+	if (lo > hi || t < 0 || T(t)->k != S_INT || T(t)->w != 32)
+		return 0;
+	sg = T(t)->sign;
+	tlo = sg ? INT32_MIN : 0;
+	thi = sg ? INT32_MAX : (int64_t)UINT32_MAX;
+	if (hi < tlo || lo > thi)
+		return 0;
+	if (lo <= tlo && hi >= thi)
+		return 1;
+	blast_reset();
+	wk = blast(k, 16);
+	/* below lo, or above hi, where the type reaches past them */
+	if (lo > tlo) {
+		w_const(&cl, 32, (uint64_t)(uint32_t)lo);
+		out = sg ? w_slt(SP.g, wk, &cl) : w_ult(SP.g, wk, &cl);
+	}
+	if (hi < thi) {
+		lit up;
+		w_const(&ch, 32, (uint64_t)(uint32_t)hi);
+		up = sg ? w_slt(SP.g, &ch, wk) : w_ult(SP.g, &ch, wk);
+		out = lo > tlo ? aig_or(SP.g, out, up) : up;
+	}
+	goal = aig_and(SP.g, aig_and(SP.g, SP.dl[k], assumptions()), out);
+	return aig_sat(SP.g, goal, 20000) == 0;
+}
+
 static void
 i2f_pass(void)
 {
@@ -12861,18 +13624,21 @@ i2f_pass(void)
 		if (SP.dead[k] || SP.rw[k])
 			continue;
 		/*
-		 * ldexp(x, k) of an f32 x whose |x| is normal (2^-126 at least,
-		 * finite), k proved by SAT to keep x * 2^k normal: x's exponent
-		 * field plus k, asfloat(asint(x) + (k << 23)), exactly (the sign
-		 * and the mantissa are x's)
+		 * ldexp(x, k), two forms, the cheaper the model prices first:
+		 * of an f32 x whose |x| is normal (2^-126 at least, finite), k
+		 * proved by SAT to keep x * 2^k normal: x's exponent field plus
+		 * k, asfloat(asint(x) + (k << 23)), exactly (the sign and the
+		 * mantissa are x's); and of any x, k proved in [-126, 127]: x
+		 * times 2^k made by its exponent field, asfloat((k << 23) +
+		 * 0x3F800000), which rounds once as ldexp does
 		 */
 		if (!strcmp(I->op, "OpExtInst") && I->nop == 5 && I->res >= 0 &&
 		    V.glsl >= 0 && idx(I->opnd[1]) == V.glsl && !strcmp(I->opnd[2],
 		    "Ldexp") && I->opnd[3][0] == '%' && I->opnd[4][0] == '%') {
-			int kid = res_of(idx(I->opnd[4])), kt, elo, ehi, ok, zero;
+			int kid = res_of(idx(I->opnd[4])), kt, elo = 0, ehi = 0, zero = 0;
+			int fld, c, mul = -1;
 			struct frng fr;
-			double alo, ahi;
-			struct word *wk, cl, ch;
+			double alo = 0, ahi = 0, afld, amul, awide;
 			rt = idx(I->opnd[0]);
 			x = res_of(idx(I->opnd[3]));
 			kt = V.id[kid].type;
@@ -12880,58 +13646,70 @@ i2f_pass(void)
 			    T(rt)->w != 32 || kt < 0 || T(kt)->k != S_INT || T(kt)->w != 32)
 				continue;
 			fr = f_range(x, 0);
-			if (!fr.ok || !isfinite(fr.lo) || !isfinite(fr.hi))
-				continue;
+			fld = fr.ok && isfinite(fr.lo) && isfinite(fr.hi);
 			/* |x| below 2^-126 somewhere: 0 or subnormal; an integer
 			 * converted is 0 or 1 at least in magnitude, and its 0 is
 			 * kept by a select */
-			zero = 0;
-			if (fr.lo < 0x1p-126 && fr.hi > -0x1p-126) {
+			if (fld && fr.lo < 0x1p-126 && fr.hi > -0x1p-126) {
 				int xd = SP.def[x];
 				if (xd < 0 || (strcmp(V.in[xd].op, "OpConvertUToF") &&
 				    strcmp(V.in[xd].op, "OpConvertSToF")))
-					continue;
+					fld = 0;
 				zero = 1;
 			}
-			/* |x|'s least (nonzero) and most */
-			alo = zero ? 1 : fr.lo > 0 ? fr.lo : -fr.hi;
-			ahi = zero ? fmax(-fr.lo, fr.hi) : fr.lo > 0 ? fr.hi : -fr.lo;
-			if (!(ahi >= alo))
-				continue;
-			elo = ilogb(alo);
-			ehi = ilogb(ahi);
+			if (fld) {
+				/* |x|'s least (nonzero) and most */
+				alo = zero ? 1 : fr.lo > 0 ? fr.lo : -fr.hi;
+				ahi = zero ? fmax(-fr.lo, fr.hi) : fr.lo > 0 ? fr.hi :
+				    -fr.lo;
+				fld = ahi >= alo;
+				if (fld) {
+					elo = ilogb(alo);
+					ehi = ilogb(ahi);
+				}
+			}
 			before = fprice_std("Ldexp", 1);
-			after = m->c[C_SHIFT] + m->c[C_IADD] + 2 * m->c[C_BITCAST] +
+			afld = m->c[C_SHIFT] + m->c[C_IADD] + 2 * m->c[C_BITCAST] +
 			    (zero ? m->c[C_CMP] + m->c[C_SELECT] : 0);
-			if (!(after < before - 1e-9))
+			amul = m->c[C_SHIFT] + m->c[C_IADD] + m->c[C_BITCAST] +
+			    m->c[C_FMUL];
+			fld = fld && afld < before - 1e-9;
+			for (c = 0; c < 2 && mul < 0; c++) {
+				/* c 0: the cheaper of the two, c 1: the other */
+				int try_mul = (c == 0) == (!fld || amul < afld);
+				if (try_mul ? !(amul < before - 1e-9) : !fld)
+					continue;
+				if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
+					break;
+				if (try_mul ? k_within(kid, -126, 127) : k_within(kid,
+				    -126 - elo, 127 - ehi))
+					mul = try_mul;
+			}
+			/* k up to 254: x times 2^min(k, 127), then times 2^(k -
+			 * min(k, 127)); the first is exact (a scaling up) or
+			 * overflows where x 2^k does too, the second rounds once */
+			awide = m->c[C_MINMAX] + m->c[C_IADD] + 2 * (m->c[C_SHIFT] +
+			    m->c[C_IADD] + m->c[C_BITCAST] + m->c[C_FMUL]);
+			if (mul < 0 && awide < before - 1e-9 && (double)clock() /
+			    CLOCKS_PER_SEC <= SP.deadline && k_within(kid, -126, 254))
+				mul = 2;
+			if (mul < 0)
 				continue;
-			if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
-				break;
-			/* -126 - elo <= k <= 127 - ehi for every input */
-			blast_reset();
-			wk = blast(kid, 16);
-			w_const(&cl, 32, (uint64_t)(uint32_t)(-126 - elo));
-			w_const(&ch, 32, (uint64_t)(uint32_t)(127 - ehi));
-			lit below;
-			goal = aig_and(SP.g, SP.dl[kid], assumptions());
-			below = T(kt)->sign ? w_slt(SP.g, wk, &cl) :
-			    w_ult(SP.g, wk, &cl);
-			goal = aig_and(SP.g, goal, aig_or(SP.g, below, T(kt)->sign ?
-			    w_slt(SP.g, &ch, wk) : w_ult(SP.g, &ch, wk)));
-			ok = -126 - elo <= 127 - ehi && (T(kt)->sign || -126 - elo <= 0) &&
-			    aig_sat(SP.g, goal, 20000) == 0;
-			if (!ok)
-				continue;
+			after = mul == 2 ? awide : mul ? amul : afld;
 			xt = rt;
 			e = &cvx[ncvx++];
 			memset(e, 0, sizeof *e);
-			e->flo = fr.lo;
-			e->fhi = fr.hi;
+			e->flo = fr.ok ? fr.lo : -INFINITY;
+			e->fhi = fr.ok ? fr.hi : INFINITY;
 			snprintf(e->k, sizeof e->k, "%s", V.id[kid].tok);
 			snprintf(e->kt, sizeof e->kt, "%s", V.id[kt].tok);
-			snprintf(e->lx, sizeof e->lx, "%d", -126 - elo);
-			snprintf(e->it, sizeof e->it, "%d", 127 - ehi);
-			e->zero = zero;
+			snprintf(e->lx, sizeof e->lx, "%d", mul ? -126 : -126 - elo);
+			snprintf(e->it, sizeof e->it, "%d", mul == 2 ? 254 : mul ? 127 :
+			    127 - ehi);
+			snprintf(e->fx, sizeof e->fx, "%s", V.id[V.glsl].tok);
+			e->ksg = T(kt)->sign;
+			e->zero = !mul && zero;
+			e->mul = mul;
 			snprintf(e->kt2, sizeof e->kt2, "%s", bt >= 0 ? V.id[bt].tok :
 			    "%ucas_bool");
 			form = 9;
@@ -13309,6 +14087,23 @@ i2f_patch(const char *text, char **out)
 			    !strstr(decl.p ? decl.p : "", "%ucas_bool = ") &&
 			    !strstr(text, "%ucas_bool = "))
 				sb_puts(&decl, "%ucas_bool = OpTypeBool\n");
+			/* the multiply: 127 << 23 in k's type, and it stays one
+			 * rounding */
+			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->kt + 1,
+			    0x3F800000u);
+			if (e->mul && !strstr(decl.p ? decl.p : "", kn) &&
+			    !strstr(text, kn))
+				sb_printf(&decl, "%sOpConstant %s %u\n", kn, e->kt,
+				    0x3F800000u);
+			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->kt + 1, 127u);
+			if (e->mul == 2 && !strstr(decl.p ? decl.p : "", kn) &&
+			    !strstr(text, kn))
+				sb_printf(&decl, "%sOpConstant %s 127\n", kn, e->kt);
+			if (e->mul == 2)
+				sb_printf(&dec, "OpDecorate %%ucas_cv%dp NoContraction\n",
+				    base + i);
+			if (e->mul)
+				sb_printf(&dec, "OpDecorate %s NoContraction\n", e->res);
 			nlog++;
 			continue;
 		}
@@ -13425,7 +14220,66 @@ i2f_patch(const char *text, char **out)
 				continue;
 			}
 		}
-		if (hit >= 0 && cvx[hit].form == 9) {
+		if (hit >= 0 && cvx[hit].form == 9 && cvx[hit].mul == 2) {
+			const struct cvx *e = &cvx[hit];
+			int b = base + hit, sg = e->ksg;
+			sb_printf(&o, "%%ucas_cv%dm = OpExtInst %s %s %s %s "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, e->fx, sg ? "SMin" : "UMin",
+			    e->k, e->kt + 1, 127u);
+			sb_printf(&o, "%%ucas_cv%dr = OpISub %s %s %%ucas_cv%dm\n", b,
+			    e->kt, e->k, b);
+			sb_printf(&o, "%%ucas_cv%ds = OpShiftLeftLogical %s %%ucas_cv%dm "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 23u);
+			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %%ucas_cv%ds "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 0x3F800000u);
+			sb_printf(&o, "%%ucas_cv%df = OpBitcast %s %%ucas_cv%do\n", b,
+			    e->rt, b);
+			sb_printf(&o, "%%ucas_cv%dt = OpShiftLeftLogical %s %%ucas_cv%dr "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 23u);
+			sb_printf(&o, "%%ucas_cv%du = OpIAdd %s %%ucas_cv%dt "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 0x3F800000u);
+			sb_printf(&o, "%%ucas_cv%dg = OpBitcast %s %%ucas_cv%du\n", b,
+			    e->rt, b);
+			sb_printf(&o, "%%ucas_cv%dp = OpFMul %s %s %%ucas_cv%df\n", b,
+			    e->rt, e->x, b);
+			sb_printf(&o, "%s = OpFMul %s %%ucas_cv%dp %%ucas_cv%dg\n", e->res,
+			    e->rt, b, b);
+			sb_printf(&rep, "    %s\n      ->  x * asfloat((min(k, 127) << 23) + "
+			    "0x3F800000) * asfloat(((k - min(k, 127)) << 23) + "
+			    "0x3F800000)   (cost %g -> %g)\n      k = %s is in [-126, "
+			    "254], proved by SAT from its definitions; up to 127 the second "
+			    "factor is 1 and the first product is the correctly rounded x "
+			    "2^k; past it the first is x 2^127, exact (a scaling up) or an "
+			    "overflow where x 2^k overflows too, and the second rounds "
+			    "once: the correctly rounded x 2^k, as ldexp's is, for every x "
+			    "(x = %s); the multiplies are decorated NoContraction\n%s",
+			    e->from, e->before, e->after, e->k, e->x, e->src);
+		} else if (hit >= 0 && cvx[hit].form == 9 && cvx[hit].mul) {
+			const struct cvx *e = &cvx[hit];
+			int b = base + hit;
+			char rng[96];
+			if (isfinite(e->flo) && isfinite(e->fhi))
+				snprintf(rng, sizeof rng, "in [%.9g, %.9g]", e->flo, e->fhi);
+			else
+				snprintf(rng, sizeof rng, "with no finite range from its "
+				    "definitions");
+			sb_printf(&o, "%%ucas_cv%ds = OpShiftLeftLogical %s %s "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, e->k, e->kt + 1, 23u);
+			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %%ucas_cv%ds "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 0x3F800000u);
+			sb_printf(&o, "%%ucas_cv%df = OpBitcast %s %%ucas_cv%do\n", b,
+			    e->rt, b);
+			sb_printf(&o, "%s = OpFMul %s %s %%ucas_cv%df\n", e->res, e->rt,
+			    e->x, b);
+			sb_printf(&rep, "    %s\n      ->  x * asfloat((k << 23) + "
+			    "0x3F800000)   (cost %g -> %g)\n      k = %s is in [-126, 127], "
+			    "proved by SAT from its definitions, so (k << 23) + 0x3F800000 "
+			    "are the bits of 2^k, a normal f32; x * 2^k is the correctly "
+			    "rounded x 2^k, as ldexp's result is, so the two agree for "
+			    "every x, 0, subnormal and infinite included (x = %s, %s); "
+			    "the multiply is decorated NoContraction\n%s", e->from,
+			    e->before, e->after, e->k, e->x, rng, e->src);
+		} else if (hit >= 0 && cvx[hit].form == 9) {
 			const struct cvx *e = &cvx[hit];
 			int b = base + hit;
 			sb_printf(&o, "%%ucas_cv%ds = OpShiftLeftLogical %s %s "
@@ -13644,7 +14498,12 @@ i2f_patch(const char *text, char **out)
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
 		rep_str("form", cvx[i].form == 10 ? "FindUMsb(i)" : cvx[i].form ==
-		    11 ? "f32(FindUMsb(i))" : cvx[i].form == 9 && cvx[i].zero ?
+		    11 ? "f32(FindUMsb(i))" : cvx[i].form == 9 && cvx[i].mul == 2 ?
+		    "x * asfloat((min(k, 127) << 23) + 0x3F800000) * "
+		    "asfloat(((k - min(k, 127)) << 23) + 0x3F800000)" :
+		    cvx[i].form == 9 && cvx[i].mul ?
+		    "x * asfloat((k << 23) + 0x3F800000)" :
+		    cvx[i].form == 9 && cvx[i].zero ?
 		    "x == 0 ? x : "
 		    "asfloat(asint(x) + (k << 23))" : cvx[i].form == 9 ?
 		    "asfloat(asint(x) + (k << 23))" :
@@ -13982,6 +14841,36 @@ spv_cover(struct fuse_tally *t)
 				}
 			}
 	}
+	/* each integer's range from its type, its constants and its
+	 * operations, for a fusion's input of a proved width (#45) */
+	{
+		int64_t *tlo = xmalloc((size_t)(nins + nleaf + 1) * sizeof *tlo);
+		int64_t *thi = xmalloc((size_t)(nins + nleaf + 1) * sizeof *thi);
+		int *wd = xcalloc((size_t)(nins + nleaf + 1), sizeof *wd);
+		for (j = 0; j < nins + nleaf; j++) {
+			tlo[j] = 1;
+			thi[j] = 0;
+		}
+		for (i = 0; i < nid_; i++) {
+			int t, w, sg = 0;
+			if (gi[i] < 0 || i >= V.nid)
+				continue;
+			t = V.id[i].type;
+			w = t >= 0 && V.id[t].kind == K_TYPE && T(t)->k == S_INT ?
+			    T(t)->w : 0;
+			if (w < 1 || w > 32)
+				continue;
+			sg = T(t)->sign;
+			tlo[gi[i]] = sg ? -(1LL << (w - 1)) : 0;
+			thi[gi[i]] = sg ? (1LL << (w - 1)) - 1 : (1LL << w) - 1;
+			wd[gi[i]] = w;
+		}
+		fg_ranges(&G, tlo, thi);
+		fg_demanded(&G, wd);	/* and which bits of each anything reads */
+		free(tlo);
+		free(thi);
+		free(wd);
+	}
 	/* what no result needs (a rewrite took its last use; dead code
 	 * removal drops it later) costs nothing */
 	{
@@ -14049,7 +14938,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
-	struct sbuf sgrep = {0}, sgprop = {0}, sgadv = {0};
+	struct sbuf sgrep = {0}, sgprop = {0}, sgadv = {0}, fcrep = {0};
 	struct sbuf idrep2 = {0}, idrep3 = {0}, idrep4 = {0};
 	int nidk[5] = {0, 0, 0, 0, 0};	/* idrw's rewrites by kind */
 	clock_t t0 = clock();
@@ -14058,6 +14947,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	symmap_reset();
 	memset(&SP, 0, sizeof SP);
 	ncvx = 0;
+	nlsums = 0;
 	dotcaps = 0;
 	memset(&dotund, 0, sizeof dotund);
 	sg_simplify_reset();
@@ -14091,6 +14981,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		spirv_sink_opt(NULL);
 		spirv_tex_binding(-1, -1);
 		advice_on = 0;
+		adv_overdraw = 0;
 		fnl_mode = 0;
 		return;
 	}
@@ -14355,6 +15246,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 	/* conversions of integers to f32 by the bits: decided here, written
 	 * after the passes that read conversions */
 	i2f_pass();
+	/* the loops' f32 sums, for the float pass's sink */
+	lsum_pass();
+	/* what an execution mode the device has would do for free */
+	fc_pass(&fcrep);
 	/* subgroup forms that need the pipeline's subgroup size: said */
 	sg_proposals(&sgprop);
 	/* a branch in a loop the lanes could be packed for: advice */
@@ -14837,6 +15732,24 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(idrep4.p, stdout);
 	}
 	free(idrep4.p);
+	if (fcrep.n) {
+		printf("  float controls, under %s (its float_controls: the modes "
+		    "its device lets a module declare; adding one is a proposal, as "
+		    "the entry point's execution modes change):\n",
+		    sym_str(model_active()->name));
+		fputs(fcrep.p, stdout);
+		rep_list("float_controls");
+		for (i = 0; i < nfcj; i++) {
+			rep_obj(NULL);
+			rep_str("flush", fcj[i].flush);
+			rep_str("of", fcj[i].of);
+			rep_num("cost", fcj[i].cost);
+			rep_int("line", fcj[i].line);
+			rep_end();
+		}
+		rep_end();
+	}
+	free(fcrep.p);
 	if (sgprop.n) {
 		printf("  subgroup forms that need the subgroup's size fixed, "
 		    "proposed (pipeline state: the module is not changed), under "
@@ -14962,6 +15875,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		dw_nfas = npend_fas;	/* float_pass ends the assumptions */
 		fopt_nofile = nofile;
 		ft = float_pass(out.p ? out.p : "", &fch);
+		nlsums = 0;	/* this module's */
 		/* f64 over f32 and folded round trips, on what that left */
 		dt = dword_pass(fch ? ft : out.p ? out.p : "", &dch);
 		if (dch) {
@@ -15007,5 +15921,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 	spirv_sink_opt(NULL);
 	spirv_tex_binding(-1, -1);
 	advice_on = 0;
+	adv_overdraw = 0;
 	fnl_mode = 0;
 }

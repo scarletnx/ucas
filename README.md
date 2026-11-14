@@ -188,7 +188,9 @@ inline annotations: `range isqrt(x: u4)`.
 | `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, or the draw whose coverage is a predicate P(x, y) of a pixel, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
-| `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
+| `rules infer [inputs N] [width W] [cost C] [seconds S]`, `rule NAME(a: T, ...) = L => R` | rules from the enumeration's dearer twins, or declared, proved, directed by the model's prices; find tries them (see "Stochastic search") |
+| `snippets grow [NAME] [fresh] [inputs N] [width W] [cost C] [seconds S]`, `find F snippets [NAME]` | a database of the cheapest program for each column of values on 32 fixed points, grown by find's enumeration with no target and consulted by find (see "Stochastic search") |
+| `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, or its values from the key by a multiply-add and a shift with no value table, when the model prices that below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
 | `dword cases [P]` | the bounds of DWPlusFP and AccurateDWPlusDW whatever cancels, by the case analysis ucas runs at P bits (24): the cases, the largest bound and its case; at 3 to 5 bits also every operand pair of that format in a window run against them (see "fp64 without fp64").  English: "the case analysis of the double-word additions at 4 bits" |
 | `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
@@ -221,7 +223,19 @@ sampled (65536 points, edge values first), and the output says so.
 The where clause narrows an integer parameter first when a conjunct
 compares it with an expression whose interval is known: in
 `f(v: u32, n: u32 in 5..8) = ... where v < 1 << n`, v runs over 0..255
-(1024 points, enumerated).  `wrap` and `range` add interval bounds when
+(1024 points, enumerated).  Under `||` the bounds are the hull of what
+each side leaves (`(x >= 3 && x <= 5) || (x >= 100 && x <= 101)`: 3..101),
+and a conjunct that lists a parameter's values, `x == 3 || x == 17 ||
+x == 4000000000`, makes those values its domain however far apart they
+are (up to 128 of them).  A parameter's values can be listed where it is
+declared, `x: u32 in {5, 900, 70000}`, which is that conjunct of the
+where clause with the values' hull as the range, and `x in {a, b, c}`
+is a condition anywhere (the || of the equalities).  Without braces a
+list is refused: after its comma, `x in 3, 17, y in 6, 9` reads as two
+lists or as one value and the next conditions, and ucas does not
+guess.  A sample in which no point is in the domain
+says that, with the number of points sampled, instead of calling the
+function undefined.  `wrap` and `range` add interval bounds when
 sampling, which can prove that an operation never wraps.
 
 ### Proofs on machine integers
@@ -1057,7 +1071,8 @@ What it does, in order:
   pi/2 in two parts; `cos x = 1 - 2 sin(x/2)^2`; `tan = sin/cos`,
   `sec = 1/cos`, `csc = 1/sin`, `cot = cos/sin`; `tan x = 2t/(1-t^2)`
   with `t = tan(x/2)`; exp as `2^k * P(r)` with 2^k built in the
-  exponent field (`asfloat((asuint(j) << 23) + 0x3f800000)`); log by
+  exponent field (`asfloat((asuint(j) << 23) + 0x3f800000)`), and
+  through a table (below); log by
   splitting exponent and mantissa (`m` in [sqrt(1/2), sqrt(2))) as
   `e*ln2 + m*P(m)`; sqrt and 1/sqrt by halving the exponent, with a
   polynomial or a short polynomial seed and one Newton step, and the
@@ -1068,6 +1083,30 @@ What it does, in order:
   acosh atanh (and sinh cosh tanh) are fitted like any builtin: the long
   double reference, Taylor jets (so `cheb econ` and Padé) and the
   symmetry check know them.
+
+**exp through a table** (Tang's reduction): x = k ln2/N + r with |r| <=
+ln2/2N, and exp x = 2^(k/N) (1 + q(r)).  The table holds 2^(i/N) for
+i < N as the format rounds it and is read at k's low bits; the high bits
+are added to the read value's exponent field, and q is a fit of e^r - 1,
+whose error reaches the result times |r|.  At each degree the table is
+the smallest of 2 to 256 entries at which q's error, so carried, is
+under an eighth of a unit roundoff (the largest when none is): a larger
+one would only cost memory.  That error is Taylor's bound, above what
+the fit reaches, so the choice is the same on every platform.  r is x - k ln2/N with ln2/N in two parts
+of the format's precision under an fma, else in Cody-Waite parts short
+enough that each k c is exact (three when two leave r short).  The read
+is priced as one `load`, as find's tables are, whatever the length.
+Under gt1030 it pays in f64, where each term of the polynomial costs
+32.375: exp on [-700, 700] within 2 ulp is a degree 4 polynomial and a
+256-entry table at 335.625, against degree 11 at 553.375; in f32 the
+load costs more than the terms it saves (19.875 against 15 at about 1
+ulp).  The error stops near 1 ulp: the table's rounding and the last
+one.  A texture would hold the table at `tex_fetch` (43.125 under
+gt1030) against `load`'s 6.875, so it is not offered.  The listing shows
+a table of more than 8 entries by its ends (`[f64(1.0),
+f64(1.0027112750502025), ... 253 more ..., f64(1.9945921121709402)]`);
+`show apN`, `as c` (a static array) and the JSON give it whole
+(tests/exptable.ucas).
 
 Errors are measured on a sample of the format's values in the interval
 (half evenly spaced in value, half evenly spaced in bit pattern, plus
@@ -1703,6 +1742,18 @@ cheapest combination the basis allows.  That gives a checked program and
 an upper bound, but not a good one (17 gates for a 3-bit adder that
 needs about 9).
 
+Functions of 4 inputs fall in 222 NPN classes (one function is another
+with its inputs permuted, some negated, and maybe its output negated).
+A network of 3-input tables absorbs all three, so a class has one
+minimum, and src/npn.c keeps the minimum network of each class it meets:
+gates' exact search on the class's least truth table the first time,
+then the network with the inputs renamed and the negations folded into
+the tables, read back on all 16 rows.  `gates npn` classifies all 65536
+functions: 2 classes need no table (constants and literals), 12 one, 117
+two and 91 three, each proved minimal (about a second for all).  `find`
+uses it for bitwise cones of 4 values (see "Rewrites the prices make
+worthwhile").
+
 ## Cost models
 
 ```
@@ -1751,6 +1802,20 @@ shifts and an add.  On the GT 1030 (both runs, less the add each test
 step has): udiv 28.5, by 7 8.75; umod 32.25, by 7 13.5; sdiv 36, by 7
 21; a signed remainder is not measured (39.75 and 25.75 by the rule).
 
+An integer type wider than 32 bits (`u64`, `i64`, `u40`) has three
+classes of its own: `iadd64` (an add, subtract or negate), `imul64`
+(a multiply, its low 64 bits) and `shift64` (a shift, and so an
+unsigned division by 2^k and a signed one's three shifts), in `cost`,
+`find` and SPIR-V's 64-bit OpIAdd, OpISub, OpSNegate, OpIMul and
+OpShift*.  A model that does not list one prices the operation as the
+32-bit class (`iadd`, `imul`, `shift`), as a 64-bit register does it
+on the x86 models; a 32-bit machine makes several instructions of it
+(the GT 1030 corpus: a u64 add 2.02, a multiply 15.52, a shift with an
+and 4.01).  A fusion is one 32-bit instruction, so an operation
+priced by one of the three is not fused; compares, logic, selects and
+divisions by other constants are priced as at 32 bits whatever the
+width (none is measured at 64).
+
 ### Fusions
 
 Several operations that one instruction does are declared in the
@@ -1765,7 +1830,8 @@ fuse NAME = lut 3 : logic
 nofuse NAME
 ```
 
-A fusion's inputs are `int`, `float`, `const` (a constant) or `any`;
+A fusion's inputs are `int`, `float`, `const` (a constant), `any` or
+`lane` (below);
 its pattern is an expression over them, matched with commutative
 operands either way round (and `x << k` also matches `x * 2^k`, `x >>
 k` an unsigned `x / 2^k`); its price is a sum of numbers and classes
@@ -1796,8 +1862,32 @@ it (a fusion priced by it is then unavailable).  `on CLASS ...` makes
 the fusion a result modifier, the mirror image of `in`: the pattern
 folds into the instruction that makes its input when that is an
 operation of those classes used only there (a clamp to [0, 1] into a
-saturating add, multiply or fma).  SPIR-V simplify prices without
-ranges, so a fusion with a proved width does not apply there yet.
+saturating add, multiply or fma).  SPIR-V simplify's cover reads each
+integer's range the same way, from its type, its constants and its
+operations (a load is its whole type), so `(x & 0xffffu) * (y &
+0xffffu) + z` or `(x >> 16) * (y >> 16) + z` of uints is one XMAD
+there; the mask and the shift stay, as the width is what is proved, and
+a model whose multiply reads the halves itself says so with patterns,
+`fuse xmadlo(a: int, b: int, c: int) = (a & 65535) * (b & 65535) + c :
+mul16`, which absorb them.
+
+Demanded bits narrow what only a value's low bits reach.  Both covers
+(`cost` and `find`, and simplify's SPIR-V) find which bits of each
+integer anything reads, from the results (every bit of a value the
+graph gives out) back through the operations: an and with a constant
+reads that constant's bits, a left shift by c the result's bits moved
+down, a right shift by c the bits moved up (and the sign bit where the
+shift may copy it), an add, a subtract or a multiply every bit up to
+the highest read, anything else every bit.  An input `uN` of a fusion
+then also takes a value of any width where only the low N bits of the
+fusion's result are read and its pattern carries low bits to low bits
+(adds, subtracts, multiplies, the bitwise operations, left shifts by a
+constant): the instruction reads the input's low N bits (an XMAD's
+half), and those bits of the result are the same.  So `(x * y) &
+0xffffu`, `(x * y + z) & 0xffffu` and `(x * y) << 16` of full words take
+the 16 x 16 multiply, and `(x * y) >> 16`, which reads the high half,
+does not (tests/fusewidth.ucas).  A signed `sN` input is not taken this
+way.
 
 gt1030 lists neither: no test in the corpus measures a 16 x 16
 multiply-add (XMAD alone) against IMUL or a saturating result against
@@ -1829,6 +1919,27 @@ node by itself, each pattern rooted there (its inner nodes used only
 inside it) and each k-feasible cut of its logic cone for a lut.  That is
 the cheapest cover that never computes a value twice.  `cost` lists the
 fusions it used, `find` and `simplify` (SPIR-V) price with them.
+
+A pattern may hold subgroup operations (see Subgroups): an input inside
+an operand is what the lane computes there, and an input `lane: lane`
+is the lane's index, so a shuffle whose index the instruction forms
+itself (SHFL.BFLY by `lane xor k`) or a ballot taken with its compare
+can be priced as one instruction.  The pattern matches a subgroup of
+any size.  Like every fusion it only ever makes a cover cheaper: a step
+measured dearer than the sum of its classes is a class's price to
+change, not a fusion.  A pattern reads its inputs alone; anything else
+in it (the lane without a `lane` input) is refused.
+
+```
+> model sgf : gt1030 {
+    fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle }
+> xr(x: u32 uniform, lane: u32 in 0..31) = sg_shuffle_xor(x + lane, 1)
+> cost xr model sgf                          (6 under gt1030: the xor apart)
+cost of xr under sgf: 5 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    bfly             1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
+```
 
 gt1030 has the fusions its corpus measured, each from a test that
 fails the per-class sum: `lop3` (lop3_select, 4 logic ops and an add,
@@ -1865,6 +1976,14 @@ under, proved from the parameters' ranges and the where clause
 again on the domain as a second opinion (every point, SAT, or a sample
 when floats are in it).  src/irw.c:
 
+- a bitwise cone (and, or, xor and not of one integer type) over 4
+  values as the minimum network of 3-input tables of its NPN class
+  (src/npn.c, see [Bases and exact synthesis](#bases-and-exact-synthesis)),
+  where the model has a `lut 3` fusion: each table is written as an
+  expression of its 3 arguments, so the cover prices it as one LOP3.
+  Under gt1030 `((a ^ b) & (c ^ d)) | (a & ~c & d)` goes from 4 to 2
+  and "at least two of a, b, c, d" from 5 to 3; a cone of 3 values or
+  fewer is one table already;
 - a signed division or remainder whose dividend is never negative and
   divisor at least 1 is the unsigned one (trunc = floor there, and the
   bits read as unsigned are the same numbers);
@@ -2361,16 +2480,28 @@ priced a bit count: converted 13 to 3 with the conversion gone too, left
 a float 10 to 6 (tests/log2exp.ucas).  ldexp(x, k) of an f32 x whose |x|
 is normal (2^-126 at least, finite) is `asfloat(asint(x) + (k << 23))`
 where k keeps x * 2^k normal, which SAT proves from k's definitions (13
-to 3 under gt1030, where ldexp is lowered); an x that may be 0 takes it
-when it is an integer converted (0, or 1 at least in magnitude: a
-shared-exponent decoder's mantissa), `x == 0 ? x : asfloat(asint(x) + (k
-<< 23))`, the select keeping ldexp's 0 (13 to 7; tests/ldexpbits.ucas).
+to 3 under gt1030, where ldexp is lowered).  Of any x (0, subnormal,
+infinite, no range at all) with k in [-126, 127] by SAT, it is x times
+2^k made by its exponent field, `x * asfloat((k << 23) + 0x3F800000)`:
+2^k is a normal f32 there, so the product is the correctly rounded x 2^k,
+which ldexp's result is too, and the multiply is written NoContraction
+(13 to 4; also where x is normal but k may take it past the largest or
+smallest normal).  With k in [-126, 254] it is `x * 2^min(k, 127) * 2^(k
+- min(k, 127))`, each factor made the same way: up to 127 the second is
+1, and past it the first product is x 2^127, exact (a scaling up) or an
+overflow where x 2^k overflows too, so the second rounds once (13 to
+10).  Where a multiply costs more than a compare and a
+select, an x that may be 0 takes the field's add when it is an integer
+converted (0, or 1 at least in magnitude: a shared-exponent decoder's
+mantissa), `x == 0 ? x : asfloat(asint(x) + (k << 23))`, the select
+keeping ldexp's 0 (7; tests/ldexpbits.ucas).
 They are written last, after the float, memory and advice passes, which
 read the conversion (its integer's range, an integer atomic's addend, a
 vertex format) and not the bits; the report gives them their own
 section, as a conversion is not in the integer cost, and says what
-spirv-val makes of the module.  Not yet: the ldexp of an x that may be 0
-or subnormal and is not an integer converted, the GLSL function level
+spirv-val makes of the module.  Not yet: the ldexp whose k may go below
+-126 of an x that may be 0 or subnormal (two scalings down round twice),
+the GLSL function level
 (find only), f16 and f64, a round-to-nearest operation for the magic add
 to stand for (ucas has floor, ceil and the truncating conversion),
 48-bit products by 2Prod.
@@ -2414,6 +2545,39 @@ change, for workgroup memory its layout, never applied
 (tests/packf32_spv.ucas).  A payload in a NaN is not proposed there:
 each read of the value and of the payload would have to be proved to sit
 under the flag's test, across blocks.
+
+
+**Float controls.**  A model's `float_controls` lists the execution
+modes its device lets a module declare, Vulkan's
+VkPhysicalDeviceFloatControlsProperties a word each: `rteN`, `rtzN`
+(shaderRoundingModeRTE/RTZFloatN), `ftzN`
+(shaderDenormFlushToZeroFloatN), `preserveN`
+(shaderDenormPreserveFloatN) and `szinpN`
+(shaderSignedZeroInfNanPreserveFloatN), N 16, 32 or 64
+(`float_controls: ftz32 rte32`; `none`: not stated; another word is
+refused, named).  gt1030 says none: its run read no
+VkPhysicalDeviceFloatControlsProperties.  Where a model lists `ftz32`,
+simplify looks for flushes of subnormals written as instructions, the
+two forms a translator writes for a device that cannot declare the
+mode, `asfloat((asuint(x) & 0x7f800000) == 0 ? asuint(x) & 0x80000000 :
+asuint(x))` and `abs(x) < 2^-126 ? x * 0.0 : x`, of an x that an
+instruction on Vulkan's list for DenormFlushToZero makes (the
+arithmetic, the conversions, the GLSL functions).  Under that mode such
+a result is flushed already, so the flush does nothing and goes: a
+proposal (DenormFlushToZero 32 changes the entry point's execution
+modes), priced (6 a flush under the two prices of gt1030's classes) and
+said with how the two differ, only where x's exact value is below
+2^-126: Vulkan says "flushed to zero" and gives no sign, where the
+written flush keeps x's, and lets such a value be flushed even where
+it rounds to 2^-126.  Without a mode a driver may flush any result
+already; the mode makes it the rule.  A flush of a load, a phi, a
+select or a bitcast stays (no instruction flushes those).  Not proposed
+where the module keeps denormals (DenormPreserve, which the mode would
+end for every result) or has more than one entry point; where the
+module declares DenormFlushToZero 32 already, the flushes are said to
+do nothing (tests/floatcontrols.ucas).  Not yet: the rounding modes
+(a truncation or a round to even written as instructions before a
+conversion, which RoundingModeRTZ or RTE would do).
 
 ### Dot products
 
@@ -3424,12 +3588,24 @@ subgroup, all W lanes active:
 | `sg_add(v)` | the sum of v over the lanes, in v's type (wrapping) | OpGroupNonUniformIAdd Reduce, `subgroupAdd` |
 | `sg_shuffle(v, i)` | v in lane i; undefined when i is not in 0..W-1 | OpGroupNonUniformShuffle |
 | `sg_scan(v)` | in lane l, the sum of v over lanes 0..l | OpGroupNonUniformIAdd InclusiveScan, `subgroupInclusiveAdd` |
+| `sg_min(v)`, `sg_max(v)`, `sg_and(v)`, `sg_or(v)`, `sg_xor(v)` | the minimum, maximum, and, or, xor of v over the lanes, integers (min and max by v's signedness) | OpGroupNonUniform[SU]Min, [SU]Max, Bitwise* Reduce, `subgroupMin` ... `subgroupXor` |
+| `sg_clustered_add(v, n)` | in lane l, the sum of v over l's cluster, the n lanes from `l & ~(n - 1)`; n a power of two, an operation each (2 to 32 below W; n = W is `sg_add`, n = 1 the value) | OpGroupNonUniformIAdd ClusteredReduce, `subgroupClusteredAdd` |
+| `sg_partition(k)` | in lane l, the ballot of the lanes whose k equals l's (integers) | OpGroupNonUniformPartitionNV, `subgroupPartitionNV` |
+| `sg_partitioned_add(v, m)` | the sum of v over the lanes of m, a ballot `sg_partition` made (another mask is refused: on the card only a partition has a value, and the other lanes' masks cannot be checked from one lane) | OpGroupNonUniformIAdd PartitionedReduceNV, `subgroupPartitionedAddNV` |
 | `sg_dfdx(v)`, `sg_dfdy(v)`, `sg_fwidth(v)` | of a float, the lanes in fours as quads (lane bit 0 the column, bit 1 the row: Vulkan's layout): in lane l, v in lane l \| 1 less v in lane l & ~1, the same with bit 1, and \|dfdx\| + \|dfdy\|; W a multiple of 4 | `dFdxFine`, `dFdyFine`, `fwidthFine` (a fragment shader's quads; GL_NV_compute_shader_derivatives in compute) |
 
 and, written with them, `sg_exclusive(v)` = `sg_scan(v) - v`,
 `sg_shuffle_xor(v, k)` = `sg_shuffle(v, lane xor k)`, `sg_broadcast(v,
 i)`, `sg_broadcast_first(v)` (lane 0), `sg_rotate(v, d)` =
-`sg_shuffle(v, (lane + d) % W)`, and the segmented scan `sg_segscan(v,
+`sg_shuffle(v, (lane + d) % W)`, the quad's swaps `sg_quad_swap_h(v)`,
+`sg_quad_swap_v(v)`, `sg_quad_swap_d(v)` = `sg_shuffle(v, lane xor 1)`,
+`xor 2`, `xor 3` and `sg_quad_broadcast(v, i)` = `sg_shuffle(v, (lane &
+~3) | i)`, undefined for i past 3 (the quads as the derivatives read
+them, W a multiple of 4; OpGroupNonUniformQuadSwap and QuadBroadcast,
+which `animate exec` runs and prices the same way; a butterfly, a swap
+and an add or a subtract in one instruction such as NVIDIA's FSWZADD,
+is a fusion a model may declare, and none here is measured), and the
+segmented scan `sg_segscan(v,
 h)`, which restarts at the lanes where h holds (the heads): in lane l
 the sum of v over the lanes from the last head at or below l (lane 0
 when none is) to l, written `sg_scan(v) - sg_shuffle(sg_exclusive(v),
@@ -3440,7 +3616,8 @@ bitonic network: for k = 2, 4 ... W and then j = k/2 ... 1, a lane and
 lane xor j compare and exchange, the lane keeping the smaller when
 `(lane & j) == 0` and `(lane & k) == 0` agree; m(m + 1)/2 steps of a
 shuffle, a min and a max for W = 2^m (3 for 4 lanes, 15 for 32).
-GLSL's names are read as well (`subgroupBallot` ... `subgroupRotate`).
+GLSL's names are read as well (`subgroupBallot` ... `subgroupRotate`,
+`subgroupQuadSwapHorizontal` ...).
 Sums are of integers: the order of a float sum is the implementation's,
 so it has no exact value and is refused.
 
@@ -3527,7 +3704,11 @@ _() = 6
 ```
 
 **Cost classes.**  `sg_ballot`, `sg_vote` (any, all), `sg_add`,
-`sg_shuffle`, `sg_scan`, `sg_deriv`; like the dot forms, a model that does not list
+`sg_shuffle`, `sg_scan`, `sg_deriv`, `sg_min`, `sg_max`, `sg_and`, `sg_or`,
+`sg_xor`, `sg_cluster2` ... `sg_cluster32` (a clustered sum's, by its
+cluster), `sg_partition`, `sg_partadd` and `sg_barrier` (`animate exec`
+prices an OpControlBarrier of Subgroup execution scope so, else as a
+workgroup `barrier`, said); like the dot forms, a model that does not list
 one cannot use it (`sg_scan: none` takes one away).  An operation costs its class once and its operand
 once in each lane: a value computed in every lane is priced once,
 whether an operation reads it across the lanes or the lane uses it
@@ -3574,6 +3755,19 @@ under; the whole is then checked against the function on its domain
   2d lanes ending at it.  Proved for any value per lane: with a free
   word in each lane, every lane's result is the words of lanes 0..lane,
   each once.
+- A min, max, and, or or xor over the lanes of a value that is 0 or 1
+  in every lane is a vote (min and and: `sg_all(v != 0)`; max and or:
+  `sg_any`) or the parity of the ballot (`popcount(sg_ballot(v != 0)) &
+  1`); of anything, with W a power of two, a butterfly of log2 W
+  shuffles by `lane xor d` (d = 1, 2, 4 ...) and the operation: after the
+  step for d a lane holds the result over the 2d lanes that agree with
+  it from bit d up.  Proved for any value per lane: with a free word in
+  each lane, every lane's result is the operation over all W words,
+  each once.  gt1030 lists none of the five classes, so find writes
+  them so (tests/sgreduce.ucas).
+- A clustered sum is the same butterfly with d below the cluster's n,
+  and of a value that is 0 or 1 in every lane the count of the ballot's
+  n bits from the cluster's first lane (tests/sgcluster.ucas).
 - A constant table of at most W entries can sit one entry per lane (the
   table read once in each lane, at the lane's index) and be read by a
   shuffle: no memory, no bank conflicts.  Every lookup of the table or
@@ -4042,6 +4236,17 @@ bits, L the other bits and ONE the lanes' low bits:
 | `max(a - b, 0)` | `D & M`, D the lanes' difference, M the mask of a >= b | 34, 12 |
 | `a == b ? all ones : 0` | `M(~(((x & L) + L) | x) & H)`, `x = a xor b`; `!=` without the not | 42, 8 |
 
+Signed lanes order as unsigned ones with their top bits flipped.  Where
+the top bits differ the signed `a >= b` is decided the other way, so
+G's term `a & ~b` becomes `~a & b` and the rest is the same: `max`,
+`min` and the compares of signed lanes cost what the unsigned ones do
+(gt1030, 4 x 8 bits: max 43 to 12, `a > b` 55 to 9).  `abs(a - b)`
+subtracts the max and the min with their top bits flipped (no lane
+borrows: 51 to 14), and the averages run on the flipped lanes and flip
+the result back, `((a xor H) & (b xor H)) + (((a xor b) & ~ONE) >> 1)
+xor H` (47 to 5).  Add, subtract and `==` are the same on both.  The
+saturating forms are unsigned only.
+
 Which of these a value is, if any, is not read from how it is written
 but from what it computes: every subterm that fits a u32 and reads one
 or two u32 parameters is run on 256 pairs of words (random ones, and
@@ -4158,7 +4363,8 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `tex_trilinearB(T, W, H, u, v, w)` | the same on three axes of the table read as D slices of H rows of W texels (a 3-D texture), at texel coordinates (u W, v H, w D): eight texels, their weights the products of the three axes'; u, v, w normalised (below) |
 | `tex_compare_leB(T, W, u, v, ref)`, `_lt`, `_eq`, `_ne`, `_ge`, `_gt` | a depth compare read: `tex_bilinearB` at (u W, v H) of the texels replaced by 1 where `ref <= texel` (`<`, `==` ...) and 0 elsewhere; u, v normalised (below) |
 | `tex_repeatB(T, u)`, `tex_mirrorB(T, u)` | `tex_linearB(T, u n)` with its two texels wrapped by REPEAT or MIRRORED_REPEAT, not clamped: u a normalised coordinate (below) |
-| `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
+| `tex_birepeatB(T, W, u, v)`, `tex_bimirrorB`, `tex_trirepeatB(T, W, H, u, v, w)`, `tex_trimirrorB` | `tex_bilinearB` and `tex_trilinearB` with every axis wrapped so, at normalised coordinates (below) |
+| `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB`, `tex_triminB(T, W, H, u, v, w)`, `tex_trimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
 
 The `fetch_` reads take an integer texel index of any type and are
 total (Vulkan's wrapping of a nearest read's integer coordinate).  The
@@ -4294,22 +4500,29 @@ is offered: `texalu` says which number is missing.
   texel corner is one read there, exactly; the passes weighted by
   fractions s, t (a percentage-closer filter) one read within the snap
   of s and t; a reference that may be NaN is named in what the read
-  holds under.  The cover with
+  holds under.  No depth format is 3-D, so compares of a table read as
+  slices (index coefficients 1, W and W H) are read from one 2-D depth
+  texture with the slices stacked as rows, row y + H z, where
+  neighbouring entries are neighbouring texels as in the table.  The
+  cover with
   the lowest price under the model is taken, by dynamic programming
-  over the entries (greedily past 16).  A separable kernel (constant
-  weights of one sign over a filled rectangle, a column times a row)
-  is also covered with shared weights: each axis is cut into pairs,
-  the last pair of an odd length sharing its first entry with the pair
-  before it, and a read is a pair along y times a pair along x, so
-  the reads' weights add up to the kernel's; the shared entry is split
-  to put the first pair's fraction on the subtexel grid and the
-  second's as near it as any split does.  A 3 x 3 [1 2 1] kernel is
-  four reads at fractions 1/2 (the cover without shares takes three
-  and an entry, at fractions 1/3), and [1 2 1] along one axis two.  The
-  cheaper cover is taken, on a tie the one that snaps no fraction to
-  the grid; with no tolerance given, the shared one also when the other
-  snaps a fraction and it snaps none, as long as it costs less than the
-  entries read alone (tests/texalu.ucas);
+  over the entries (greedily past 16; a sum takes up to 32 entries).  A
+  separable kernel (constant weights of one sign over a filled
+  rectangle, a column times a row, or over a filled box of a 3-D table,
+  a run along z times a column times a row) is also covered with shared
+  weights: each axis is cut into pairs, the last pair of an odd length
+  sharing its first entry with the pair before it, and a read is a pair
+  along y times a pair along x (times a pair along z), so the reads'
+  weights add up to the kernel's; the shared entry is split to put the
+  first pair's fraction on the subtexel grid and the second's as near it
+  as any split does.  A 3 x 3 [1 2 1] kernel is four reads at fractions
+  1/2 (the cover without shares takes three and an entry, at fractions
+  1/3), [1 2 1] along one axis two, and [1 2 1] along three axes eight
+  3-D reads (tests/textrilinear.ucas).  The cheaper cover is taken, on a
+  tie the one that snaps no fraction to the grid; with no tolerance
+  given, the shared one also when the other snaps a fraction and it
+  snaps none, as long as it costs less than the entries read alone
+  (tests/texalu.ucas);
 - the function itself, when it reads no table and its integer
   parameters have at most 2^16 points between them: its table (the one
   of "Functions as tables", the function at every point, at an index
@@ -4523,37 +4736,57 @@ divide stays.  The projection read through the unit is not offered: the
 specification states no precision for its divide, and no model states
 one (tests/texcube.ucas).
 
-**Wrapping filters.**  Vulkan allows unnormalised coordinates only
-with CLAMP_TO_EDGE and CLAMP_TO_BORDER, so a filter that wraps reads a
+**Wrapping filters.**  Vulkan allows unnormalised coordinates only with
+CLAMP_TO_EDGE and CLAMP_TO_BORDER, so a filter that wraps reads a
 normalised coordinate: `tex_repeatB(T, u)` and `tex_mirrorB(T, u)` are
-the linear filter at texel coordinate u n (exact), its texels
-REPEAT's and MIRRORED_REPEAT's.  A mix of `T[i % n]` and `T[(i + 1) %
-n]` (any affine i, the n of the table), or of the mirrored indices
-`min(i % 2n, 2n - 1 - i % 2n)`, is one such read: the pair is read as
-it is everywhere, with no edge to stay inside.  The coordinate is made
-as the clamped filter's, x, then u = x f32(1/n): the unit's u n is
-within |x| 2^-23 of x (two roundings of 2^-24; exact when n is a power
-of two), which joins the weight's move in the bound, and the multiply
-is priced.  A wrapping entry with no neighbour that wraps with it is
-read as it is, an affine index of `i % n`.  One axis only
-(tests/texwrap.ucas).
+the linear filter at texel coordinate u n (exact), its texels REPEAT's
+and MIRRORED_REPEAT's; `tex_birepeatB(T, W, u, v)`, `tex_bimirrorB`,
+`tex_trirepeatB(T, W, H, u, v, w)` and `tex_trimirrorB` are the 2-D and
+3-D filters with every axis wrapped so, at (u W, v H) and (u W, v H, w
+D).  A mix of `T[i % n]` and `T[(i + 1) % n]` (any affine i, the n of
+the table), or of the mirrored indices `min(i % 2n, 2n - 1 - i % 2n)`,
+is one such read: the pair is read as it is everywhere, with no edge to
+stay inside.  The same holds along every axis of a table read as rows of
+W (or slices of H rows): an index `(y' % H) W + x' % W` (`+ (z' % D) W
+H`), the mode written out on each axis, the same mode on all, each x' a
+variable plus a constant, is that texel of the wrapped read, and
+neighbours along the axes are one read as the clamped filters' are.  A
+truncated remainder is the floored one only where it is not negative, so
+every axis but the outermost must be proved non-negative (a negative
+outermost one leaves the table, where the read is undefined).  The
+coordinate is made as the clamped filter's, x, then u = x f32(1/n): the
+unit's u n is within |x| 2^-23 of x (two roundings of 2^-24; exact when
+n is a power of two), which joins the weight's move in the bound, and
+the multiply is priced.  A weight's move meets the largest step between
+neighbours, and under REPEAT the last texel and the first (of a row, a
+column, a run along z) are neighbours too.  A wrapping entry with no
+neighbour that wraps with it is read as it is, an affine index of `i %
+n`.  An axis that wraps beside one that clamps is not read (Vulkan has a
+mode for each axis; the operations take one) (tests/texwrap.ucas).
 
-**Min and max.**  A reduction sampler (VK_SAMPLER_REDUCTION_MODE_MIN
-or _MAX, Vulkan 1.2 or VK_EXT_sampler_filter_minmax) gives the least
-or the greatest of the texels of a linear read's footprint whose weight
-is not 0: `tex_min8([4, 1, 9], 1.0)` is 1, `tex_max8` there 4, and at
-1.5, texel 1's centre, only texel 1 counts.  A min or max of two
-neighbouring table entries, or of a 2 x 2 block of a table read as rows
-of W (nested in any order), is one such read at the footprint's
-centre: there every weight is 1/2 (1/4), on any sub-texel grid (Vulkan
-asks at least 4 bits), so every texel counts whichever way the unit
-snaps, and the read is the min or max exactly.  The texture holds the
-entries exactly: half floats or f32 for floats an f32 holds, whole
-numbers 0..255 or 0..65535 as normalised units scaled back and
-rounded (that needs the unit's `tex_within`); the footprint must stay
-inside the table (and its rows) on the indices' proved ranges, and
-`texalu` says so when it may not.  The read is priced by `tex_minmax`
-(no built-in model lists it) (tests/texminmax.ucas).
+**Min and max.**  A reduction sampler (VK_SAMPLER_REDUCTION_MODE_MIN or
+_MAX, Vulkan 1.2 or VK_EXT_sampler_filter_minmax) gives the least or
+the greatest of the texels of a linear read's footprint whose weight is
+not 0: `tex_min8([4, 1, 9], 1.0)` is 1, `tex_max8` there 4, and at 1.5,
+texel 1's centre, only texel 1 counts.  `tex_triminB(T, W, H, u, v, w)`
+and `tex_trimaxB` are the same of a 3-D texture's eight, at normalised
+coordinates as `tex_trilinearB`'s.  A min or max of two neighbouring
+table entries, of a 2 x 2 block of a table read as rows of W, or of a 2
+x 2 x 2 block of one read as slices of H rows of W (nested in any
+order), is one such read at the footprint's centre: there every
+fraction is 1/2, on any sub-texel grid (Vulkan asks at least 4 bits),
+so every texel counts whichever way the unit snaps, and the read is the
+min or max exactly.  The 3-D read's coordinates are the corner times
+f32(1/n), within |x| 2^-23 of it (exact for a size that is a power of
+two); with the corner below 2^21 every fraction stays within 1/4 + 1/16
+of 1/2, so still no weight is 0.  The texture holds the entries
+exactly: half floats or f32 for floats an f32 holds, whole numbers
+0..255 or 0..65535 as normalised units scaled back and rounded (that
+needs the unit's `tex_within`); the footprint must stay inside the
+table (and its rows and slices) on the indices' proved ranges, and
+`texalu` says so when it may not.  The read is priced by `tex_minmax`,
+a 3-D one by `tex_minmax` and `tex_3d` (no built-in model lists either)
+(tests/texminmax.ucas).
 
 **Packed formats.**  `unpack_b10g11r11(w, c)`, `unpack_e5b9g9r9(w, c)`
 and `unpack_a2b10g10r10(w, c)` are channel c (r g b a as 0 1 2 3) of a
@@ -4581,12 +4814,18 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 (tests/texpacked.ucas).
 
 Not done: shared weights in a kernel that is not a column times a row
-(a small linear program over the blocks) or that spans three axes,
-anisotropic filters, mip levels as means, gather, a min or max of
-more than a 2 x 2 footprint (trilinear's 8), a bilinear or trilinear
-filter that wraps, and a compare read of a UNORM depth texture (which
-clamps the reference) or of an array or cube one.  None of those has a measured
-price yet either.
+(times a run) (a small linear program over the blocks), anisotropic
+filters (the specification leaves their taps and weights to the
+implementation), mip levels as means, gather, a filter that wraps along
+some axes and clamps along others, and a compare read of a UNORM depth
+texture or of a cube one.  The first rests on what the specification
+does not state, how precisely a unit compares the reference with a UNORM
+texel (it clamps the reference to [0, 1], and may compare in the
+format's fixed point); the second on the precision of the cube's
+projection (above).  An array texture's compare read would take the
+layer as a fifth value (the pair holds the fourth); the stacked 2-D
+texture above reads the same sums.  None of those has a measured price
+yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the
 module: an OpLoad through an OpAccessChain into a Function or Private
@@ -5091,6 +5330,23 @@ lookup replaces the chain when the model prices it lower, after it is
 proved equal to F for every input (enumerated or SAT); `F_ph` is
 defined.
 
+The values themselves can come from the key with no value table:
+`((x M + A) >> s) & mask`, plus the least value, the field b bits wide.
+Only M mod 2^(s + b) reaches the field, so for shifts up to 22 - b every
+multiplier is tried, and larger shifts take 2^20 multipliers drawn from
+the seed; for each M the offsets A that give key k its value are an arc
+of 2^s on the circle of 2^(s + b) (k M + A has to land in [v 2^s, (v +
+1) 2^s)), and A is solved where the arcs of all the keys meet.  When
+every input is a key the form needs nothing else; otherwise the check
+that x is a key still reads the keys' table through the hash, and under
+gt1030 that costs about what the value table's load does, so it is
+listed as derived, not taken (tests/sparsemap.ucas).  A search that
+finds none says which shifts it covered whole.  `find` tries the same
+form when the function's domain is a set of scattered points (a where
+clause that leaves only the keys), where no key check is needed: ten
+keys of 2-bit values in `77x + 11 >> 7 & 3`, cost 6 against the
+compare chain's 40.
+
 ```
 > sw8(x: u32) = match x { 3 => 10, 17 => 20, 100 => 30, 1000 => 40, 65537 => 50, 99999 => 60, 123456 => 70, 7777777 => 80, _ => 0 }
 > phash sw8
@@ -5102,6 +5358,83 @@ phash sw8 under gt1030: 8 keys, the compare chain costs 32; seed 1
 > phash few
   -> not rewritten: the lookup costs 18.75, the compare chain 12 under gt1030
 ```
+
+**The snippet database.**  `snippets grow [NAME] [inputs N] [width W]
+[cost C] [seconds S]` (defaults 2 inputs of 32 bits, cost 4, 10 s; at
+most 120 s a slice) runs find's enumeration with no target: every
+program over N inputs a, b, c of W bits (8, 16 or 32) and find's
+constant pool, from the active model's integer operations, cheapest
+first, keeping one program for each column of values on 32 fixed points
+(edge values in a grid, then a sample from a fixed seed).  On 32 points
+instead of find's 1024 the bank (256 MB) holds every program of cost 3
+over two 32-bit inputs (78812 of them, about a second), where find's
+own bank is full before that cost.  Without NAME the database lives for
+the session; with it, it is NAME.snip, written a level of cost at a time
+(one cut short by the seconds or by the bank's memory is not kept), and
+a later grow reads it back, checks every entry's hash against its
+program, and goes on from the next level; `fresh` starts it over, and a
+file of another shape or model is refused, naming both.  A line of the
+file is an entry: its operation and its operands' entries (or an
+input, or a constant) and the hash of its column.
+
+`make` grows the databases snippets/grow.ucas lists into snippets/
+(`make snippets` alone; about a second), each named MODEL_NxW for N
+inputs of W bits, and the binary knows that folder (the Makefile names
+it).  `find F snippets [NAME]` reads NAME.snip when it is given, else
+the session's database when it has F's shape and model, else
+snippets/MODEL_NxW.snip for F's (or says there is none), hashes F's
+values on the same points (F's parameters in order as a, b, c, of the
+database's width) and lists the program with that hash, checked on F's
+domain like every match
+(tests/snippets.ucas: `((a + b) | (a - b)) & ~((a + b) & (a - b))` is
+`a + b xor a - b`, which find alone does not reach).  Thirty-two points
+do not tell every pair of functions apart: a program that matches there
+and differs on F's domain is said, not listed.  The database is not
+consulted for parameters of another width or more parameters than it has
+inputs, and says so.
+
+**Rules from the enumeration.**  `rules infer [inputs N] [width W]
+[cost C] [seconds S]` (defaults 2 inputs of 32 bits, cost 3, 10 s) runs
+the same enumeration with only the constants 1 and all ones (each other
+constant would give its own instance of a rule) and keeps what the bank
+throws away: a program whose values on the points a cheaper one already
+has.  Each such pair is a candidate rule over the inputs as pattern
+variables, from the dearer side to the cheaper one under the active
+model (Ruler's enumeration, directed by the prices).  Read in the order
+they were met, a candidate is dropped when the cover prices both sides
+alike, or when the rules already kept rewrite one side into the other in
+two steps (either way), and otherwise proved equal on every W-bit value
+of its variables (enumeration or SAT) and kept, 256 at most.  Under
+gt1030 a shift costs 2 and an add 1, so `a << 1 => a + a` is one; under
+a model whose shift costs 1 it is not.  `find` then tries every kept
+rule on every subterm of its width (`((x*y + z) << 1) xor 3z`: 9 -> 8,
+the rule's variables bound to subterms), checked like every rewrite;
+`rules infer` prints each kept rule as a declaration a .ucas file can
+keep, `rule r11(a: u32) = a << 1 => a + a`: `rule NAME(a: T [, b: T [,
+c: T]]) = L => R`, the variables of one sized integer type, is proved on
+every value of them when it is read (enumeration or SAT) and refused
+otherwise, with where the sides differ; a rule of the same name replaces
+it.  The rules last for the session, declared and inferred, a later
+`rules infer` replacing only the inferred ones (tests/rules.ucas).
+
+**Equality saturation.**  `find F saturate` puts F's integer arithmetic
+in an e-graph (src/egraph.c): classes of equal terms, an e-node being an
+add, sub, mul, and, or, xor, shl, neg or not on classes, or a leaf kept
+whole.  Each round applies every rule to every match in every class,
+both ways, adds the other side and merges its class with the matched
+one, then closes the classes under congruence; it stops when a round
+adds nothing (saturated), at 10000 nodes or after 10 rounds, and says
+which.  The rules are a written set for any integer type
+(commutativity, associativity, * over + and -, & over |, a - b as a +
+(-b), -a and ~a as subtractions, de Morgan, x + x and x << 1 as 2x, a
+shift by a constant k as a multiply by 2^k, x - x, x xor x, x & x, x |
+x) and the rules `rules infer` kept, at their width; constants fold
+where both operands of a node are constants.  The cheapest tree of the
+root's class under the model's prices is extracted, priced again by the
+cover, and listed when it is below F as written, checked like every
+match.  A form that pays only after a dearer one on the way is found
+this way: `x*(y + z) - x*z` is `xy` through the distributed `x*y + x*z
+- x*z` (tests/saturate.ucas).
 
 ## Float simplify
 
@@ -5297,8 +5630,46 @@ original's.  Under gt1030 (x - 1)^5 + 0.5 by Horner on [0.9, 1.1] into
 a 16-bit target: as written up to 2.16e-05 against a step of 1.53e-05,
 compensated 2.4e-06, at 51 against 9; sampled, 9.3e-07 and 3e-08
 (tests/sinkcomp.ucas).  `scheme F more` gives the same forms for a
-function, and Kahan's sum for a loop's accumulator (fsimp does not see
-loops: that offer is not made here).
+function, and Kahan's sum for a loop's accumulator.
+
+A loop's f32 sum read under the sink is asked the same question.  An
+f32 phi of a loop's header that starts at s0 before the loop and takes
+s + t (t + s, s - t) from the continue target, t not reading s and the
+add read by the phi alone, in a loop of constant passes n (a break only
+leaves sooner), with s0's and t's ranges finite, is an input whose
+exact partial sums S(k) lie in [s0lo + k tlo, s0hi + k thi].  Each add
+rounds, fl(a + b) = (a + b)(1 + d), |d| <= u, plus 2^-126 for a result
+or an operand a GPU may flush.  As written the sum is off the exact sum
+of its f32 terms by e(k) <= e(k-1) (1 + u) + u |S(k)|.  Kahan's
+compensated sum (y = t - c, w = s + y, c = (w - s) - y, s = w) carries
+s - c, off by E(k) <= E(k-1) + u (2 + 2u + u^2) A + u^2 (2 + u) B, where
+A = |t - c| <= |t| + C(k-1), B = |s + y| <= |S(k)| + E(k-1) + u A, and
+|c| <= C(k) = u (1 + u)^2 (A + B); s itself is off by E + C.  One pass,
+with y = (t - c)(1 + d1), w = (s + y)(1 + d2), z = (w - s)(1 + d3) and
+c' = (z - y)(1 + d4): w - c' = (s - c) + t + (t - c) d1 - (w - s) d3 -
+(z - y) d4, w - s = y + (s + y) d2, z - y = (s + y) d2 + (w - s) d3, and
+s + y = S(k) + (s - c - S(k-1)) + (t - c) d1.  Both bounds are the most
+over the passes, so a partial sum read in the loop is covered too, and
+the partial sums widened by e are the range the rest of the float pass
+reads.  Where e, carried to the stored value, passes the budget and E +
+C fits, Kahan's sum is offered with its price, four adds a pass against
+one, each to be written precise (NoContraction, so that a driver may
+not fold c to 0); otherwise the line says which side of the step the
+sum is on, and a sum of that shape with no bound says why (a term with
+no range, one that reads the sum, passes that are not a constant).  An
+average of 1024 values in [0, 1] into a 16-bit target, under gt1030: as
+written up to 0.0313 on the sum, 3.1e-05 at the stored value against a
+step of 1.53e-05; Kahan's 0.000183 and 6.56e-07, 4 a pass against 1.
+In C, a row whose every add rounds up reaches 2.03e-05 at the stored
+value as written and 1.98e-08 compensated; 20000 random rows, 9.28e-07
+and 2.98e-08.  64 values stay within a step (tests/sinkkahan.ucas).  The
+bounds were checked in 6- to 13-bit floats against the exact sums of
+random sequences of up to 4000 terms (uniform, of mixed magnitudes,
+sorted either way, one large term then small ones) and of every
+sequence of up to 4 terms of 4- to 6-bit floats: no error above its
+bound, the worst 0.90 of the bound as written and 0.79 of Kahan's.  Not
+yet: vector sums (the float ranges are per scalar), a term whose range
+comes from the loop's counter.
 
 ```
 simplify float c in [0, 1] sink unorm8
@@ -5478,7 +5849,9 @@ offset, error_nearest, error_period, and `probabilistic` with its
 
 `simplify` adds a report of what the module computes that changes less
 often than it runs, whenever it finds some; `advice` ("and advise",
-"what could be hoisted") also has it say when it finds none.  Nothing
+"what could be hoisted") also has it say when it finds none, and
+`overdraw K` gives the fragments a pixel gets (below, early fragment
+tests).  Nothing
 is rewritten: the change is to the pipeline's interface
 (a push constant, a uniform, a varying), which is the host's.  Each
 instruction gets the lowest frequency its operands allow (src/spirv.c,
@@ -5611,10 +5984,37 @@ gl_FragCoord and gl_PointCoord at the upper left, so y needs no flip;
 the size must be inside the device's pointSizeRange.  A centre that is
 a smooth varying is not one.
 
+**Early fragment tests.**  A fragment shader with effects others see
+(a store to a buffer or an image, an atomic) runs for every fragment,
+the hidden ones too: running the depth and stencil tests first would
+drop those effects, so they stay after it.  EarlyFragmentTests
+(`layout(early_fragment_tests) in;`) runs them first, and a fragment
+they reject skips the whole shader.  Offered where the shader writes no
+depth, stencil or sample mask and never discards, as a proposal (what
+hidden fragments stored is no longer stored); said and not offered
+where it writes its depth or stencil (early tests use the rasterised
+depth; DepthGreater or DepthLess would keep a driver's own early
+rejection where the written depth only moves the way the test allows,
+which the module does not show) or discards or writes gl_SampleMask
+(with early tests the depth and stencil are written before the shader,
+so a fragment it drops would still write them: it holds for a pipeline
+that writes neither).  A shader without such effects is left alone: a
+driver may already test it early.  Not priced: no model prices a
+fragment's whole run.  What it saves is the overdraw, which a module
+does not carry: `overdraw K` (in English "an overdraw of 4"; it asks for
+the advice too) says how many fragments a pixel gets, and the advice
+counts the shader's runs a pixel: K with late tests; with early ones 1
+front to back, H_K = 1 + 1/2 + ... + 1/K in a random order of depths (a
+fragment runs where it is nearer than all before it), K back to front;
+a depth-only prepass makes it 1 in any order, for the vertices again
+and K depth-only fragments a pixel, and is the form said for a shader
+that discards (the discard's test in the prepass, then this shader on
+an EQUAL test) (tests/adviceearly.ucas).
+
 JSON: the result gains `advice_draw`, `advice_primitive`,
 `advice_vertex`, `advice_screen`, `advice_vertex_inputs`,
-`advice_clip` and `advice_pointcoord` where there are such values
-(`advice: true` also says when there are none).
+`advice_clip`, `advice_pointcoord` and `advice_early` where there are
+such values (`advice: true` also says when there are none).
 
 ## Function level
 
@@ -6050,11 +6450,13 @@ small one, xfrat.c), the n-th derivative of products.
 
 ### Polynomials in fewer multiplications
 
-`scheme F more` lists, beyond Horner and Estrin, three forms from
+`scheme F more` lists, beyond Horner and Estrin, four forms from
 degree 4 that trade multiplications for additions, compensated Horner
 for an f32 polynomial, and the cheapest of them all with the model's
 fusions counted (src/scheme.c).  Without the word the output is
-Horner's and Estrin's alone.  The three forms:
+Horner's and Estrin's alone.  An integer type's coefficients are read
+exactly: a 64-bit constant keeps every bit (tests/schemeu64.ucas).
+The four forms:
 
 - **Knuth**: coefficients adapted beforehand (TAOCP 4.6.4).  A quartic
   is `u4*((y + x + a2)*y + a3)` with `y = (x + a0)*x + a1`, three
@@ -6069,6 +6471,24 @@ Horner's and Estrin's alone.  The three forms:
   to multiply by (0, 1, a power of two) or repeat: x^8 + x^7 + ... + 1
   is `(((x*x + (x + 1))*(x*x) + (x + 1))*(x*x) + (x + 1))*(x*x) +
   (x + 1)`, 14 under gt1030 against Horner's 22.
+- **Eve** (from degree 7; Knuth's theorem E): at each level the
+  polynomial is (x^2 - t)*q + b, t a root of its odd part O (p =
+  E(x^2) + x O(x^2), so the remainder by x^2 - t is E(t) + x O(t)), q
+  monic of degree two less, down to a cubic (x^2 + a1)*(x + a2) + a0; an
+  even degree is x*w + v0: about n/2 + 2 multiplications, x^2 once.  An
+  odd part with no root is retried with the polynomial in x + c, c from
+  -3 to 3.  Floats take real roots (the one that keeps the next level's
+  coefficients smallest), `int` integer ones; a type that wraps takes
+  roots modulo 2^w, lifted a bit at a time from the roots modulo 2, and
+  an odd leading coefficient's inverse, so the form is an identity of
+  the type where Knuth's whole adapted coefficients do not exist:
+  `42 - 47x + ... + x^8` in u32 is 21 under gt1030 at x - 1, against
+  Horner's 22.  Such roots are rare past degree 8: of 60 random
+  polynomials of each degree (coefficients from -50 to 50) a chain of
+  roots modulo 2^32 exists for 13 of degree 7, 14 of degree 8, 2 of
+  degree 9 and none of degree 10 to 12, where it would save the most.
+  In floats the adapted coefficients cancel as Knuth's do
+  (tests/eve.ucas).
 - **P-S split** (from degree 7): their monic splitting
   `p = (x^m + c)*q + r`, q and r monic of degree m - 1 and split again,
   over x^2, x^4, ...: n/2 + log2 n multiplications, and no division
@@ -6099,6 +6519,20 @@ inside an IMAD: `x^4 + 7x^3 + 5x^2 + 3x + 9` in u32 is
 10.  Under sm75 (imul 1) Horner stays ahead.  Not priced: u64 and
 emulated f64 polynomials, where a multiply is dearest, because no class
 prices a 64-bit multiply.
+
+For an inner product, a sum of n products of two parameters, `scheme F
+more` lists **Winograd's form**: sum_j (a_2j + b_2j+1)(a_2j+1 + b_2j) -
+A - B, with A = sum_j a_2j a_2j+1 and B = sum_j b_2j b_2j+1 (an odd
+last product stays as it is).  It is an identity of the ring, so in an
+integer type it holds for every x, through wrapping.  Alone it is
+dearer, 3n/2 multiplications for n; its use is a matrix product, where
+A is a row's and B a column's, each computed once and shared by the
+dot products it takes part in, so a dot product pays n/2.  The line
+prices both, with the model's fusions: four pairs of u32 are 12 as
+written under gt1030 and 12 with A and B given (an IMAD folds the add),
+and under a model whose multiply costs 12 and does not fuse, 51 against
+31 (tests/winograd.ucas).  In floats its sums cancel, and the check
+line says by how much.
 
 For an f32 polynomial `scheme F more` also lists **compensated Horner**
 (`comp.`): Horner's rule with the rounding error of every product (2Prod:

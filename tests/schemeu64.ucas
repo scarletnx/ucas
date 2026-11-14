@@ -1,0 +1,9 @@
+# a wrapping type's coefficients read exactly (#552): u64's 2^64 - 1 was
+# written 2^63, so every form was another polynomial
+c(x: u64) = -1 + 50*x + 44*x^2 + 15*x^3
+scheme c
+# 64-bit constants keep every bit; u32's stay as they were
+h(x: u64) = 0x9e3779b97f4a7c15*x^2 + 0xbf58476d1ce4e5b9*x + 0x94d049bb133111eb
+scheme h
+g(x: u32) = 4294967295*x^3 + 7*x + 4294967290
+scheme g

@@ -1,0 +1,24 @@
+# a where clause that is a disjunction narrows the domain to the hull of
+# its sides, and one that lists a parameter's values (x == 3 || x == 17)
+# makes the domain those values, however far apart they are
+a(x: u32) = x + 1 where x == 3 || x == 17
+table a
+range a
+domain a
+b(x: u32) = x + 2 where x == 3 || x == 17
+equiv a b
+c(x: u32) = (x * 3) & 7 where x == 3 || x == 17
+d(x: u32) = (x + x + x) & 7 where x == 3 || x == 17
+equiv c d
+r(x: u32) = x + 1 where (x >= 3 && x <= 5) || (x >= 100 && x <= 101)
+table r
+e(x: u32) = x + 1 where x == 3 || x == 4000000000
+table e
+find e 1
+h(x: u8, y: u8) = x + y where (x == 1 || x == 200) && y < 3
+table h
+equiv h h
+# a domain no sampled point reaches: the sample's result, said as such
+g(x: u32) = x + 1 where x * x == 49
+range g
+table g

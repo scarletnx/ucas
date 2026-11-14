@@ -1,0 +1,62 @@
+> gates npn
+npn: the 65536 functions of 4 inputs fall in 222 classes; minimum networks of 3-input tables (lut3, gates' exact search):
+  0 tables: 2 classes
+  1 table: 12 classes
+  2 tables: 117 classes
+  3 tables: 91 classes
+  each proved minimal: 222 of 222
+> g(a: u32, b: u32, c: u32, d: u32) = ((a ^ b) & (c ^ d)) | (a & ~c & d)
+  note: "^" between integers, next to bitwise operators: read as xor (bitwise exclusive or), not power (write xor or ** to say which)
+> find g 1
+find g: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 2   ((a | b) xor a & (c & b)) & (c xor d)    the bitwise function of 4 values as 2 tables of 3 inputs (its NPN class's minimum network) (derived; checked by SAT)
+      holds where every bit: and, or, xor and not act on each bit alone
+      bit for bit the value is a function of the bits of a, b, c, d = a, b, c, d, truth table 0x0e60 (bit a | b << 1 | c << 2 | d << 3)
+      no single table gives it, two do, by gates' exact search over tables of 3 inputs on its class's least table; the tables here are that network with the inputs renamed and the negations folded in, and read back on all 16 rows
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> m(a: u32, b: u32, c: u32, d: u32) = (a & b) | (a & c) | (a & d) | (b & c) | (b & d) | (c & d)
+> find m 1
+find m: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 3   t1 xor ~(~(b | (a | c)) | d & t1) where t1 = ~((c | a & b) xor ~(a | b)) the bitwise function of 4 values as 3 tables of 3 inputs (its NPN class's minimum network) (derived; checked by SAT)
+      holds where every bit: and, or, xor and not act on each bit alone
+      bit for bit the value is a function of the bits of a, b, c, d = a, b, c, d, truth table 0xfee8 (bit a | b << 1 | c << 2 | d << 3)
+      no two tables give it, three do, by gates' exact search over tables of 3 inputs on its class's least table; the tables here are that network with the inputs renamed and the negations folded in, and read back on all 16 rows
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> x(a: u16, b: u16, c: u16, d: u16) = (a & ~b & c & ~d) | (~a & b & ~c & d) | (a & b & c & d)
+> find x 1
+find x: 1024 points (sampled; matches verified on the whole domain), computing in u16, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 2   (c xor t1) & (a xor t1) where t1 = (a | d) & (b xor a & d) the bitwise function of 4 values as 2 tables of 3 inputs (its NPN class's minimum network) (derived; checked by SAT)
+      holds where every bit: and, or, xor and not act on each bit alone
+      bit for bit the value is a function of the bits of a, b, c, d = a, b, c, d, truth table 0x8420 (bit a | b << 1 | c << 2 | d << 3)
+      no single table gives it, two do, by gates' exact search over tables of 3 inputs on its class's least table; the tables here are that network with the inputs renamed and the negations folded in, and read back on all 16 rows
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> f(a: u32, b: u32, c: u32, d: u32) = (a & b) ^ (c | d) ^ (a & d)
+> find f 1
+find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> s(a: u32, b: u32, c: u32) = ((a >> 3) & ~b & c & ~(a + b)) | (~(a >> 3) & b & ~c & (a + b)) | ((a >> 3) & b & c & (a + b))
+> find s 1
+find s: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   (c xor t1) & (a >> 3 xor t1) where t1 = (a >> 3 | a + b) & (b xor a >> 3 & a + b) the bitwise function of 4 values as 2 tables of 3 inputs (its NPN class's minimum network) (derived; checked by SAT)
+      holds where every bit: and, or, xor and not act on each bit alone
+      bit for bit the value is a function of the bits of a, b, c, d = a >> 3, b, c, a + b, truth table 0x8420 (bit a | b << 1 | c << 2 | d << 3)
+      no single table gives it, two do, by gates' exact search over tables of 3 inputs on its class's least table; the tables here are that network with the inputs renamed and the negations folded in, and read back on all 16 rows
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model nolut : gt1030 { nofuse lop3 }
+> use nolut
+cost model: nolut
+> find g 1
+find g: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from nolut
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
