@@ -4709,6 +4709,30 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 		cmd_forms(w0, f);
 		return 1;
 	}
+	if (!strcmp(w0, "scheme")) {
+		/* scheme F [more] [model m] on a complex or quaternion product */
+		static const char *const sw[] = {"more", "model", NULL};
+		uint32_t e = find_word(t, 1, b, sw), i;
+		struct model *mm = NULL;
+		int more = 0;
+		char nm[32];
+		if ((f = hy_funarg(t, 1, e, 0)) == NULL)
+			return 0;
+		for (i = e; i < b; i++)
+			if (tok_is(t, i, "more"))
+				more = 1;
+			else if (tok_is(t, i, "model") && i + 1 < b) {
+				tok_text(t, ++i, nm, sizeof nm);
+				if ((mm = model_find(sym_cstr(nm))) == NULL)
+					fail("unknown model %s", nm);
+			} else {
+				tok_text(t, i, nm, sizeof nm);
+				fail("scheme F [more] [model m]: not '%s'", nm);
+			}
+		notes_flush();
+		cmd_hscheme(f, mm, more);
+		return 1;
+	}
 	if (in_list(ucas_cmds, w0) && mentions_hyper(t, 1, b))
 		fail("%s works on real functions; %s is complex (use re, im, "
 		    "modulus or arg to get a real one, or define it with real "

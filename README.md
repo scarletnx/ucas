@@ -6373,6 +6373,19 @@ written under gt1030 and 12 with A and B given (an IMAD folds the add),
 and under a model whose multiply costs 12 and does not fuse, 51 against
 31 (tests/winograd.ucas).  In floats its sums cancel, and the check
 line says by how much.
+On a product of two complex or quaternion parameters (`f(z: c64, w:
+c64) = z*w`; `complex`, `quat`) `scheme F` gives the product as its
+parts, and `scheme F more` also **Gauss's** three multiplications for
+four, k1 = c (a + b), k2 = a (d - c), k3 = b (c + d), re = k1 - k3, im =
+k1 + k2 for (a + bi)(c + di), priced again with d - c and c + d given (a
+w that many z meet), and a quaternion's eight multiplications for
+sixteen (with a halving).  Each part is checked against the
+componentwise one on [-2, 2], and the parts are priced together, as one
+evaluation whose shared subterms count once.  Under gt1030 the products
+fold into FFMAs and the componentwise forms win (4 against 6); under a
+model whose multiply costs 8 and fuses nothing, Gauss is 29 against 34
+and the quaternion's 99 against 140 (tests/gauss.ucas).  Their sums of
+products cancel, and each part's line says by how much.
 
 For an f32 polynomial `scheme F more` also lists **compensated Horner**
 (`comp.`): Horner's rule with the rounding error of every product (2Prod:

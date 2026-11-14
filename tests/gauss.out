@@ -1,0 +1,76 @@
+> f(z: c64, w: c64) = z*w
+> scheme f
+evaluation schemes for f under gt1030
+complex product, as its parts:
+  4 products cost 4 with gt1030's fusions (the parts together)
+    re  z_re*w_re - z_im*w_im
+    im  z_re*w_im + z_im*w_re
+> scheme f more
+evaluation schemes for f under gt1030
+complex product, as its parts:
+  4 products cost 4 with gt1030's fusions (the parts together)
+    re  z_re*w_re - z_im*w_im
+    im  z_re*w_im + z_im*w_re
+  Gauss      cost 6 with gt1030's fusions (the parts together)
+    re  w_re*(z_re + z_im) - z_im*(w_re + w_im)
+        max relative difference 1.1 (rounding) at 4096 points; 1.4e-45 where the value is 0
+    im  w_re*(z_re + z_im) + z_re*(w_im - w_re)
+        max relative difference 1.2 (rounding) at 4096 points; 1.4e-45 where the value is 0
+             with e1 = w_im - w_re and e2 = w_re + w_im given (a w that many z meet): cost 4
+  (Gauss: three multiplications for four, three more additions; its sums of products cancel, and each part's line says by how much)
+> model dearf : gt1030 {
+    fmul: 8
+    nofuse ffma
+    nofuse ffms
+    nofuse ffmr
+  }
+> scheme f more model dearf
+evaluation schemes for f under dearf
+complex product, as its parts:
+  4 products cost 34 with dearf's fusions (the parts together)
+    re  z_re*w_re - z_im*w_im
+    im  z_re*w_im + z_im*w_re
+  Gauss      cost 29 with dearf's fusions (the parts together)
+    re  w_re*(z_re + z_im) - z_im*(w_re + w_im)
+        max relative difference 1.1 (rounding) at 4096 points; 1.4e-45 where the value is 0
+    im  w_re*(z_re + z_im) + z_re*(w_im - w_re)
+        max relative difference 1.2 (rounding) at 4096 points; 1.4e-45 where the value is 0
+             with e1 = w_im - w_re and e2 = w_re + w_im given (a w that many z meet): cost 27
+  (Gauss: three multiplications for four, three more additions; its sums of products cancel, and each part's line says by how much)
+> g(z: complex, w: complex) = z*w
+> scheme g more
+evaluation schemes for g under gt1030
+complex product, as its parts:
+  4 products cost 4 with gt1030's fusions (the parts together)
+    re  z_re*w_re - z_im*w_im
+    im  z_re*w_im + z_im*w_re
+  Gauss      cost 6 with gt1030's fusions (the parts together)
+    re  w_re*(z_re + z_im) - z_im*(w_re + w_im)
+        max relative difference 3.6e-14 (rounding) at 4096 points
+    im  w_re*(z_re + z_im) + z_re*(w_im - w_re)
+        max relative difference 3.1e-14 (rounding) at 4096 points
+             with e1 = w_im - w_re and e2 = w_re + w_im given (a w that many z meet): cost 4
+  (Gauss: three multiplications for four, three more additions; its sums of products cancel, and each part's line says by how much)
+> q(p: quat, r: quat) = p*r
+> scheme q more model dearf
+evaluation schemes for q under dearf
+quaternion product, as its parts:
+  16 products cost 140 with dearf's fusions (the parts together)
+    1   p_1*r_1 - p_i*r_i - p_j*r_j - p_k*r_k
+    i   p_1*r_i + p_i*r_1 + p_j*r_k - p_k*r_j
+    j   p_1*r_j - p_i*r_k + p_j*r_1 + p_k*r_i
+    k   p_1*r_k + p_i*r_j - p_j*r_i + p_k*r_1
+  8 products cost 99 with dearf's fusions (the parts together)
+    1   0.5((p_k + p_i)*(r_i + r_j) + (p_1 - p_j)*(r_1 + r_k) + (p_1 + p_j)*(r_1 - r_k) + (p_k - p_i)*(r_i - r_j)) - (p_k + p_i)*(r_i + r_j) + (p_k - p_j)*(r_j - r_k)
+        max relative difference 2.8e-13 (rounding) at 4096 points
+    i   0.5((p_k + p_i)*(r_i + r_j) + (p_1 - p_j)*(r_1 + r_k) + (p_1 + p_j)*(r_1 - r_k) + (p_k - p_i)*(r_i - r_j)) - ((p_k + p_i)*(r_i + r_j) + (p_1 - p_j)*(r_1 + r_k) + (p_1 + p_j)*(r_1 - r_k)) + (p_i + p_1)*(r_i + r_1)
+        max relative difference 4.3e-13 (rounding) at 4096 points
+    j   0.5((p_k + p_i)*(r_i + r_j) + (p_1 - p_j)*(r_1 + r_k) + (p_1 + p_j)*(r_1 - r_k) + (p_k - p_i)*(r_i - r_j)) - (p_1 - p_j)*(r_1 + r_k) + (p_1 - p_i)*(r_j + r_k)
+        max relative difference 1.8e-12 (rounding) at 4096 points
+    k   0.5((p_k + p_i)*(r_i + r_j) + (p_1 - p_j)*(r_1 + r_k) + (p_1 + p_j)*(r_1 - r_k) + (p_k - p_i)*(r_i - r_j)) - (p_1 + p_j)*(r_1 - r_k) + (p_k + p_j)*(r_1 - r_i)
+        max relative difference 5e-14 (rounding) at 4096 points
+  (eight multiplications for sixteen, more additions and a halving; its sums of products cancel, and each part's line says by how much)
+> h(z: c64, w: c64) = z*w + z
+> scheme h more
+evaluation schemes for h under gt1030
+  no product of two different complex parameters to rewrite (scheme takes F = z*w)
