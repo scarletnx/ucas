@@ -285,10 +285,17 @@ def compiles(src, stage):
 
 @check
 def every_step_compiles():
-    """every step's A build is GLSL that glslangValidator compiles and spirv-val takes"""
+    """every step's A build and every latency's U build is GLSL that glslangValidator compiles and spirv-val
+    takes"""
     bad = []
-    for p in steps():
-        err = compiles(PR.G.gen_compute(dict(p), p['A'], False), 'comp')
+    for p in PR.P:
+        if p['kind'] == 'step':
+            src = PR.G.gen_compute(dict(p), p['A'], False)
+        elif p['kind'] == 'lat':
+            src = PR.G.gen_compute(dict(p), PR.LAT_U, True) if p['how'] == 'alu' else PR.lat_shader(p, PR.LAT_U)
+        else:
+            continue
+        err = compiles(src, 'comp')
         if err:
             bad.append('%s: %s' % (p['name'], ' / '.join(err)))
     assert not bad, '; '.join(bad)
@@ -301,6 +308,50 @@ def u64_division_by_a_constant():
     for n in ('u64_udiv_const', 'u64_umod_const'):
         assert n in have and have[n]['ty'] == 'u64' and {18, 19} <= set(have[n]['issues']), \
             '%s: not a u64 step of #18 and #19' % n
+
+
+def lats():
+    return [p for p in PR.P if p.get('kind') == 'lat']
+
+
+@check
+def latencies_of_the_model_classes():
+    """one warp's dependent chain for the classes the model prices: the ALU, the loads, the texture reads"""
+    want = {'iadd', 'logic', 'shift', 'imul', 'fadd', 'fmul', 'fdiv', 'fsqrt', 'ftrans', 'conv', 'f64', 'load',
+            'load_stream', 'load_shared', 'load_ubo', 'tex_fetch', 'tex_sample'}
+    have = {p['cls'] for p in lats()}
+    assert want <= have, 'no latency for %s' % ', '.join(sorted(want - have))
+
+
+@check
+def chases_follow_one_cycle():
+    """a chase's table is one cycle through all its entries, so the chain never settles in a short loop
+    that a cache holds; the texture's coordinates lead to the centre of the next entry"""
+    import struct
+    for p in lats():
+        if p['how'] != 'chase' or p['n'] > 65536:
+            continue
+        for fn, data in p['files'].items():
+            b = data() if callable(data) else data
+            if fn.startswith('uv'):
+                xy = struct.unpack('<%df' % (2 * p['n']), b)
+                side = int(round(p['n'] ** 0.5))
+                t = [int(xy[2 * j] * side) + side * int(xy[2 * j + 1] * side) for j in range(p['n'])]
+            else:
+                words = struct.unpack('<%dI' % (len(b) // 4), b)
+                t = list(words[::len(words) // p['n']])
+            j, seen = 0, set()
+            while j not in seen:
+                seen.add(j)
+                j = t[j]
+            assert len(seen) == p['n'], '%s (%s): a cycle of %d of %d entries' % (p['name'], fn, len(seen), p['n'])
+
+
+@check
+def only_takes_patterns():
+    """--only lat_* picks every latency probe and nothing else"""
+    got = {p['name'] for p in PR.choose('lat_*', None)}
+    assert got == {p['name'] for p in lats()}, 'lat_* picked %s' % sorted(got)
 
 def main():
     failed = 0
