@@ -63,3 +63,9 @@ qmcmore.ucas:13:58: error: qmc: owen scrambles each replicate and noscramble run
     the error is estimated from the 8 replicates' spread: +-1.5 at 95% if their means are normal (t = 2.365), which nothing proves
     a spike: the largest value met is 2144 times the mean size, so a few points carry the integral; the replicates then agree on a value that is off (usually too small) and their spread understates the error
     not converged: the replicates differ by 6% of the value (standard error); more points, or the integral does not exist (a pole between the points looks like this)
+> q8(a in 0.0..1.0, b in 0.0..1.0, c in 0.0..1.0, d in 0.0..1.0, e in 0.0..1.0, g in 0.0..1.0, h in 0.0..1.0, k in 0.0..1.0) = a + b + c + d + e + g + h + k
+> integrate q8 numerically qmc
+∫ a + b + c + d + e + g + h + k numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 4.000053112, standard error 6.6e-05
+    8 randomised replicates of 4096 Sobol points in 8 dimensions (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    the error is estimated from the 8 replicates' spread: +-0.00016 at 95% if their means are normal (t = 2.365), which nothing proves

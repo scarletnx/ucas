@@ -37,6 +37,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* a dimension for each parameter a function can have: a larger MAXP
+ * needs more rows below */
+typedef char qmc_dims_are_maxp[QMC_MAXDIM == MAXP ? 1 : -1];
+
 /* dimension 2..8: degree s, coefficients a, initial m_1..m_s */
 static const struct {
 	int s, a, m[5];

@@ -21,3 +21,6 @@ h(x: real, y: real in 0..1) = exp(-x*x) * y
 integrate h numerically qmc owen
 # a divergent one still says so
 integrate 1/x from 1 to inf numerically qmc
+# eight dimensions, the most: a function has at most 8 parameters (#80)
+q8(a in 0.0..1.0, b in 0.0..1.0, c in 0.0..1.0, d in 0.0..1.0, e in 0.0..1.0, g in 0.0..1.0, h in 0.0..1.0, k in 0.0..1.0) = a + b + c + d + e + g + h + k
+integrate q8 numerically qmc

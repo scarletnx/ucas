@@ -104,7 +104,9 @@ int qmc_options(struct P *p, struct qmcopt *o);
 void qmc_integrate(const struct func *f, nid e, int slot, double a,
     double b, const struct qmcopt *o, const char *ind);
 /* point k (from 0) of the Sobol sequence in dim dimensions, as 32-bit
- * fractions; dim <= QMC_MAXDIM */
+ * fractions; dim <= QMC_MAXDIM, as many as a function has parameters
+ * (MAXP): more dimensions need a larger MAXP and more rows of Joe and
+ * Kuo's table in qmc.c */
 #define QMC_MAXDIM 8
 void sobol_point(uint32_t k, int dim, uint32_t *x);
 
