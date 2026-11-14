@@ -48,12 +48,22 @@ static const int fallback[C_NCLASS] = {
 	[C_ATOM_GL_CAS] = C_ATOM_GL, [C_ATOM_GL_STREAM] = C_ATOM_GL,
 	[C_TEX_FETCH] = C_LOAD, [C_TEX_SAMPLE] = C_LOAD,
 	[C_TEX_SAMPLE_F32] = C_TEX_SAMPLE, [C_IMAGE_LOAD] = C_LOAD,
+	[C_TEX_SAMPLE_8] = C_TEX_SAMPLE,
 };
 
 int
 model_lists(const struct model *m, int cls)
 {
 	return cls < C_MEM_FIRST || cls > C_MEM_LAST || !isnan(m->c[cls]);
+}
+
+/* a filtered read of bytes (R8): tex_sample_8 where m lists it, else
+ * tex_sample, which prices any sampled read */
+int
+tex8_class(const struct model *m)
+{
+	return m && model_lists(m, C_TEX_SAMPLE_8) ? C_TEX_SAMPLE_8 :
+	    C_TEX_SAMPLE;
 }
 
 /* the class a price comes from: cls, or the fallback m lists */

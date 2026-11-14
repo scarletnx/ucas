@@ -2223,13 +2223,15 @@ static const char prelude[] =
      * explicit-LOD bilinear read of an rgba8 texture (x_tex_bilinear,
      * 21.65 and 21.31) and of an rgba32f one (54.80).  A nearest read of
      * the same rgba8 texture is 22.65 with its add, as the bilinear one
-     * beside it in that run (22.42; tests/gt1030/probe.py, tex_nearest).
+     * beside it in that run (22.42; tests/gt1030/probe.py, tex_nearest),
+     * and a bilinear read of an R8 texture of that size 16.04
+     * (tex_bilinear_r8): tex_sample_8, the class of texalu's byte reads.
      * tex_within (how far the filter's result is from the exact weighted
      * sum) is not listed: the probe's filter run could not tell the
      * weight grid, so nothing filtered is offered yet.  subtexel is
      * subTexelPrecisionBits as vulkaninfo read it on the card.
      */
-    "  tex_nearest: 21.625, subtexel: 8\n"
+    "  tex_nearest: 21.625, tex_sample_8: 15, subtexel: 8\n"
     /*
      * The catalogue's classes (inst.c) where the driver makes one
      * instruction of the step, from tests/gt1030/probe.py (2026-11-13),

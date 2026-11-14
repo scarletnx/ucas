@@ -95,7 +95,7 @@ texalu w64 under cal
 # exactly: the weights are on the grid and the sum is a whole number
 texalu s4 under cal
 # a model where it is not cheaper leaves it
-model dear : cal { tex_sample: 40 }
+model dear : cal { tex_sample: 40, tex_sample_8: none }
 texalu s4 under dear
 # float weights: a fixed pair at fraction 3/4 is within the filter's
 # rounding, a mix by t is snapped to 1/256
