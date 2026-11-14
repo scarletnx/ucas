@@ -1,0 +1,51 @@
+> c(x: u64) = -1 + 50*x + 44*x^2 + 15*x^3
+> scheme c
+evaluation schemes for c under gt1030
+polynomial of degree 3 in x:
+  as written cost 21     depth 10     8 ops  50x + 18446744073709551615 + 44x^2 + 15x^3
+  pow()      cost 21     depth 12     8 ops  15x^3 + 44x^2 + 50x - 1
+             equal at all 4096 points checked
+  products   cost 18     depth 12     8 ops  15(x*x*x) + 44(x*x) + 50x - 1
+             equal at all 4096 points checked
+  Horner     cost 12     depth 12     6 ops  ((15x + 44)*x + 50)*x - 1
+             equal at all 4096 points checked
+  Estrin     cost 15     depth 8      7 ops  50x + 18446744073709551615 + (15x + 44)*(x*x)
+             equal at all 4096 points checked
+  (depth is the critical path: Estrin trades operations for parallelism)
+  differences, for x = 0, 1, ...: start d0 = -1 d1 = 109 d2 = 178 d3 = 90
+    per point: d0 += d1; d1 += d2; d2 += d3; (3 additions, cost 3 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> h(x: u64) = 0x9e3779b97f4a7c15*x^2 + 0xbf58476d1ce4e5b9*x + 0x94d049bb133111eb
+> scheme h
+evaluation schemes for h under gt1030
+polynomial of degree 2 in x:
+  as written cost 11     depth 8      5 ops  11400714819323198485x^2 + 13787848793156543929x + 10723151780598845931
+  pow()      cost 12     depth 9      6 ops  -7046029254386353131x^2 - 4658895280553007687x - 7723592293110705685
+             equal at all 4096 points checked
+  products   cost 12     depth 9      6 ops  -7046029254386353131(x*x) - 4658895280553007687x - 7723592293110705685
+             equal at all 4096 points checked
+  Horner     cost 8      depth 8      4 ops  (11400714819323198485x - 4658895280553007687)*x - 7723592293110705685
+             equal at all 4096 points checked
+  Estrin     cost 11     depth 7      5 ops  13787848793156543929x + 10723151780598845931 + 11400714819323198485(x*x)
+             equal at all 4096 points checked
+  (depth is the critical path: Estrin trades operations for parallelism)
+  differences, for x = 0, 1, ...: start d0 = -7723592293110706176 d1 = -1499779743744069632 d2 = 1499779743744069632
+    per point: d0 += d1; d1 += d2; (2 additions, cost 2 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> g(x: u32) = 4294967295*x^3 + 7*x + 4294967290
+> scheme g
+evaluation schemes for g under gt1030
+polynomial of degree 3 in x:
+  as written cost 14     depth 11     5 ops  4294967295x^3 + 7x + 4294967290
+  pow()      cost 11     depth 8      4 ops  7x - x^3 - 6
+             equal at all 4096 points checked
+  products   cost 11     depth 8      5 ops  7x - x*x*x - 6
+             equal at all 4096 points checked
+  Horner     cost 11     depth 11     5 ops  (4294967295x*x + 7)*x - 6
+             equal at all 4096 points checked
+  Estrin     cost 14     depth 7      6 ops  7x + 4294967290 + 4294967295x*(x*x)
+             equal at all 4096 points checked
+  (depth is the critical path: Estrin trades operations for parallelism)
+  differences, for x = 0, 1, ...: start d0 = -6 d1 = 6 d2 = -6 d3 = -6
+    per point: d0 += d1; d1 += d2; d2 += d3; (3 additions, cost 3 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
