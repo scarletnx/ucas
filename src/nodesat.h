@@ -29,6 +29,10 @@ extern int64_t nsat_lanes[MAXP][SG_MAXW];
 extern uint8_t nsat_lanes_set[MAXP][SG_MAXW];
 #define NSAT_BUDGET 100000   /* conflicts */
 #define NSAT_SECONDS 2.0     /* and CPU seconds */
+/* in place of the seconds under UCAS_NO_TIMES: watched clauses visited, about
+ * what 2 s of CPU visits (some 100 million a second, glibc, gcc 16, x86-64) */
+#define NSAT_WORK 200000000L
 double nsat_seconds(void);	/* NSAT_SECONDS, or 0 (none) under UCAS_NO_TIMES */
+long nsat_work(void);		/* 0 (none), or NSAT_WORK under UCAS_NO_TIMES */
 
 #endif

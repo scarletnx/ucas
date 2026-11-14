@@ -159,7 +159,7 @@ find e8: 1024 points (sampled; matches verified on the whole domain), computing 
            x >> 0x10 & 0xff is bits 16..23 of x: lane 2 as it is
            x >> 0x18 is bits 24..31 of x: lane 3 as it is
            udot4x8's sum is in 0..6630: it does not wrap; udot4x8's sum is in 0..2550: it does not wrap
-           proved by SAT: 1506 AIG nodes, 73068 conflicts
+           by lanes (proved by SAT or exhaustively each; no multiplier for the solver): lane 0 of y is y & 0xff; lane 1 of y is y >> 8 & 0xff; lane 2 of y is y >> 0x10 & 0xff; lane 3 of y is y >> 0x18; lane 0 of x is x & 0xff; lane 1 of x is x >> 8 & 0xff; lane 2 of x is x >> 0x10 & 0xff; lane 3 of x is x >> 0x18; so each dot is the exact sum of its terms (its range above), and the rest is the sum's own terms regrouped (+ and - associate and commute mod 2^32; the conversions passed keep the value mod 2^32 or exactly); the whole at once: SAT gave up, sampled without a difference
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > bs(x: u32) = (x & 255) + ((x >> 8) & 255) + ((x >> 16) & 255) + (x >> 24)
@@ -188,7 +188,7 @@ find pk: 1024 points (sampled; matches verified on the whole domain), computing 
            16 - w in 1..16 (proved range)
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..7905: it does not wrap
-           proved by SAT: 1335 AIG nodes, 90401 conflicts
+           by lanes (proved by SAT or exhaustively each; no multiplier for the solver): lane 0 of x is x & 0xff; lane 0 of w | 16 - w << 8 is w; lane 1 of x is x >> 8 & 0xff; lane 1 of w | 16 - w << 8 is 16 - w; lane 2 of w | 16 - w << 8 is 0; lane 3 of w | 16 - w << 8 is 0; so each dot is the exact sum of its terms (its range above), and the rest is the sum's own terms regrouped (+ and - associate and commute mod 2^32; the conversions passed keep the value mod 2^32 or exactly); the whole at once: SAT gave up, sampled without a difference
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model nodot : gt1030 { dot4x8: none, dot4x8sat: none }
@@ -387,7 +387,7 @@ simplify: 70 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       16 - (%38 & 15) in 1..16 (proved range)
       the word's other lanes meet zero lanes
       udot4x8's sum is in 0..7905: it does not wrap
-      proved by SAT: 1335 AIG nodes, 90401 conflicts
+      by lanes (proved by SAT or exhaustively each; no multiplier for the solver): lane 0 of %52 is %52 & 0xff; lane 0 of %38 & 15 | 16 - (%38 & 15) << 8 is %38 & 15; lane 1 of %52 is %52 >> 8 & 0xff; lane 1 of %38 & 15 | 16 - (%38 & 15) << 8 is 16 - (%38 & 15); lane 2 of %38 & 15 | 16 - (%38 & 15) << 8 is 0; lane 3 of %38 & 15 | 16 - (%38 & 15) << 8 is 0; so each dot is the exact sum of its terms (its range above), and the rest is the sum's own terms regrouped (+ and - associate and commute mod 2^32; the conversions passed keep the value mod 2^32 or exactly); the whole at once: SAT gave up, sampled without a difference
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
   blend (line 5), called from main (line 8)
@@ -395,7 +395,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions
       (a & 255u) * w + ((a >> 8) & 255u) * (16u - w)
         ->  udot4x8(a, w | 16 - w << 8)
         (in GLSL, GL_EXT_integer_dot_product's dotPacked4x8EXT(a, b): udot4x8 with uint operands, sdot4x8 with int ones, sudot4x8 with an int a and a uint b)
-      proof: proved by SAT: 1335 AIG nodes, 90401 conflicts, over the values its leaves take where it runs
+      proof: by lanes: each lane of each word shown to be its factor (SAT), the dot is the exact sum of its lane products, the other terms regrouped mod 2^32
       cost under gt1030: 11 -> 5 each time it runs
       relies on: w in 0..15 where line 5 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (a & 0xff) * w, lane 1: (a >> 8 & 0xff) * (16 - w); a & 0xff is bits 0..7 of a: lane 0 as it is; w in 0..15 (proved range); a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is; 16 - w in 1..16 (proved range); the word's other lanes meet zero lanes; udot4x8's sum is in 0..7905: it does not wrap
   (nofile: simplified.spvasm, 2417 bytes, checksum a16eab42)
