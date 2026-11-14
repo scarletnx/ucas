@@ -3,13 +3,13 @@
 > use gt1030
 cost model: gt1030
 > spvsimplify nofile nofunctions
-simplify: 165 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 19 -> 19 (+0.0%)
+simplify: 192 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 27 -> 27 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 99 -> 99 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 125 -> 125 (+0.0%)
   nothing applied: no cheaper float form could be proved
 conversions between integers and f32 by the bits, roundings by the add of 1.5*2^23, and floor(log2 x) and ldexp by the exponent field, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
     %64 = OpExtInst %float %2 Ldexp %33 %56
@@ -36,8 +36,12 @@ conversions between integers and f32 by the bits, roundings by the add of 1.5*2^
       ->  x * asfloat((k << 23) + 0x3F800000)   (cost 13 -> 4)
       k = %148 is in [-126, 127], proved by SAT from its definitions, so (k << 23) + 0x3F800000 are the bits of 2^k, a normal f32; x * 2^k is the correctly rounded x 2^k, as ldexp's result is, so the two agree for every x, 0, subnormal and infinite included (x = %33, in [0.5, 2]); the multiply is decorated NoContraction
       (line 17: o.f[i + 384u] = ldexp(x, min(int(b.d[i + 512u] & 255u), 253) - 126);)
+    %165 = OpExtInst %float %2 Ldexp %105 %164
+      ->  x * asfloat((min(k, 127) << 23) + 0x3F800000) * asfloat(((k - min(k, 127)) << 23) + 0x3F800000)   (cost 13 -> 10)
+      k = %164 is in [-126, 254], proved by SAT from its definitions; up to 127 the second factor is 1 and the first product is the correctly rounded x 2^k; past it the first is x 2^127, exact (a scaling up) or an overflow where x 2^k overflows too, and the second rounds once: the correctly rounded x 2^k, as ldexp's is, for every x (x = %105); the multiplies are decorated NoContraction
+      (line 18: o.f[i + 448u] = ldexp(any, min(int(b.d[i + 576u] & 511u), 380) - 126);)
   spirv-val accepts the written module
-  (nofile: simplified.spvasm, 6769 bytes, checksum 41850b8e)
+  (nofile: simplified.spvasm, 8337 bytes, checksum bbdd2cb8)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > model slowmul : gt1030 { fmul: 8 }

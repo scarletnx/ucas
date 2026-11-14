@@ -2443,7 +2443,11 @@ infinite, no range at all) with k in [-126, 127] by SAT, it is x times
 2^k is a normal f32 there, so the product is the correctly rounded x 2^k,
 which ldexp's result is too, and the multiply is written NoContraction
 (13 to 4; also where x is normal but k may take it past the largest or
-smallest normal).  Where a multiply costs more than a compare and a
+smallest normal).  With k in [-126, 254] it is `x * 2^min(k, 127) * 2^(k
+- min(k, 127))`, each factor made the same way: up to 127 the second is
+1, and past it the first product is x 2^127, exact (a scaling up) or an
+overflow where x 2^k overflows too, so the second rounds once (13 to
+10).  Where a multiply costs more than a compare and a
 select, an x that may be 0 takes the field's add when it is an integer
 converted (0, or 1 at least in magnitude: a shared-exponent decoder's
 mantissa), `x == 0 ? x : asfloat(asint(x) + (k << 23))`, the select
@@ -2452,8 +2456,9 @@ They are written last, after the float, memory and advice passes, which
 read the conversion (its integer's range, an integer atomic's addend, a
 vertex format) and not the bits; the report gives them their own
 section, as a conversion is not in the integer cost, and says what
-spirv-val makes of the module.  Not yet: the ldexp whose k may leave
-[-126, 127] of an x that may be 0 or subnormal, the GLSL function level
+spirv-val makes of the module.  Not yet: the ldexp whose k may go below
+-126 of an x that may be 0 or subnormal (two scalings down round twice),
+the GLSL function level
 (find only), f16 and f64, a round-to-nearest operation for the magic add
 to stand for (ucas has floor, ceil and the truncating conversion),
 48-bit products by 2Prod.
