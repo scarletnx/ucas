@@ -1,0 +1,9 @@
+# The snippet databases `find F snippets` reads when the session has none
+# for F's shape: grown by `make snippets` (a second or so), each named
+# MODEL_NxW for N inputs of W bits, since find looks them up by that name.
+# find's own bank (1024 points) reaches about cost 3 on these shapes;
+# 32 points reach every program of the cost given here.
+snippets grow gt1030_1x32 fresh inputs 1 width 32 cost 4
+snippets grow gt1030_2x32 fresh inputs 2 width 32 cost 3
+snippets grow gt1030_2x16 fresh inputs 2 width 16 cost 3
+snippets grow gt1030_3x32 fresh inputs 3 width 32 cost 2

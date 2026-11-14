@@ -2646,6 +2646,9 @@ cmd_more(int want)
  */
 #define SNIP_P 32
 #define SNIP_VER 1
+#ifndef UCAS_SNIPDIR
+#define UCAS_SNIPDIR "snippets"	/* the Makefile names the tree's own */
+#endif
 
 static struct {
 	int ready, nin, w;
@@ -3183,9 +3186,25 @@ snip_lookup(const char *name)
 
 	if (name && !sd_read(name, 0))
 		fail("snippets: no file %s.snip", name);
-	if (!SD.ready)
-		fail("find ... snippets: no database in this session: `snippets "
-		    "grow` makes one, `find F snippets NAME` reads NAME.snip");
+	if (!name && (!SD.ready || SD.nin < f->np || f->np < 1 ||
+	    !TY_ISINT(f->p[0].ty) || !TY_SIZED(f->p[0].ty) ||
+	    TYW(f->p[0].ty) != SD.w || SD.model != model_active()->name)) {
+		/* the one make grew for this shape and model */
+		char dn[300], base[100];
+		snprintf(base, sizeof base, "%s_%dx%d",
+		    sym_str(model_active()->name), f->np, f->np >= 1 &&
+		    TY_SIZED(f->p[0].ty) ? TYW(f->p[0].ty) : 0);
+		snprintf(dn, sizeof dn, "%s/%s", UCAS_SNIPDIR, base);
+		if (!sd_read(dn, 0)) {
+			printf("  snippet database: none in this session for %d "
+			    "input%s of %d bits under %s, and no snippets/%s.snip "
+			    "(`make snippets` grows those snippets/grow.ucas lists)\n",
+			    f->np, f->np == 1 ? "" : "s", f->np >= 1 &&
+			    TY_SIZED(f->p[0].ty) ? TYW(f->p[0].ty) : 0,
+			    sym_str(model_active()->name), base);
+			return;
+		}
+	}
 	if (!SD.ht)
 		sd_index();
 	T = TY(K_UINT, SD.w);

@@ -5355,9 +5355,15 @@ file of another shape or model is refused, naming both.  A line of the
 file is an entry: its operation and its operands' entries (or an
 input, or a constant) and the hash of its column.
 
-`find F snippets [NAME]` hashes F's values on the same points (F's
-parameters in order as a, b, c, of the database's width) and lists the
-program with that hash, checked on F's domain like every match
+`make` grows the databases snippets/grow.ucas lists into snippets/
+(`make snippets` alone; about a second), each named MODEL_NxW for N
+inputs of W bits, and the binary knows that folder (the Makefile names
+it).  `find F snippets [NAME]` reads NAME.snip when it is given, else
+the session's database when it has F's shape and model, else
+snippets/MODEL_NxW.snip for F's (or says there is none), hashes F's
+values on the same points (F's parameters in order as a, b, c, of the
+database's width) and lists the program with that hash, checked on F's
+domain like every match
 (tests/snippets.ucas: `((a + b) | (a - b)) & ~((a + b) & (a - b))` is
 `a + b xor a - b`, which find alone does not reach).  Thirty-two points
 do not tell every pair of functions apart: a program that matches there
