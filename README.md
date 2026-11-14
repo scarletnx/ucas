@@ -6314,7 +6314,8 @@ for an f32 polynomial, and the cheapest of them all with the model's
 fusions counted (src/scheme.c).  Without the word the output is
 Horner's and Estrin's alone.  An integer type's coefficients are read
 exactly and centred modulo its width, so u64's 2^64 - 1 is written
-`- 1` and a 64-bit constant keeps every bit (tests/schemeu64.ucas).  The three forms:
+`- 1` and a 64-bit constant keeps every bit (tests/schemeu64.ucas).
+The three forms:
 
 - **Knuth**: coefficients adapted beforehand (TAOCP 4.6.4).  A quartic
   is `u4*((y + x + a2)*y + a3)` with `y = (x + a0)*x + a1`, three
