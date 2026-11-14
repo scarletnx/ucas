@@ -1395,7 +1395,7 @@ poly_scheme(const struct model *m, struct func *f, int more)
 			r = pe_resid(&a, cr, d);
 			if (r < 0 || r > tol)
 				continue;
-			cc = fuse_expr_cost(m, a.e);
+			cc = fuse_expr_price(m, a.e, NULL);
 			if (cb < 0 || cc < cb) {
 				cb = cc;
 				best = a;
@@ -1447,24 +1447,38 @@ poly_scheme(const struct model *m, struct func *f, int more)
 		    " the splitting (x^m + c)*q + r into monic halves" : "");
 	if (more && TYK(t) == K_FLOAT && TYW(t) == 32)
 		comp_scheme(m, f, cr, d, horner);
-	if (more && d >= 4) {
-		/* what the model's fusions make of each: Horner is all FFMAs */
-		float cost[8];
+	if ((more && d >= 4) || m->nlat) {
+		/*
+		 * what the model's fusions make of each (Horner is all FFMAs),
+		 * and its latencies: the critical path over the occupancy where
+		 * the throughput does not hide it (Estrin's parallelism)
+		 */
+		float cost[8], path[8];
 		int bi = 0;
 
 		fuse_domain(f);
 		for (k = 0; k < nf; k++) {
-			cost[k] = fuse_expr_cost(m, forms[k]);
+			cost[k] = fuse_expr_price(m, forms[k], &path[k]);
 			if (cost[k] < cost[bi])
 				bi = k;
 		}
 		fuse_domain(NULL);
-		printf("  cheapest with %s's fusions counted: %s %g;", sym_str(
-		    m->name), names[bi], (double)cost[bi]);
+		if (m->nlat)
+			printf("  cheapest with %s's fusions and latencies "
+			    "counted (occupancy %g; the critical path in "
+			    "parentheses): %s %g (%g);", sym_str(m->name),
+			    (double)model_occupancy(m), names[bi],
+			    (double)cost[bi], (double)path[bi]);
+		else
+			printf("  cheapest with %s's fusions counted: %s %g;",
+			    sym_str(m->name), names[bi], (double)cost[bi]);
 		for (k = 0; k < nf; k++)
-			if (k != bi)
+			if (k != bi) {
 				printf("%s %s %g", k == (bi == 0) ? "" : ",",
 				    names[k], (double)cost[k]);
+				if (m->nlat)
+					printf(" (%g)", (double)path[k]);
+			}
 		printf("\n");
 	}
 	/* forward differences for consecutive integers */

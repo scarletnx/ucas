@@ -248,7 +248,9 @@ static const struct jcmd cmds[] = {
 	    "and payload; false, every NaN is equal", NULL}}},
 	{"find", "find", 1, 0, "cheaper implementations under the cost model",
 	    {FN, IO("n", " %s", "how many (5)"), IO("max", " max %s",
-	    "maximum cost")}},
+	    "maximum cost"), IO("occupancy", " occupancy %s", "the warps "
+	    "that hide latency, for this request (under a model that lists "
+	    "latencies)")}},
 	{"texalu", "texalu", 1, 0, "table reads and weighted sums of "
 	    "neighbouring entries as reads through the texture unit, where the "
 	    "model prices them lower, with the pipeline change they need",
@@ -307,7 +309,9 @@ static const struct jcmd cmds[] = {
 	    {FN, NMO("model", " model %s", "the model (the active one)"),
 	    NMO("consecutive", " consecutive %s", "an integer parameter whose "
 	    "values run along the lanes of a warp (a branch's expected cost "
-	    "is then counted over those warps)")}},
+	    "is then counted over those warps)"), IO("occupancy",
+	    " occupancy %s", "the warps that hide latency, for this request "
+	    "(under a model that lists latencies)")}},
 	{"dword", "dword", 1, 0, "f64 arithmetic over f32 (alone, or as "
 	    "double-word pairs) where the model prices that lower, with a "
 	    "derived error bound and its conditions",
@@ -355,7 +359,9 @@ static const struct jcmd cmds[] = {
 	{"scheme", "scheme", 0, 0, "evaluation schemes priced",
 	    {FN, BO("more", " more", "a polynomial's forms beyond Horner "
 	    "and Estrin too: Knuth, Paterson-Stockmeyer, compensated Horner"),
-	    NMO("model", " model %s", "the model")}},
+	    NMO("model", " model %s", "the model"), IO("occupancy",
+	    " occupancy %s", "the warps that hide latency, for this request "
+	    "(under a model that lists latencies)")}},
 	{"continuous", "continuous", 0, 0, "sums as integrals, loops as ODEs",
 	    {FN}},
 	{"dsolve", "dsolve", 1, 0, "solve a defined ODE (symbolic or numeric)",

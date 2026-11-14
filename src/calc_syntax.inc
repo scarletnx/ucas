@@ -1381,6 +1381,7 @@ calc_command(struct P *p)
 		int which = is_kw(p, "closed") ? 0 : is_kw(p, "scheme") ? 1 : 2;
 		struct model *m = NULL;
 		int more = 0;
+		float occ = 0;
 		adv(p);
 		f = cmd_func(p);
 		/* scheme F more: the forms beyond Horner and Estrin too */
@@ -1391,7 +1392,11 @@ calc_command(struct P *p)
 				fail("unknown model");
 			adv(p);
 		}
+		if (which == 1 && accept_kw(p, "occupancy"))
+			occ = occupancy_word(p);
 		expect_eos(p);
+		if (which == 1)
+			occupancy_set(occ, m ? m : model_active());
 		notes_flush();
 		if (which == 0)
 			cmd_closed(f);

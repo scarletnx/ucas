@@ -1402,6 +1402,91 @@ cmp_nid(const void *x, const void *y)
 	return a < b ? -1 : a > b;
 }
 
+/* a node's latency in the cover: its class's, or its price if unlisted */
+static float
+op_latency(const struct model *m, const struct fgraph *G, int i)
+{
+	nid g = G->id[i];
+	int k, f64 = G->f64[i];
+	float l = -1;
+
+	if (G->by[i] >= 0 || G->isk[i] || N.op[g] == O_VAR ||
+	    N.op[g] == O_UNDEF || N.op[g] == O_TABLE)
+		return 0;	/* in a fused instruction, or no operation */
+	if (N.op[g] == O_LOOP) {
+		/* its iterations run one after another: its whole price */
+		int cls;
+		return node_cost(m, g, &cls);
+	}
+	if (G->fz[i] >= 0) {
+		const struct fusion *f = G->fl[G->fz[i]];
+		if (f->users)
+			return 0;	/* a source modifier: in its user */
+		/* one instruction: the slowest of its classes */
+		for (k = 0; k < f->nt; k++) {
+			int c = f->tcls[k];
+			if (f64 && fpclass(c) && !isnan(m->lat[C_F64]))
+				c = C_F64;
+			if (!isnan(m->lat[c]) && m->lat[c] > l)
+				l = m->lat[c];
+		}
+		return l >= 0 ? l : fuse_price(m, f, f64);
+	}
+	k = G->cls[i];
+	if (k >= 0 && f64 && fpclass(k) && !isnan(m->lat[C_F64]))
+		k = C_F64;
+	return k >= 0 && !isnan(m->lat[k]) ? m->lat[k] : G->own0[i];
+}
+
+static int
+id_ix(const struct fgraph *G, nid g)
+{
+	int lo = 0, hi = G->n - 1;
+
+	while (lo <= hi) {
+		int mid = (lo + hi) / 2;
+		if (G->id[mid] == g)
+			return mid;
+		if (G->id[mid] < g)
+			lo = mid + 1;
+		else
+			hi = mid - 1;
+	}
+	return -1;
+}
+
+/*
+ * The critical path of a cover (its nodes in id order, so each node's
+ * operands come before it): the longest chain of latencies, a fused
+ * instruction counted once at its root.
+ */
+float
+fuse_cover_path(const struct model *m, const struct fgraph *G)
+{
+	float *at = xcalloc((size_t)(G->n ? G->n : 1), sizeof *at), path = 0;
+	int i;
+	uint32_t j;
+
+	for (i = 0; i < G->n; i++) {
+		nid g = G->id[i];
+		float in = 0;
+		uint32_t na = N.op[g] == O_TABLE ? N.b[g] : 3;
+		if (!(G->isk[i] || N.op[g] == O_VAR || N.op[g] == O_UNDEF))
+			for (j = 0; j < na; j++) {
+				nid a = N.op[g] == O_TABLE ? N.lst[N.a[g] + j] :
+				    j == 0 ? N.a[g] : j == 1 ? N.b[g] : N.c[g];
+				int e = a ? id_ix(G, a) : -1;
+				if (e >= 0 && e < i && at[e] > in)
+					in = at[e];
+			}
+		at[i] = in + op_latency(m, G, i);
+		if (at[i] > path)
+			path = at[i];
+	}
+	free(at);
+	return path;
+}
+
 /*
  * Every node reachable from root (into tables, a loop priced as a node):
  * its cheapest cover.  The visited set is kept between calls and cleared
@@ -1413,9 +1498,42 @@ fuse_expr_cost(const struct model *m, nid root)
 	return fuse_roots_cost(m, &root, 1);
 }
 
+/*
+ * The price a choice goes by: the cover's throughput, or under a model
+ * that lists latencies the larger of that and the critical path over the
+ * occupancy (the warps that hide it); *path gets the path (0 without).
+ */
+float
+fuse_expr_price(const struct model *m, nid root, float *path)
+{
+	return fuse_roots_price(m, &root, 1, path);
+}
+
+static float roots_cover(const struct model *m, const nid *roots,
+    int nroots, float *path);
+
+float
+fuse_roots_price(const struct model *m, const nid *roots, int nroots,
+    float *path)
+{
+	float p = 0, c = roots_cover(m, roots, nroots, m->nlat ? &p : NULL);
+
+	if (path)
+		*path = p;
+	return m->nlat && p / model_occupancy(m) > c ?
+	    p / model_occupancy(m) : c;
+}
+
 /* the same for several expressions: what they share is covered once */
 float
 fuse_roots_cost(const struct model *m, const nid *roots, int nroots)
+{
+	return roots_cover(m, roots, nroots, NULL);
+}
+
+static float
+roots_cover(const struct model *m, const nid *roots, int nroots,
+    float *path)
 {
 	static uint8_t *mark;
 	static uint32_t cap;
@@ -1462,6 +1580,8 @@ fuse_roots_cost(const struct model *m, const nid *roots, int nroots)
 		mark[v[i]] = 0;
 	qsort(v, (size_t)cnt, sizeof *v, cmp_nid);
 	c = cover_list(m, v, cnt, roots, nroots, 1, &G);
+	if (path)
+		*path = fuse_cover_path(m, &G);
 	fg_free(&G);
 	free(st);
 	free(v);

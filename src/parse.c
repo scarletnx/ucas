@@ -2676,6 +2676,50 @@ parse_fuse(struct P *p, struct model *m)
 	fuse_add(m, &f);
 }
 
+/*
+ * latency CLASS: N, CLASS: N ... to the end of the line: each class's
+ * latency in the prices' unit; `latency none` takes the parent's back.
+ * A class it does not list keeps its price as its latency.
+ */
+static void
+parse_latency(struct P *p, struct model *m)
+{
+	size_t n;
+	const char *s;
+	int k, j;
+	float l;
+	nid v;
+
+	adv(p);
+	accept(p, T_COLON);
+	if (accept_kw(p, "none")) {
+		for (k = 0; k < C_NCLASS; k++)
+			m->lat[k] = NAN;
+		m->nlat = 0;
+		return;
+	}
+	do {
+		s = ttext(p, p->i, &n);
+		if (pk(p) != T_ID || (k = cclass_find(s, n)) == -2 || k == -1)
+			fail("latency: unknown cost class '%.*s' (see "
+			    "'models'): latency fadd: 6, fmul: 6", (int)n, s);
+		adv(p);
+		if (!accept(p, T_COLON))
+			expect(p, T_ASSIGN);
+		v = number(p);
+		l = TY_FP(N.ty[v]) ? (float)N.kr[v] : (float)N.ki[v];
+		for (j = k <= -100 ? -k - 100 : k; j < (k <= -100 ? -k - 97 :
+		    k + 1); j++) {
+			if (!(l >= 0) || l > 1e6f)
+				fail("latency %s: from 0 to 1e6, not %g",
+				    cclass_name[j], (double)l);
+			if (isnan(m->lat[j]))
+				m->nlat++;
+			m->lat[j] = l;
+		}
+	} while (accept(p, T_COMMA) && pk(p) == T_ID);
+}
+
 static void
 parse_model(struct P *p)
 {
@@ -2702,6 +2746,8 @@ parse_model(struct P *p)
 		memcpy(m->fold, parent->fold, sizeof m->fold);
 		m->nfold = parent->nfold;
 		memcpy(m->par, parent->par, sizeof m->par);
+		memcpy(m->lat, parent->lat, sizeof m->lat);
+		m->nlat = parent->nlat;
 		inherited = 1;
 	}
 	skip_nl(p);
@@ -2718,6 +2764,10 @@ parse_model(struct P *p)
 		s = ttext(p, p->i, &n);
 		if (pk(p) != T_ID)
 			fail("expected a cost class");
+		if (n == 7 && !memcmp(s, "latency", 7)) {
+			parse_latency(p, m);
+			continue;
+		}
 		if (n == 5 && !memcmp(s, "folds", 5)) {
 			/* folds T -> M -> T: a round trip the driver drops */
 			ty_t ty[3];
@@ -2887,10 +2937,42 @@ parse_model(struct P *p)
 				    m->c[C_IREM + k] - m->c[C_IDIV + k];
 		}
 	}
+	if (m->nlat && !(m->par[MP_OCCUPANCY] > 0))
+		fail("model %s lists latencies but no occupancy: say how many "
+		    "warps a scheduler keeps resident to hide them (occupancy: "
+		    "N), or take them back with `latency none`",
+		    sym_str(m->name));
 	expect_eos(p);
 }
 
 /* ---- commands ---- */
+
+/*
+ * `occupancy N` on cost, find or scheme: the warps that hide latency, for
+ * this request (a shader's registers decide it more than the card).
+ */
+float
+occupancy_word(struct P *p)
+{
+	nid v = number(p);
+	float o = TY_FP(N.ty[v]) ? (float)N.kr[v] : (float)N.ki[v];
+
+	if (!(o >= 1) || o > 4096 || o != floorf(o))
+		fail("occupancy: a whole count of warps from 1 to 4096, not %g",
+		    (double)o);
+	return o;
+}
+
+/* the request's occupancy in effect for its command; said when inert */
+void
+occupancy_set(float o, const struct model *m)
+{
+	if (o > 0 && !m->nlat)
+		note("occupancy %g changes nothing: %s lists no latencies, so "
+		    "its prices are throughput alone", (double)o,
+		    sym_str(m->name));
+	model_occupancy_request(o);
+}
 
 static int
 opt_int(struct P *p, const char *kw, int dflt)
@@ -2918,8 +3000,8 @@ help(void)
 "  equiv F G [ftz|noftz] [nanbits] | error G ~ F\n"
 "  fit G ~ F [metric maxrel|maxabs|rms]\n"
 "  gates F [basis b] [max k] [nodes n] [as c]\n"
-"  find F [n] [max cost] | more [n]\n"
-"  cost F [model m] [consecutive i] | use m\n"
+"  find F [n] [max cost] [occupancy w] | more [n]\n"
+"  cost F [model m] [consecutive i] [occupancy w] | use m\n"
 "  stoke F [steps n] [restarts r] [len l] [seed k] [model m]\n"
 "  pit F G [trials n] [seed k] | phash F [seed k] [model m]\n"
 "  dword F [tol r | atol t | ulp x] [model m] | foldproof F [model m]\n"
@@ -2940,7 +3022,7 @@ help(void)
 "    [at a]\n"
 "loops and calculus\n"
 "  sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }\n"
-"  closed F | scheme F [more] [model m] | continuous F\n"
+"  closed F | scheme F [more] [model m] [occupancy w] | continuous F\n"
 "  integrate F [wrt x] [from a to b] | antiderivative F [wrt x]\n"
 "  diff F [x y ...] [n] | grad|hessian|laplacian F [at a, b] | F'' | F'(a)\n"
 "  jacobian F, G [wrt x, y] [at ...] | ddir F along v [at p] [raw]\n"
@@ -3264,6 +3346,7 @@ statement(struct P *p)
 	/* a statement that failed inside equiv leaves no mode behind */
 	float_ftz = nsat_ftz = nsat_floats = 0;
 	equiv_nanbits = nsat_nanbits = 0;
+	model_occupancy_request(0);
 	diag_tok = p->i;
 	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
 	 * when hyper.c would read it as a value */
@@ -3778,9 +3861,12 @@ statement(struct P *p)
 				int want = 5, maxc = 0, stoke, snip, saturate;
 				uint32_t fnm2 = f->name;
 				char sname[96] = "";
+				float occ = 0;
 				if (pk(p) == T_NUM)
 					want = (int)N.ki[number(p)];
 				maxc = opt_int(p, "max", 0);
+				if (accept_kw(p, "occupancy"))
+					occ = occupancy_word(p);
 				stoke = accept_kw(p, "stoke");	/* then the MCMC search */
 				saturate = accept_kw(p, "saturate");
 				snip = accept_kw(p, "snippets");
@@ -3791,13 +3877,16 @@ statement(struct P *p)
 					adv(p);
 				}
 				expect_eos(p);
+				occupancy_set(occ, model_active());
 				notes_flush();
 				cmd_find(f, want, NULL, maxc, snip, sname[0] ? sname :
 				    NULL, saturate);
+				model_occupancy_request(0);
 				if (stoke)
 					stoke_find(func_find(fnm2));
 			} else if (!strcmp(cmd, "cost")) {
 				int cons = -1;
+				float occ = 0;
 				m = model_active();
 				for (;;) {
 					if (accept_kw(p, "model")) {
@@ -3805,6 +3894,8 @@ statement(struct P *p)
 						    (m = model_find(tsym(p, p->i))) == NULL)
 							fail("unknown model");
 						adv(p);
+					} else if (accept_kw(p, "occupancy")) {
+						occ = occupancy_word(p);
 					} else if (accept_kw(p, "consecutive")) {
 						/* an index that runs along the lanes of a warp */
 						if (pk(p) != T_ID)
@@ -3820,10 +3911,12 @@ statement(struct P *p)
 						break;
 				}
 				expect_eos(p);
+				occupancy_set(occ, m);
 				notes_flush();
 				diverge_consecutive(cons);
 				cmd_cost(f, m);
 				diverge_consecutive(-1);
+				model_occupancy_request(0);
 			}
 			return;
 		}

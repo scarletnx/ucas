@@ -544,9 +544,13 @@ int div_class(nid n);		/* model.c: an integer / or %'s class */
  *   float_controls  the execution modes the device lets a module declare
  *               (VkPhysicalDeviceFloatControlsProperties), FC_* bits
  *               over fc_word
+ * fuse.c (latency):
+ *   occupancy   the warps a scheduler keeps resident to hide latency:
+ *               a model that lists latencies prices a function at
+ *               max(its throughput, its critical path / occupancy)
  */
 enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_SUBTEXEL, MP_TEX_WITHIN,
-	MP_NAN_PAYLOAD, MP_CACHE, MP_FLOAT_CONTROLS, MP_NPAR };
+	MP_NAN_PAYLOAD, MP_CACHE, MP_FLOAT_CONTROLS, MP_OCCUPANCY, MP_NPAR };
 /* float_controls' words, a bit each: rte16 .. szinp64 (model.c) */
 #define FC_NWORD 15
 extern const char *const fc_word[FC_NWORD];
@@ -559,6 +563,10 @@ struct model {
 	ty_t fold[MAXFOLD][2];
 	int nfold;
 	float par[MP_NPAR];	/* 0: the model does not say */
+	/* a class's latency (`latency fmul: 6`), NAN where not listed;
+	 * nlat listed: none is a throughput-only model */
+	float lat[C_NCLASS];
+	int nlat;
 };
 extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);
@@ -574,6 +582,13 @@ void model_set_active(struct model *m);
 int cclass_find(const char *s, size_t n);
 extern const char *const mparam_name[MP_NPAR];
 float node_cost(const struct model *m, nid n, int *cls);
+/* latency: the occupancy in effect (a request's, else the model's) */
+float model_occupancy(const struct model *m);
+void model_occupancy_request(float occ);
+/* parse.c: `occupancy N` on a request, and setting it for the command */
+struct P;
+float occupancy_word(struct P *p);
+void occupancy_set(float o, const struct model *m);
 void cmd_cost(struct func *f, struct model *m);
 void cmd_models(void);
 

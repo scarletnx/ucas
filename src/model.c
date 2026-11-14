@@ -63,7 +63,8 @@ static const char *const dot_group[6] = {
 };
 
 const char *const mparam_name[MP_NPAR] = {"banks", "bank_bytes", "warp",
-	"subtexel", "tex_within", "nan_payload", "cache", "float_controls"};
+	"subtexel", "tex_within", "nan_payload", "cache", "float_controls",
+	"occupancy"};
 
 /*
  * float_controls: the device's VkPhysicalDeviceFloatControlsProperties,
@@ -75,6 +76,21 @@ const char *const mparam_name[MP_NPAR] = {"banks", "bank_bytes", "warp",
 const char *const fc_word[FC_NWORD] = {"rte16", "rte32", "rte64", "rtz16",
 	"rtz32", "rtz64", "ftz16", "ftz32", "ftz64", "preserve16",
 	"preserve32", "preserve64", "szinp16", "szinp32", "szinp64"};
+
+/* a request's occupancy (`cost F occupancy 4`), 0: the model's */
+static float occ_request;
+
+void
+model_occupancy_request(float occ)
+{
+	occ_request = occ;
+}
+
+float
+model_occupancy(const struct model *m)
+{
+	return occ_request > 0 ? occ_request : m->par[MP_OCCUPANCY];
+}
 
 #define MAXMODEL 32
 static struct model models[MAXMODEL];
@@ -112,6 +128,8 @@ model_new(uint32_t name)
 		m->c[k] = NAN;
 	m->c[C_BITCAST] = 0;
 	m->c[C_F64] = 1;
+	for (k = 0; k < C_NCLASS; k++)
+		m->lat[k] = NAN;
 	/* an instruction the target may not have: absent unless listed */
 	for (k = 0; k < C_NCLASS; k++)
 		if (C_ABSENT(k))
@@ -212,6 +230,20 @@ model_classes_text(struct sbuf *b, const struct model *m)
 	for (k = C_SG_FIRST; k < C_NCLASS; k++)
 		if (cclass_available(m, k))
 			sb_printf(b, ", %s: %g", cclass_name[k], (double)m->c[k]);
+}
+
+/* `latency fadd: 6, ...` as `models` prints it, "" when none is listed */
+static void
+model_latency_text(struct sbuf *b, const struct model *m)
+{
+	int k, first = 1;
+
+	for (k = 0; k < C_NCLASS; k++)
+		if (!isnan(m->lat[k])) {
+			sb_printf(b, "%s %s: %g", first ? "latency" : ",",
+			    cclass_name[k], (double)m->lat[k]);
+			first = 0;
+		}
 }
 
 /* an operation's class the model cannot use: a dot form or a subgroup
@@ -497,6 +529,10 @@ cmd_models(void)
 		printf("model %s%s {%s }\n", sym_str(models[i].name),
 		    &models[i] == active ? " (active)" : "", sb_str(&b));
 		fuse_print_models(&models[i]);
+		sb_clear(&b);
+		model_latency_text(&b, &models[i]);
+		if (b.p && b.p[0])
+			printf("  %s\n", b.p);
 		for (k = 0; k < models[i].nfold; k++)
 			printf("  folds %s -> %s -> %s\n",
 			    ty_str(models[i].fold[k][0]),
@@ -1117,6 +1153,7 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 	uint32_t lim = N.n, g;
 	uint8_t *all, *cut, *seen;
 	float bycls[C_NCLASS] = {0}, total = 0, avg_total, best_total, c;
+	float lpath = 0, locc = 0, lprice;
 	int cnt[C_NCLASS] = {0}, cls, k, nops = 0, nsel = 0, nloop = 0;
 	int varying = 0;
 	struct lprice *lps = NULL;
@@ -1205,8 +1242,15 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 				varying = 1;
 			nloop++;
 		}
+	/* a model with latencies: the critical path over the occupancy */
+	if (m->nlat) {
+		lpath = fuse_cover_path(m, &cur_fg);
+		locc = model_occupancy(m);
+		lprice = lpath / locc > total ? lpath / locc : total;
+	} else
+		lprice = total;
 	printf("cost of %s under %s: %g (", f->anon ? shared_str(f->body, 200) :
-	    sym_str(f->name), sym_str(m->name), (double)total);
+	    sym_str(f->name), sym_str(m->name), (double)lprice);
 	if (nloop)
 		printf("%s%d operation%s outside loops and %d loop%s, ",
 		    varying ? "worst case; " : "", nops, nops == 1 ? "" : "s",
@@ -1214,6 +1258,13 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 	else
 		printf("%d operations, ", nops);
 	printf("shared subterms counted once)\n");
+	if (m->nlat)
+		printf("  latency: critical path %g at occupancy %g is %g a "
+		    "warp, %s the throughput's %g: %s\n", (double)lpath,
+		    (double)locc,
+		    (double)(lpath / locc), lpath / locc > total ? "above" :
+		    "within", (double)total, lpath / locc > total ?
+		    "the critical path decides" : "the throughput decides");
 	if (varying)
 		printf("  average over the domain: %g\n", (double)avg_total);
 	sh = shmap_new(f->body);
@@ -1232,7 +1283,12 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 		free(bb.p);
 	}
 	rep_str("model", sym_str(m->name));
-	rep_num("total", total);
+	rep_num("total", lprice);
+	if (m->nlat) {
+		rep_num("throughput", total);
+		rep_num("critical_path", lpath);
+		rep_num("occupancy", locc);
+	}
 	if (varying)
 		rep_num("average_total", avg_total);
 	rep_int("operations", nops);

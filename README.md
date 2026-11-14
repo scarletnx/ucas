@@ -166,10 +166,10 @@ inline annotations: `range isqrt(x: u4)`.
 | `convexity F` (`convex`, `concave`) | intervals of convexity, inflection points, a chord witness |
 | `asymptotes F` | vertical, horizontal and oblique; exact for rational functions, from limits otherwise |
 | `gates F [basis b] [max k] [as c]` | minimal gate network over a basis, with proof of minimality; `as c` also prints a C function |
-| `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search.  First the function's own operations that never bite are dropped (a mask, min, max, clamp or ?: replaced by an operand, a conversion removed), each checked on the whole domain (exhaustively or by SAT) and listed with what it drops, then applied repeatedly to the smallest form.  Identities the model prices lower join them (a signed division of non-negative operands as unsigned, compare and select as min/max, clamps, a division by a variable through f32), each with its derivation and the conditions it holds under (see [Rewrites the prices make worthwhile](#rewrites-the-prices-make-worthwhile)); floats get these too.  With two integer parameters, one of which has at most 8 values (by its range and the where clause), find splits on it and fits `(x*K + C) >> S` exactly per case (the smallest S with one C for every case; S = 0 is `x*K + C`, C = 0 is `(x*K) >> S`); K is offered as a function of the case when one fits (`A / ((1 << c) - 1)`, `A >> c`, `A / c`) and as a select chain, each verified on the whole domain and marked "K depends only on c: compute it once where c is set" with its cost per use once K is known.  BC7's `(i*64 + m/2)/m` with m = (1 << ib) - 1 becomes `(i*K + 4) >> 3` with K = 170, 73, 34 (or 511/m); `x / d` for d in 1..6 becomes a multiply and a shift per d |
+| `find F [n] [max cost] [occupancy w]`, `more [n]` | other implementations, cheapest first under the active cost model (and its latencies, where it lists them); `more` resumes the search.  First the function's own operations that never bite are dropped (a mask, min, max, clamp or ?: replaced by an operand, a conversion removed), each checked on the whole domain (exhaustively or by SAT) and listed with what it drops, then applied repeatedly to the smallest form.  Identities the model prices lower join them (a signed division of non-negative operands as unsigned, compare and select as min/max, clamps, a division by a variable through f32), each with its derivation and the conditions it holds under (see [Rewrites the prices make worthwhile](#rewrites-the-prices-make-worthwhile)); floats get these too.  With two integer parameters, one of which has at most 8 values (by its range and the where clause), find splits on it and fits `(x*K + C) >> S` exactly per case (the smallest S with one C for every case; S = 0 is `x*K + C`, C = 0 is `(x*K) >> S`); K is offered as a function of the case when one fits (`A / ((1 << c) - 1)`, `A >> c`, `A / c`) and as a select chain, each verified on the whole domain and marked "K depends only on c: compute it once where c is set" with its cost per use once K is known.  BC7's `(i*64 + m/2)/m` with m = (1 << ib) - 1 becomes `(i*K + 4) >> 3` with K = 170, 73, 34 (or 511/m); `x / d` for d in 1..6 becomes a multiply and a shift per d |
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp; for a float G also how much of it rounding can be, to first order: the worst case, the high-probability bound and the expected size (see "Probabilistic rounding error") |
-| `cost F [model m] [consecutive i]`, `use m`, `models` | price F under a cost model; `consecutive i` names an integer parameter whose values run along the lanes of a warp (see "Cost models") |
+| `cost F [model m] [consecutive i] [occupancy w]`, `use m`, `models` | price F under a cost model (with its latencies, max(throughput, critical path / occupancy): see "Latency"); `consecutive i` names an integer parameter whose values run along the lanes of a warp (see "Cost models") |
 | `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, or the draw whose coverage is a predicate P(x, y) of a pixel, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
@@ -2750,7 +2750,8 @@ model gt1030 { ...,
 `nan_payload: 1`, a target that keeps a quiet NaN's payload through
 loads, stores and moves (see "Integers as floats, floats as integers"),
 and `cache`, the bytes a storage buffer's accesses may reach and stay
-resident (below).
+resident (below), and `occupancy`, the warps a scheduler keeps resident
+to hide latency (Latency, below).
 gt1030's values are the measurements of tests/gt1030 (a step minus the
 add it contains).  A model that lists none of this (the x86 models)
 keeps its `load`, `store` and atomic prices for everything, has no
@@ -2781,6 +2782,29 @@ and 15; a histogram's 1 MiB of bytes kept as u32 streams, as u8 (256
 KiB) it stays (tests/memstream.ucas).  gt1030 does not state its cache:
 its stream prices were measured on 16 MiB, and the card's cache size is
 not measured, so under it nothing is said.
+
+**Latency.**  A model may list latencies in a line of its own,
+`latency fadd: 6, fmul: 6, imul: 9, load: 200`, in the prices' unit (a
+class the line does not list keeps its price as its latency), and must
+then say `occupancy: N`, the warps a scheduler keeps resident to hide
+them.  Its price for a choice is then max(throughput, critical path /
+occupancy).  The critical path is the longest chain of latencies through
+the cover: a fused instruction counts once, at its root (its slowest
+class's), a source modifier in its user, an f64 operation at `f64`'s
+latency where that is listed, a loop at its whole price.  With few warps
+a short chain beats fewer operations; with many the throughput decides,
+as before.  `cost` prints the path and which of the two decides, and
+`scheme` (its cheapest line, given under such a model even without
+`more`) and `find` choose by the price.  `cost F occupancy N`, `scheme F
+occupancy N` and `find F occupancy N` take another occupancy for one
+request, since a shader's registers decide it more than the card; under
+a model with no latencies the word changes nothing and a note says so.
+`latency none` takes a parent's back.  None of the prelude's models
+lists latencies until tests/gt1030 measures them, so their prices are
+the throughput's, as they were.  Under `model lat : gt1030 { latency
+fadd: 6, fmul: 6, ... occupancy: 2 }` a degree 12 f32 polynomial is best
+by Estrin, 15 with a path of 24, against Horner's 12 FFMAs in one chain
+of 72, 36 a warp; at occupancy 8 Horner's 12 decides (tests/latency.ucas).
 
 **Atomics by kind.**  `simplify` lists the atomics on workgroup arrays
 and buffers that have a class of their own, priced a warp instruction:
@@ -6352,7 +6376,7 @@ derivative) and `cost` work on loops as on any expression.
 | command | |
 |---------|--|
 | `closed F` | closed forms of the loops in F, innermost first, each checked against direct iteration on F's domain; a form that disagrees is rejected and shown as such |
-| `scheme F [more] [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), with `more` also, from degree 4, the forms with fewer multiplications and for f32 compensated Horner (see "Polynomials in fewer multiplications"), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, with `more` Kahan's compensated sum for an f32 accumulator, and strength reduction of polynomial loop bodies |
+| `scheme F [more] [model m] [occupancy w]` | evaluation schemes priced with the cost model (and its latencies, where it lists them: see "Latency"): naive/products/Horner/Estrin for polynomials (cost and critical path), with `more` also, from degree 4, the forms with fewer multiplications and for f32 compensated Horner (see "Polynomials in fewer multiplications"), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, with `more` Kahan's compensated sum for an f32 accumulator, and strength reduction of polynomial loop bodies |
 | `continuous F` | sums as integrals plus Euler-Maclaurin corrections (products through the logarithm: Stirling), and loops that step `x += h*g(x)` as the ODE `x' = g(x)`; the measured difference is printed |
 | `integrate F [wrt x] [from a to b]` (also `∫`) | a symbolic antiderivative, checked by differentiating it back; definite integrals also numerically (adaptive Gauss-Kronrod 7-15 with an error estimate; `inf` bounds allowed) |
 | `integrate F [from a to b] numerically qmc [points N] [replicates R] [seed K] [noscramble] [owen]` | a quasi-Monte Carlo estimate on Sobol points (src/qmc.c): over from..to, or without them over the box of every parameter's range, in up to 8 dimensions.  The direction numbers are Joe and Kuo's; by default 8 replicates of 4096 points (N a power of two) run, each under a random digital shift, and the answer is their mean with its standard error: an estimate from the replicates' spread, labelled as one, with "not converged" when they differ by more than 5% of the value (a pole between the points looks like that), and "a spike" when the largest value met is over 50 times the mean size: around an integrable singularity the replicates agree on a value that is off and their spread understates the error (1/sqrt(|x|) on [-1, 1]: 3.9796 with a standard error of 0.0018, for 4).  `owen` scrambles each replicate by a nested uniform (Owen) scrambling instead of a shift (Burley's hash-based form: every bit of a coordinate flipped by a function of the bits above it): for a smooth integrand its error falls faster, about n^-1.5 against the shift's n^-1 (exp(x y) on the unit square, 16 replicates: standard error 7.9e-06 at 1024 points and 1.4e-07 at 16384, against 7.5e-05 and 4.5e-06), and the same replicates estimate it.  `noscramble` runs the one unshifted sequence and gives no error estimate (with `owen`: refused).  A side at infinity (`from 0 to inf`, a parameter with no range: the whole line) is a change of variable onto [0, 1): x = a + t/(1 - t) for [a, inf), x = b - t/(1 - t) for (-inf, b], x = s/(1 - s^2) with s = 2t - 1 for the whole line, the integrand times the derivative, and the line says which; the spike and "not converged" lines judge the transformed integrand (exp(-x^2) over the line: 1.772453851; 1/x from 1 to inf: both, and no value to trust).  A coordinate is the centre of its 2^-32 cell, so the box's ends are never evaluated; points where the integrand is undefined are left out and counted.  It is also the fallback of a definite integral with no antiderivative here that Gauss-Kronrod refuses (an undefined or infinite point inside): the estimate when the replicates agree, one line saying it settles nothing when they do not |

@@ -307,8 +307,10 @@ add_match(int kind, int cost, nid e, const char *why)
 	uint64_t sig = signature(e);
 
 	/* the bank adds its operations' prices; the model's fusions may
-	 * make the form cheaper than that */
-	if (fuse_count(model_active()) && e) {
+	 * make the form cheaper than that, and its latencies dearer */
+	if (e && model_active()->nlat)
+		cost = (int)(fuse_expr_price(model_active(), e, NULL) + 0.5f);
+	else if (fuse_count(model_active()) && e) {
 		int fc = (int)(fuse_expr_cost(model_active(), e) + 0.5f);
 		if (fc < cost)
 			cost = fc;
@@ -1025,11 +1027,13 @@ forms(const int64_t *xs)
 
 /* ---- float targets ---- */
 
-/* e's price under the active model: the cheapest cover by its fusions */
+/* e's price under the active model: the cheapest cover by its fusions,
+ * and its critical path over the occupancy where the model lists
+ * latencies */
 static float
 expr_cost(nid e)
 {
-	return fuse_expr_cost(model_active(), e);
+	return fuse_expr_price(model_active(), e, NULL);
 }
 
 static void
