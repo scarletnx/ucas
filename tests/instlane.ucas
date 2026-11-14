@@ -1,0 +1,10 @@
+# The instruction search (inst.c) over a function with a subgroup
+# operation: a term that holds the operation's own lane has no value
+# outside it, so the search leaves it and looks at the rest.
+model il : gt1030 { bfe: 1.25, byteperm: 1 }
+use il
+sn(x: u32 uniform, y: u8 uniform, lane: u32 in 0..7) = sg_segscan((x >> (4*lane)) & 15, ((y >> lane) & 1) != 0)
+find sn 1
+# outside the operand the search still finds the extract
+ex(x: u32 uniform, lane: u32 in 0..7) = sg_add((x >> lane) & 1) + ((x >> 8) & 255)
+find ex 1
