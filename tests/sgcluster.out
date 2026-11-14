@@ -1,0 +1,140 @@
+> ca(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane * 10 + t, 4)
+> show ca(0, 1)
+_() = 60
+  -> u32
+> show ca(0, 6)
+_() = 220
+  -> u32
+> ca2(t: u32 uniform, lane: u32 in 0..7) = subgroupClusteredAdd(lane * 10 + t, 2)
+> show ca2(1, 5)
+_() = 92
+  -> u32
+> ca8(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane * 10 + t, 8)
+> show ca8
+ca8(t: u32 uniform, lane: u32 in 0..7) = sg_add(10lane + t)
+  -> u32
+> ca1(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane * 10 + t, 1)
+> show ca1
+ca1(t: u32 uniform, lane: u32 in 0..7) = 10lane + t
+  -> u32
+> pa(t: u32 uniform, lane: u32 in 0..7) = sg_partition((lane + t) & 3)
+> show pa(0, 1)
+_() = 34
+  -> u32
+> show pa
+pa(t: u32 uniform, lane: u32 in 0..7) = sg_partition(lane + t & 3)
+  -> u32
+> pd(t: u32 uniform, lane: u32 in 0..7) = sg_partitioned_add(lane * 10 + t, sg_partition(lane & 3))
+> show pd(0, 1)
+_() = 60
+  -> u32
+> show pd
+pd(t: u32 uniform, lane: u32 in 0..7) = sg_partitioned_add(10lane + t, sg_partition(lane & 3))
+  -> u32
+> pm(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_partitioned_add(lane * 10, sg_partition(lane & 3)) }
+> show pm(0x0f, 1)
+_() = 10
+  -> u32
+> show pm(0xff, 1)
+_() = 60
+  -> u32
+> cm(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_clustered_add(lane * 10, 4) }
+> show cm(0x0b, 1)
+_() = 40
+  -> u32
+> model cl : gt1030 { sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+> cost ca
+cost of ca under gt1030: inf (3 operations, shared subterms counted once)
+  sg_cluster4      1 x inf   = inf
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+  sg_cluster4 is not available under gt1030 (the model lists no such instruction)
+> cost ca model cl
+cost of ca under cl: 22.5 (3 operations, shared subterms counted once)
+  sg_cluster4      1 x 19.5  = 19.5
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> cost pd model cl
+cost of pd under cl: 123.625 (5 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  sg_partition     1 x 54.5  = 54.5
+  sg_partadd       1 x 65.125 = 65.125
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> find ca
+find ca: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
+  cost 15  10lane + t + sg_shuffle(t1, lane xor 1) + sg_shuffle(t1 + sg_shuffle(t1, lane xor 1), lane xor 2) where t1 = 10lane + t
+           sg_clustered_add(10lane + t, 4): a butterfly of 2 shuffles by lane xor 1, 2 and +s: after the step for d a lane holds the sum of the 2d lanes that agree with it from bit d up; proved for any value per lane (with a free word in each lane, every lane's result is the sum of the 4 words of its cluster, each once)
+           holds in a full subgroup (all 8 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> cb(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add((t >> lane) & 1, 4)
+> find cb
+find cb: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
+  cost 12.375 popcount(sg_ballot(t >> lane & 1 != 0) >> (lane & 0xfffffffc) & 15)
+           sg_clustered_add(t >> lane & 1, 4): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its sum over the lane's cluster of 4 is the number of those lanes where it is not 0: the ballot's bits from the cluster's first lane, lane & ~3
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> cz(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane, 16)
+sgcluster.ucas:47:67: error: sg_clustered_add: the cluster is a constant power of two from 1 to the subgroup's 8 lanes, not 16
+    cz(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(lane, 16)
+                                                                      ^
+> c3(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(t, 3)
+sgcluster.ucas:48:63: error: sg_clustered_add: the cluster is a constant power of two from 1 to the subgroup's 8 lanes, not 3
+    c3(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add(t, 3)
+                                                                  ^
+> cf(t: f32 uniform, lane: u32 in 0..7) = sg_clustered_add(t, 4)
+sgcluster.ucas:49:63: error: sg_clustered_add of floats: the order of the additions is the implementation's, so the sum has no exact value; integers only
+    cf(t: f32 uniform, lane: u32 in 0..7) = sg_clustered_add(t, 4)
+                                                                  ^
+> pd2(m: u32 uniform, lane: u32 in 0..7) = sg_partitioned_add(lane, m)
+sgcluster.ucas:50:69: error: sg_partitioned_add takes the ballot sg_partition gives (m is not one): on the card another has a value only when it is a partition, each lane's mask naming the lanes of its part, its own among them, which the other lanes' masks cannot be checked for here
+    pd2(m: u32 uniform, lane: u32 in 0..7) = sg_partitioned_add(lane, m)
+                                                                        ^
+> pf(t: f32 uniform, lane: u32 in 0..7) = sg_partition(t)
+sgcluster.ucas:51:56: error: sg_partition takes integers: of floats a NaN is a part of its own (equal to nothing), which is not written here yet
+    pf(t: f32 uniform, lane: u32 in 0..7) = sg_partition(t)
+                                                           ^
+> animate exec %px = lane lanes 8 seed 1 nofile cl
+  input %px: uint, given
+  output %y: uint (stored to; its values are listed after the run)
+exec of SPIR-V (32 instructions), entry %main, 8 lanes in lockstep, cost model cl
+  buffers start with random values (seed 1)
+  subgroup: the 8 lanes run are one subgroup (SubgroupSize 8)
+  note: 6 subgroup reads of a lane that is not active or not in the subgroup (first: %bad = OpGroupNonUniformIAdd %uint %uint_3 PartitionedReduceNV %x %uint_3): undefined, read as 0 here
+  output %y per lane: 12 16 12 16 12 16 12 16
+  serial form:
+    %l = OpLoad %uint %px                                       0  t = 0..0  -> 0 1 2 3 4 5 6 7
+    %m = OpIMul %uint %l %uint_5                 imul           3  t = 0..3  -> 0 5 10 15 20 25 30 35
+    %x = OpBitwiseAnd %uint %m %uint_7           logic          1  t = 3..4  -> 0 5 2 7 4 1 6 3
+    %k = OpBitwiseAnd %uint %x %uint_1           logic          1  t = 4..5  -> 0 1 0 1 0 1 0 1
+    %c4 = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_4 sg_cluster4  19.5  t = 5..24.5  -> 14 14 14 14 14 14 14 14
+    %c8 = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_8 sg_add     32.625  t = 24.5..57.125  -> 28 28 28 28 28 28 28 28
+    %pt = OpGroupNonUniformPartitionNV %v4uint %k sg_partition  54.5  t = 57.125..111.625  -> (85,0,0,0) (170,0,0,0) (85,0,0,0) (170,0,0,0) (85,0,0,0) (170,0,0,0) (85,0,0,0) (170,0,0,0)
+    %ps = OpGroupNonUniformIAdd %uint %uint_3 PartitionedReduceNV %x %pt sg_partadd 65.125  t = 111.625..176.75  -> 12 16 12 16 12 16 12 16
+    %bad = OpGroupNonUniformIAdd %uint %uint_3 PartitionedReduceNV %x %uint_3 sg_partadd 65.125  t = 176.75..241.875  -> 5 5 0 0 0 0 0 0
+    OpControlBarrier %uint_3 %uint_3 %uint_264   sg_barrier 1.375  t = 241.875..243.25
+    OpStore %y %ps                                              0  t = 243.25..243.25
+  time 243.25 for every lane; lanes busy 99% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 1086x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 40.5 cost units; 210099 bytes
+  (nofile: GIF checksum 325cad9e)
+> animate exec %px = lane lanes 8 seed 1 nofile
+  input %px: uint, given
+  output %y: uint (stored to; its values are listed after the run)
+exec of SPIR-V (18 instructions), entry %main, 8 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  subgroup: the 8 lanes run are one subgroup (SubgroupSize 8)
+  note: a barrier of Subgroup execution scope is priced as a workgroup one (barrier, 9.125): gt1030 lists no sg_barrier
+  output %y per lane: 0 1 2 3 4 5 6 7
+  serial form:
+    %l = OpLoad %uint %px                                       0  t = 0..0  -> 0 1 2 3 4 5 6 7
+    OpControlBarrier %uint_3 %uint_3 %uint_264   barrier    9.125  t = 0..9.125
+    OpStore %y %l                                               0  t = 9.125..9.125
+  time 9.125 for every lane; lanes busy 0% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 900x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.5 cost units; 68646 bytes
+  (nofile: GIF checksum bcb8b9f3)

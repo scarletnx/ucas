@@ -484,7 +484,8 @@ static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
  * lane) reads the lane it runs in.
  */
 enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT,
-	SGF_SEG, SGF_SORT, SGF_ACTIVE, SGF_DERIV, SGF_QUAD, SGF_QBCAST };
+	SGF_SEG, SGF_SORT, SGF_ACTIVE, SGF_DERIV, SGF_QUAD, SGF_QBCAST,
+	SGF_CLUSTER, SGF_PART, SGF_PADD };
 static const struct sgfn {
 	const char *name, *glsl;
 	int kind, op, arity;
@@ -499,6 +500,9 @@ static const struct sgfn {
 	{"sg_and", "subgroupAnd", SGF_OP, O_SGAND, 1},
 	{"sg_or", "subgroupOr", SGF_OP, O_SGOR, 1},
 	{"sg_xor", "subgroupXor", SGF_OP, O_SGXOR, 1},
+	{"sg_clustered_add", "subgroupClusteredAdd", SGF_CLUSTER, O_SGCADD2, 2},
+	{"sg_partition", "subgroupPartitionNV", SGF_PART, O_SGPART, 1},
+	{"sg_partitioned_add", "subgroupPartitionedAddNV", SGF_PADD, O_SGPADD, 2},
 	{"sg_shuffle", "subgroupShuffle", SGF_OP, O_SGSHUF, 2},
 	{"sg_scan", "subgroupInclusiveAdd", SGF_OP, O_SGSCAN, 1},
 	{"sg_exclusive", "subgroupExclusiveAdd", SGF_EXCL, O_SGSCAN, 1},
@@ -634,6 +638,20 @@ sg_identity_of(const struct sgfn *g, nid v)
 	return mk_const_i(t, 0);
 }
 
+/* m is a ballot sg_partition made: the node, or under sg_active the node
+ * and the mask of the lanes that run */
+static int
+sg_is_partition(struct P *p, nid m)
+{
+	while (N.op[m] == O_CAST)
+		m = N.a[m];
+	if (N.op[m] == O_SGPART)
+		return 1;
+	return N.op[m] == O_AND && p->sgmask && ((N.op[N.a[m]] == O_SGPART &&
+	    N.b[m] == p->sgmask) || (N.op[N.b[m]] == O_SGPART &&
+	    N.a[m] == p->sgmask));
+}
+
 /* the lane of here's quad that subgroupQuadBroadcast reads: (here & ~3)
  * | i, i in 0..3 */
 static nid
@@ -689,7 +707,11 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	int64_t lo, hi;
 	nid w, v, here = 0;
 
-	if (n != g->arity && !(g->op == O_SGSCAN && g->kind == SGF_OP && n == 2))
+	/* a scan, a clustered sum and a partition take the lane they are
+	 * for as one argument more, as they are printed when it is not the
+	 * lane itself */
+	if (n != g->arity && !(n == g->arity + 1 && ((g->op == O_SGSCAN &&
+	    g->kind == SGF_OP) || g->kind == SGF_CLUSTER || g->kind == SGF_PART)))
 		fail("%s takes %d argument%s", g->name, g->arity,
 		    g->arity == 1 ? "" : "s");
 	if (j >= 0 && TY_ISINT(p->fn->p[j].ty)) {
@@ -766,9 +788,16 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		return sg_active_decl(p, args[0], W);
 	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
 	    g->kind == SGF_ROT || g->kind == SGF_SORT || g->kind == SGF_DERIV ||
-	    g->kind == SGF_QUAD || g->kind == SGF_QBCAST))
+	    g->kind == SGF_QUAD || g->kind == SGF_QBCAST ||
+	    g->kind == SGF_CLUSTER || g->kind == SGF_PART || g->kind == SGF_PADD))
 		fail("%s is a value per lane: give the function a parameter "
 		    "lane: u32 in 0..%d", g->name, W - 1);
+	if (g->kind == SGF_PADD && !sg_is_partition(p, args[1]))
+		fail("%s takes the ballot sg_partition gives (%s is not one): on "
+		    "the card another has a value only when it is a partition, "
+		    "each lane's mask naming the lanes of its part, its own "
+		    "among them, which the other lanes' masks cannot be checked "
+		    "for here", g->name, node_str(args[1]));
 	if ((g->kind == SGF_QUAD || g->kind == SGF_QBCAST) && W % 4)
 		fail("%s reads quads of 4 lanes: a subgroup of %d lanes has none",
 		    g->name, W);
@@ -791,6 +820,12 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 			v = mk_bin(O_LOR, v, mk_un(O_LNOT, act));
 		else if (g->op == O_SGADD || g->op == O_SGSCAN)
 			v = mk_sel(act, v, mk_const_i(N.ty[v], 0));
+		else if (g->kind == SGF_CLUSTER || g->kind == SGF_PADD)
+			v = mk_sel(act, v, mk_const_i(N.ty[v], 0));
+		else if (g->kind == SGF_PART)
+			/* the partition of the active lanes */
+			return mk_bin(O_AND, mk_sg(O_SGPART, v, n == 2 ? args[1] :
+			    here, w), p->sgmask);
 		else if (g->op >= O_SGMIN && g->op <= O_SGXOR) {
 			if (N.ty[v] == TY_BOOL || TYK(N.ty[v]) == K_LIT)
 				v = mk_cast(TY(K_UINT, 32), v);
@@ -802,6 +837,33 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	switch (g->kind) {
 	case SGF_DERIV:
 		return mk_sg(g->op, v, here, w);
+	case SGF_CLUSTER: {
+		/* one operation a cluster size; a cluster of the whole
+		 * subgroup is its sum, of one lane the lane's own value */
+		int64_t cn = is_const(args[1]) ? N.ki[args[1]] : 0;
+		nid at = n == 3 ? args[2] : here, map[SG_LANE_SLOT + 1];
+		if (cn < 1 || cn > W || (cn & (cn - 1)))
+			fail("%s: the cluster is a constant power of two from 1 to the "
+			    "subgroup's %d lanes, not %s", g->name, W,
+			    node_str(args[1]));
+		if (cn == W)
+			return mk_sg(O_SGADD, v, w, 0);
+		if (cn == 1) {
+			memset(map, 0, sizeof map);
+			map[SG_LANE_SLOT] = mk_cast(TY(K_UINT, 32), at);
+			return subst(v, map, SG_LANE_SLOT + 1);
+		}
+		{
+			int op = O_SGCADD2;
+			while (SGCADD_N(op) < cn)
+				op++;
+			return mk_sg(op, v, at, w);
+		}
+	}
+	case SGF_PART:
+		return mk_sg(O_SGPART, v, n == 2 ? args[1] : here, w);
+	case SGF_PADD:
+		return mk_sg(O_SGPADD, v, args[1], w);
 	case SGF_EXCL:
 		v = mk_sg(O_SGSCAN, v, here, w);
 		return mk_bin(O_SUB, v, mk_cast(N.ty[v], args[0]));
