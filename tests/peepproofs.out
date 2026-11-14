@@ -1,0 +1,141 @@
+> use gt1030
+cost model: gt1030
+> h(a: u32 in 0..19, b: u32 in 0..19, c: u32 in 0..19, d: u32 in 0..19, e: u32 in 0..19) = (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11
+> find h 1
+find h: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 82  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (t1 - 11(373*t1 >> 12)) where t1 = e*e + 3 the remainder (e*e + 3) % 11 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where e*e + 3 in [3, 364] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^12/11) = 373, so M*11 = 2^12 + 7
+      x*M/2^12 = x/11 + x*7/(11*2^12): the excess is below 1/11 while x*7 < 2^12, and x/11 is at least 1/11 below the next integer, so floor(x*M/2^12) = floor(x/11)
+      x <= 364: x*7 <= 2548 < 2^12, and x*M <= 135772 < 2^32, so the product does not wrap in u32
+      and x % 11 = x - 11*floor(x/11)
+  cost 84  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (t1 - 11u32(0.0909090936f32(t1))) where t1 = e*e + 3 (e*e + 3) % 11 as (e*e + 3) - 11 q on the f32 pipe, q the conversion of f32((e*e + 3)) * 0.0909090936 (1/11 rounded up to an f32) (derived; checked on every point)
+      holds where (e*e + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (e*e + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((e*e + 3)/11) is an integer below 2^24, an f32, and f32((e*e + 3)) * 0.0909090936 >= (e*e + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (e*e + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (e*e + 3) / 11
+      (e*e + 3) - 11 q0 = (e*e + 3) % 11, in [0, 11): the integer operations do not wrap
+  cost 83  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + u32(asint(fma(floor(0.0909090936*t1), -11, t1) + 12582912) - 1262485504) where t1 = f32(e*e + 3) (e*e + 3) % 11 as fma(-floor(f32((e*e + 3)) * 0.0909090936), 11, f32((e*e + 3))) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where (e*e + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (e*e + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((e*e + 3)/11) is an integer below 2^24, an f32, and f32((e*e + 3)) * 0.0909090936 >= (e*e + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (e*e + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (e*e + 3) / 11, and so is its floor
+      the fma rounds f32((e*e + 3)) - 11 q0 = (e*e + 3) % 11 once: an integer in [0, 11), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+  cost 82  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (t1 - 11(373*t1 >> 12)) + (e*e + 3) % 11 where t1 = d*d + 3 the remainder (d*d + 3) % 11 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where d*d + 3 in [3, 364] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^12/11) = 373, so M*11 = 2^12 + 7
+      x*M/2^12 = x/11 + x*7/(11*2^12): the excess is below 1/11 while x*7 < 2^12, and x/11 is at least 1/11 below the next integer, so floor(x*M/2^12) = floor(x/11)
+      x <= 364: x*7 <= 2548 < 2^12, and x*M <= 135772 < 2^32, so the product does not wrap in u32
+      and x % 11 = x - 11*floor(x/11)
+  cost 84  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (t1 - 11u32(0.0909090936f32(t1))) + (e*e + 3) % 11 where t1 = d*d + 3 (d*d + 3) % 11 as (d*d + 3) - 11 q on the f32 pipe, q the conversion of f32((d*d + 3)) * 0.0909090936 (1/11 rounded up to an f32) (derived; checked on every point)
+      holds where (d*d + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (d*d + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((d*d + 3)/11) is an integer below 2^24, an f32, and f32((d*d + 3)) * 0.0909090936 >= (d*d + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (d*d + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (d*d + 3) / 11
+      (d*d + 3) - 11 q0 = (d*d + 3) % 11, in [0, 11): the integer operations do not wrap
+  cost 83  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + u32(asint(fma(floor(0.0909090936*t1), -11, t1) + 12582912) - 1262485504) + (e*e + 3) % 11 where t1 = f32(d*d + 3) (d*d + 3) % 11 as fma(-floor(f32((d*d + 3)) * 0.0909090936), 11, f32((d*d + 3))) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where (d*d + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (d*d + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((d*d + 3)/11) is an integer below 2^24, an f32, and f32((d*d + 3)) * 0.0909090936 >= (d*d + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (d*d + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (d*d + 3) / 11, and so is its floor
+      the fma rounds f32((d*d + 3)) - 11 q0 = (d*d + 3) % 11 once: an integer in [0, 11), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+  cost 82  (a*a + 3) % 11 + (b*b + 3) % 11 + (t1 - 11(373*t1 >> 12)) + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = c*c + 3 the remainder (c*c + 3) % 11 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where c*c + 3 in [3, 364] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^12/11) = 373, so M*11 = 2^12 + 7
+      x*M/2^12 = x/11 + x*7/(11*2^12): the excess is below 1/11 while x*7 < 2^12, and x/11 is at least 1/11 below the next integer, so floor(x*M/2^12) = floor(x/11)
+      x <= 364: x*7 <= 2548 < 2^12, and x*M <= 135772 < 2^32, so the product does not wrap in u32
+      and x % 11 = x - 11*floor(x/11)
+  cost 84  (a*a + 3) % 11 + (b*b + 3) % 11 + (t1 - 11u32(0.0909090936f32(t1))) + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = c*c + 3 (c*c + 3) % 11 as (c*c + 3) - 11 q on the f32 pipe, q the conversion of f32((c*c + 3)) * 0.0909090936 (1/11 rounded up to an f32) (derived; checked on every point)
+      holds where (c*c + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (c*c + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((c*c + 3)/11) is an integer below 2^24, an f32, and f32((c*c + 3)) * 0.0909090936 >= (c*c + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (c*c + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (c*c + 3) / 11
+      (c*c + 3) - 11 q0 = (c*c + 3) % 11, in [0, 11): the integer operations do not wrap
+  cost 83  (a*a + 3) % 11 + (b*b + 3) % 11 + u32(asint(fma(floor(0.0909090936*t1), -11, t1) + 12582912) - 1262485504) + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = f32(c*c + 3) (c*c + 3) % 11 as fma(-floor(f32((c*c + 3)) * 0.0909090936), 11, f32((c*c + 3))) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where (c*c + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (c*c + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((c*c + 3)/11) is an integer below 2^24, an f32, and f32((c*c + 3)) * 0.0909090936 >= (c*c + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (c*c + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (c*c + 3) / 11, and so is its floor
+      the fma rounds f32((c*c + 3)) - 11 q0 = (c*c + 3) % 11 once: an integer in [0, 11), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+  cost 82  (a*a + 3) % 11 + (t1 - 11(373*t1 >> 12)) + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = b*b + 3 the remainder (b*b + 3) % 11 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where b*b + 3 in [3, 364] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^12/11) = 373, so M*11 = 2^12 + 7
+      x*M/2^12 = x/11 + x*7/(11*2^12): the excess is below 1/11 while x*7 < 2^12, and x/11 is at least 1/11 below the next integer, so floor(x*M/2^12) = floor(x/11)
+      x <= 364: x*7 <= 2548 < 2^12, and x*M <= 135772 < 2^32, so the product does not wrap in u32
+      and x % 11 = x - 11*floor(x/11)
+  cost 84  (a*a + 3) % 11 + (t1 - 11u32(0.0909090936f32(t1))) + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = b*b + 3 (b*b + 3) % 11 as (b*b + 3) - 11 q on the f32 pipe, q the conversion of f32((b*b + 3)) * 0.0909090936 (1/11 rounded up to an f32) (derived; checked on every point)
+      holds where (b*b + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (b*b + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((b*b + 3)/11) is an integer below 2^24, an f32, and f32((b*b + 3)) * 0.0909090936 >= (b*b + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (b*b + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (b*b + 3) / 11
+      (b*b + 3) - 11 q0 = (b*b + 3) % 11, in [0, 11): the integer operations do not wrap
+  cost 83  (a*a + 3) % 11 + u32(asint(fma(floor(0.0909090936*t1), -11, t1) + 12582912) - 1262485504) + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = f32(b*b + 3) (b*b + 3) % 11 as fma(-floor(f32((b*b + 3)) * 0.0909090936), 11, f32((b*b + 3))) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where (b*b + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (b*b + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((b*b + 3)/11) is an integer below 2^24, an f32, and f32((b*b + 3)) * 0.0909090936 >= (b*b + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (b*b + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (b*b + 3) / 11, and so is its floor
+      the fma rounds f32((b*b + 3)) - 11 q0 = (b*b + 3) % 11 once: an integer in [0, 11), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+  cost 82  t1 - 11(373*t1 >> 12) + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = a*a + 3 the remainder (a*a + 3) % 11 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where a*a + 3 in [3, 364] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^12/11) = 373, so M*11 = 2^12 + 7
+      x*M/2^12 = x/11 + x*7/(11*2^12): the excess is below 1/11 while x*7 < 2^12, and x/11 is at least 1/11 below the next integer, so floor(x*M/2^12) = floor(x/11)
+      x <= 364: x*7 <= 2548 < 2^12, and x*M <= 135772 < 2^32, so the product does not wrap in u32
+      and x % 11 = x - 11*floor(x/11)
+  cost 84  t1 - 11u32(0.0909090936f32(t1)) + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = a*a + 3 (a*a + 3) % 11 as (a*a + 3) - 11 q on the f32 pipe, q the conversion of f32((a*a + 3)) * 0.0909090936 (1/11 rounded up to an f32) (derived; checked on every point)
+      holds where (a*a + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (a*a + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((a*a + 3)/11) is an integer below 2^24, an f32, and f32((a*a + 3)) * 0.0909090936 >= (a*a + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (a*a + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (a*a + 3) / 11
+      (a*a + 3) - 11 q0 = (a*a + 3) % 11, in [0, 11): the integer operations do not wrap
+  cost 83  u32(asint(fma(floor(0.0909090936*t1), -11, t1) + 12582912) - 1262485504) + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 where t1 = f32(a*a + 3) (a*a + 3) % 11 as fma(-floor(f32((a*a + 3)) * 0.0909090936), 11, f32((a*a + 3))) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where (a*a + 3) in [3, 364], inside [0, 2^24), and 364 (0.0909090936 - 1/11) + ulp/2 < 1/11: 9.86e-07 + 1.91e-06 < 0.0909
+      (a*a + 3) < 2^24 converts to f32 exactly
+      0.0909090936 = 0x1.745d18p-4 is 1/11 rounded up to an f32, above it by 2.71e-09
+      q0 = floor((a*a + 3)/11) is an integer below 2^24, an f32, and f32((a*a + 3)) * 0.0909090936 >= (a*a + 3)/11 >= q0: the product rounded to nearest is not below q0
+      (a*a + 3)/11 <= q0 + 10/11, so the exact product is at most q0 + 10/11 + 9.86e-07 (364 times the excess); it is below 64, where rounding adds at most 1.91e-06: it stays below q0 + 1, as 9.86e-07 + 1.91e-06 < 1/11
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (a*a + 3) / 11, and so is its floor
+      the fma rounds f32((a*a + 3)) - 11 q0 = (a*a + 3) % 11 once: an integer in [0, 11), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+  cost 64  t1 - 11(373*t1 >> 12) + (t2 - 11(373*t2 >> 12)) + (t3 - 11(373*t3 >> 12)) + (t4 - 11(373*t4 >> 12)) + (t5 - 11(373*t5 >> 12)) where t1 = a*a + 3, t2 = b*b + 3, t3 = c*c + 3, t4 = d*d + 3, t5 = e*e + 3 all of them: the remainder (e*e + 3) % 11 as a multiply and a shift in u32, then the remainder (d*d + 3) % 11 as a multiply and a shift in u32, then the remainder (c*c + 3) % 11 as a multiply and a shift in u32, then the remainder (b*b + 3) % 11 as a multiply and a shift in u32, then the remainder (a*a + 3) % 11 as a multiply and a shift in u32 (derived)
+  dot products under gt1030 (sums of products laid into lanes; cost 86.5 as written):
+  cost 85.5 (a*a + 3) % 11 + (udot4x8(b, b) + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: b * b
+           b in 0..19 (proved range)
+           udot4x8's sum is in 0..361: it does not wrap
+           exhaustive
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 86.5 as written):
+  cost 30.875 sg_shuffle(t1, a) + sg_shuffle(t1, b) + sg_shuffle(t1, c) + sg_shuffle(t1, d) + sg_shuffle(t1, e) where t1 = [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, 6, 6, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][lane]
+           (x*x + 3) % 11 is read at 5 keys (a, b, c, d, e); at x = 0..19, every point evaluated, it is the table [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, 6, 6, 8, 1]
+           the table [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, 6, 6, 8, 1], read 5 times: lane i holds entry i (the table read once in each lane, at the lane's index, the lanes past its end holding 0), and sg_shuffle(v, i) is v in lane i, so each lookup is one shuffle; an index outside the table stays outside (undefined before, 0 or undefined now)
+           holds in a full subgroup (all 32 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
