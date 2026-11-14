@@ -225,7 +225,7 @@ approx asinh(x) on [-1, 1] as f32, fma
       x*P(x^2): x*fma(fma(0.0380428135, s, -0.15566887), s, 0.999468267) where s = x*x
   3   minimax   7     horner+fma  1.06e+03 ulp             6.44e-05      5.56e-05      5    at x=-2.70928534e-20
       x*P(x^2): x*fma(fma(fma(-0.0159260482, s, 0.0617101379), s, -0.164403021), s, 0.999936879) where s = x*x
-  46 more: 'approx more [n]'
+  64 more: 'approx more [n]'
 > approx tanh(x) in -3..3 ulp 2 list 3
 approx tanh(x) on [-3, 3] as f32, fma
   checked: tanh(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 3]
@@ -250,15 +250,16 @@ approx tanh(x) on [-3, 3] as f32, fma
   piecewise (2 pieces split at 1.5, max rel error): 1: 0.247 2: 0.0315 3: 0.0153 4: 0.00164 5: 0.000444 6: 0.000135 7: 8.01e-06
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131061 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   identity  9     horner+fma  1.32 ulp                 1.57e-07      7.87e-08      22   at x=-0.551567852  *
-      P | 1 - 2/(exp(2|x|) + 1): copysign(a < 0.550000012 ? p : 1.0 - 2.0/(e + 1.0), x) where a = abs(x), s = a*a, p = fma(a*s, fma(fma(fma(0.0164374672, s, -0.052671846), s, 0.133207276), s, -0.333329469), a), e = exp(2.0*a)
-      rounding of ap1, first order, 11 operations, relative, in u = 2^-24: worst case 4.56, probable no better (under 16 operations), expected 1.18; `error ap1 ~ F` says what each means
-  2   minimax   7     horner+fma  4.18e+05 ulp             0.025         0.0248        5    at x=-1.86081905e-09
+  1   minimax   7     horner+fma  4.18e+05 ulp             0.025         0.0248        5    at x=-5.54567294e-17
       x*P(x^2): x*fma(fma(fma(-0.00152674236, s, 0.0306036901), s, -0.224170253), s, 0.975032032) where s = x*x
-  3   minimax   9     horner+fma  1.53e+05 ulp             0.00915       0.0091        6    at x=-9.30409527e-10
+      rounding of ap1, first order, 5 operations, relative, in u = 2^-24: worst case 9.47, probable no better (under 16 operations), expected 2.91; `error ap1 ~ F` says what each means
+  2   minimax   9     horner+fma  1.53e+05 ulp             0.00915       0.0091        6    at x=-5.54567294e-17
       x*P(x^2): x*fma(fma(fma(fma(0.000248046214, s, -0.0060768961), s, 0.056944713), s, -0.274004072), s, 0.990858138) where s = x*x
-  50 more: 'approx more [n]'
+  3   rational  3/2   horner+fma  4.38e+04 ulp             0.00262       0.0026        7    at x=0.000487802521
+      x*P(x^2)/Q(x^2): x*fma(0.0495898575, s, 0.997384727)/fma(0.371250153, s, 1.0) where s = x*x
+  69 more: 'approx more [n]'
 > approx acos(x) in -0.9..0.9 list 2
 approx acos(x) on [-0.899999976, 0.899999976] as f32, fma
   metric: relative error
@@ -296,7 +297,7 @@ approx acos(x) on [-0.899999976, 0.899999976] as f32, fma
       rounding of ap1, first order, 1 operation, relative, in u = 2^-24: worst case 1, probable no better (under 16 operations), expected 0.577; `error ap1 ~ F` says what each means
   2   minimax   2     horner+fma  8.03e+05 ulp             0.0517        0.139         2    at x=-0.31864956
       P(x): fma(fma(-0.155473009, x, -1.1539849), x, 1.63885665)
-  65 more: 'approx more [n]'
+  83 more: 'approx more [n]'
 > approx atanh(x) in -0.5..0.5 list 2
 approx atanh(x) on [-0.5, 0.5] as f32, fma
   checked: atanh(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.5]
@@ -324,7 +325,7 @@ approx atanh(x) on [-0.5, 0.5] as f32, fma
       rounding of ap1, first order, 1 operation, relative, in u = 2^-24: worst case 1, probable no better (under 16 operations), expected 0.577; `error ap1 ~ F` says what each means
   2   minimax   3     horner+fma  3.37e+04 ulp             0.00201       0.0011        3    at x=-3.38805424e-21
       x*P(x^2): x*fma(0.393656552, s, 0.997990668) where s = x*x
-  43 more: 'approx more [n]'
+  61 more: 'approx more [n]'
 > approx cosh(x) in -3..3 ulp 1 list 2
 approx cosh(x) on [-3, 3] as f32, fma
   checked: cosh(x) is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 3]
@@ -349,12 +350,12 @@ approx cosh(x) on [-3, 3] as f32, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131029 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   identity  -     -           0.994 ulp                1.11e-07      9.39e-07      10   at x=-2.64367127  *
-      (e + 1/e)/2, e = exp(|x|): 0.5*(e + 1.0/e) where a = abs(x), e = exp(a)
-      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 3, probable no better (under 16 operations), expected 0.998; `error ap1 ~ F` says what each means
-  2   minimax   4     horner+fma  1.66e+05 ulp             0.0113        0.113         3    at x=1.22375834
+  1   minimax   4     horner+fma  1.66e+05 ulp             0.0113        0.113         3    at x=1.22375834
       P(x^2): fma(fma(0.0598213971, s, 0.455278039), s, 1.01126039) where s = x*x
-  46 more: 'approx more [n]'
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 3.28, probable no better (under 16 operations), expected 1.11; `error ap1 ~ F` says what each means
+  2   minimax   6     horner+fma  6.52e+03 ulp             0.000429      0.00432       4    at x=-2.68972301
+      P(x^2): fma(fma(fma(0.0018267089, s, 0.0396045372), s, 0.502681792), s, 0.999571264) where s = x*x
+  64 more: 'approx more [n]'
 > taylor tanh(x) order 7
 Maclaurin (Taylor at 0) series of tanh(x) at x = 0, through order 7:
   tanh(x) = x - x^3/3 + 2x^5/15 - 17x^7/315 + O(x^8)

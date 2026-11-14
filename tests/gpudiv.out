@@ -1,0 +1,64 @@
+> approx tan(x) in -1.2..1.2 ulp 3 nosplit noreduce list 3
+approx tan(x) on [-1.20000005, 1.20000005] as f32, fma
+  checked: tan(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1.20000005]
+  metric: relative error
+  checked: the target equals tan(x) at 33 points: range reductions and identities for tan apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.376        -            0.364        
+    3    0.0843       -            0.0805       
+    5    0.0182       -            0.0174       
+    7    0.00392      -            0.00375      
+    9    0.000846     -            0.000808     
+    11   0.000182     -            0.000174     
+    13   3.93e-05     -            3.76e-05     
+    15   8.48e-06     -            8.1e-06      
+    17   1.83e-06     -            1.75e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.0102 (0.103) 3/2 0.000106 (0.00531) 1/4 0.000381 (0.0156) 5/2 1.57e-06 (0.00031)
+    3/4 6.05e-07 (0.00013) 1/6 1.49e-05 (0.00228) 7/2 2.53e-08 (1.94e-05) 5/4 2.2e-09 (1.95e-06) 3/6 4.71e-09 (4.02e-06) 9/2 4.19e-10 (1.24e-06)
+    7/4 1.05e-11 (3.71e-08) 5/6 5.55e-12 (2.01e-08) 11/2 6.99e-12 (8.02e-08) 9/4 5.57e-14 (7.82e-10) 7/6 1.03e-14 (1.51e-10) 13/2 1.17e-13 (5.19e-09)
+    11/4 3.12e-16 (1.73e-11) 9/6 2.36e-17 (1.38e-12)
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130923 f32 in [-1.20000005, 1.20000005]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   rational  5/4   horner+rcp  2.57 ulp                 2.08e-07      5.3e-07       13   at x=-1.06556201  *
+      x*P(x^2)/Q(x^2): x*fma(fma(-q0, den, fma(fma(0.00109967706, s, -0.111709945), s, 1.0)), rc, q0) where s = x*x, den = fma(fma(0.0161137953, s, -0.445043206), s, 1.0), rc = 1.0/den, q0 = fma(fma(0.00109967706, s, -0.111709945), s, 1.0)*rc
+      rounding of ap1, first order, 10 operations, relative, in u = 2^-24: worst case 7.01, probable no better (under 16 operations), expected 1.64; `error ap1 ~ F` says what each means
+  2   rational  7/2   horner+rcp  2.78 ulp                 2.01e-07      4.75e-07      13   at x=-1.10452735  *
+      x*P(x^2)/Q(x^2): x*fma(fma(-q0, den, fma(fma(fma(-7.36564689e-05, s, -0.00175541616), s, -0.0719436556), s, 1.0)), rc, q0) where s = x*x, den = fma(-0.405276299, s, 1.0), rc = 1.0/den, q0 = fma(fma(fma(-7.36564689e-05, s, -0.00175541616), s, -0.0719436556), s, 1.0)*rc
+  3   rational  5/6   horner+rcp  2.54 ulp                 2.3e-07       5.77e-07      14   at x=-1.09273517  *
+      x*P(x^2)/Q(x^2): x*fma(fma(-q0, den, fma(fma(0.00205056788, s, -0.121528491), s, 1.0)), rc, q0) where s = x*x, den = fma(fma(fma(-9.92960559e-05, s, 0.0203378443), s, -0.45486182), s, 1.0), rc = 1.0/den, q0 = fma(fma(0.00205056788, s, -0.121528491), s, 1.0)*rc
+  57 more: 'approx more [n]'
+> approx tan(x) in -1.2..1.2 ulp 6 nosplit noreduce list 2
+approx tan(x) on [-1.20000005, 1.20000005] as f32, fma
+  checked: tan(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1.20000005]
+  metric: relative error
+  checked: the target equals tan(x) at 33 points: range reductions and identities for tan apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.376        -            0.364        
+    3    0.0843       -            0.0805       
+    5    0.0182       -            0.0174       
+    7    0.00392      -            0.00375      
+    9    0.000846     -            0.000808     
+    11   0.000182     -            0.000174     
+    13   3.93e-05     -            3.76e-05     
+    15   8.48e-06     -            8.1e-06      
+    17   1.83e-06     -            1.75e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.0102 (0.103) 3/2 0.000106 (0.00531) 1/4 0.000381 (0.0156) 5/2 1.57e-06 (0.00031)
+    3/4 6.05e-07 (0.00013) 1/6 1.49e-05 (0.00228) 7/2 2.53e-08 (1.94e-05) 5/4 2.2e-09 (1.95e-06) 3/6 4.71e-09 (4.02e-06) 9/2 4.19e-10 (1.24e-06)
+    7/4 1.05e-11 (3.71e-08) 5/6 5.55e-12 (2.01e-08) 11/2 6.99e-12 (8.02e-08) 9/4 5.57e-14 (7.82e-10) 7/6 1.03e-14 (1.51e-10) 13/2 1.17e-13 (5.19e-09)
+    11/4 3.12e-16 (1.73e-11) 9/6 2.36e-17 (1.38e-12)
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130923 f32 in [-1.20000005, 1.20000005]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   rational  5/4   horner+fma  4.56 ulp (5.2)           4.12e-07      1.01e-06      9    at x=1.105919  *
+      x*P(x^2)/Q(x^2): x*fma(fma(0.00109967706, s, -0.111709945), s, 1.0)/fma(fma(0.0161137953, s, -0.445043206), s, 1.0) where s = x*x
+      rounding of ap1, first order, 7 operations, relative, in u = 2^-24: worst case 7.01, probable no better (under 16 operations), expected 1.64; `error ap1 ~ F` says what each means
+  2   rational  7/2   horner+fma  4.99 ulp (5.44)          4.21e-07      9.82e-07      9    at x=-1.10423446  *
+      x*P(x^2)/Q(x^2): x*fma(fma(fma(-7.36564689e-05, s, -0.00175541616), s, -0.0719436556), s, 1.0)/fma(-0.405276299, s, 1.0) where s = x*x
+  58 more: 'approx more [n]'

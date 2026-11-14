@@ -46,17 +46,18 @@ approx tanh(x) on [0, 1] as f32, fma
     1/6 1.13e-06 (0.000146) 3/6 3.06e-10 (1.31e-07)
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 130809 f32 in [0, 1]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   3     horner+fma  1.9e+05 ulp              0.0113        0.00863       3    at x=2.27371927e-13
       x*P(x^2): x*fma(-0.235703185, s, 0.988666475) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 299 evaluations on 3000 sample points: 1.901e+05 -> 1.901e+05 ulp there; on the table's measure 1.902e+05 -> 1.901e+05 ulp: kept, certified below
       certified: at most 1.915e+05 ulp for every f32 x in [0, 1], 600 pieces: the coefficients' error at most 1.915e+05 (1.901e+05 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 2.31, probable no better (under 16 operations), expected 0.836; `error ap1 ~ F` says what each means
-  2   rational  3/2   horner+fma  236 ulp                  2.05e-05      1.1e-05       7    at x=0.00389939523
+  2   rational  3/2   horner+fma  238 ulp                  2.05e-05      1.11e-05      7    at x=0.00389939523
       x*P(x^2)/Q(x^2): x*fma(0.0639821813, s, 0.999985993)/fma(0.397007644, s, 1.0) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 296 evaluations on 3000 sample points: 249 -> 235 ulp there; on the table's measure 250.1 -> 236.1 ulp: kept, certified below
-      certified: at most 241 ulp for every f32 x in [0, 1], 2110 pieces: the coefficients' error at most 236.9 (235 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
-  2 more: 'approx more [n]'
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 296 evaluations on 3000 sample points: 249 -> 235 ulp there; on the table's measure 252.1 -> 238.1 ulp: kept, certified below
+      certified: at most 241 ulp for every f32 x in [0, 1], 2110 pieces: the coefficients' error at most 236.9 (235 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, 5u for an x/y (Vulkan's 2.5 ulp), carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+  5 more: 'approx more [n]'
 > approx exp(x) in 1..1.0625 degree 3 as f32 norational nosplit noreduce list 1 points 600000 search anneal budget 300
 approx exp(x) on [1, 1.0625] as f32, fma
   metric: relative error
@@ -154,11 +155,12 @@ approx atan(x) on [-4, 4] as f32, fma
     7    0.0785       -            0.0511       
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 130934 f32 in [-4, 4]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   reduced   7     horner+fma  3.51e+03 ulp             0.000216      0.000162      16.625 at x=-3.30826807e-24
       |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = r*fma(fma(fma(-0.0443186052, s, 0.1555686), s, -0.325805247), s, 0.999790847)
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 200 evaluations on 2998 sample points: 3560 -> 3508 ulp there; on the table's measure 3561 -> 3509 ulp: kept, certified below
-      certified: at most 3537 ulp for every f32 x in [-4, 4], 2396 pieces: the coefficients' error at most 3536 (3509 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+      certified: at most 3537 ulp for every f32 x in [-4, 4], 2396 pieces: the coefficients' error at most 3536 (3509 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, 5u for an x/y (Vulkan's 2.5 ulp), carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 7 operations, relative, in u = 2^-24: worst case 4.17, probable no better (under 16 operations), expected 1.07; `error ap1 ~ F` says what each means
   2 more: 'approx more [n]' (dominated or worse)
 > approx tanh(x) in -3..3 degree 5 as f32 norational nosplit list 1 search anneal budget 200
@@ -171,10 +173,11 @@ approx tanh(x) on [-3, 3] as f32, fma
     5    0.0796       -            0.0682       
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131061 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   identity  5     horner+fma  642 ulp                  6.08e-05      1.96e-05      20   at x=-0.255390257
       P | 1 - 2/(exp(2|x|) + 1): copysign(a < 0.550000012 ? p : 1.0 - 2.0/(e + 1.0), x) where a = abs(x), s = a*a, p = a*fma(fma(0.111876436, s, -0.330997586), s, 0.999961793), e = exp(2.0*a)
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 200 evaluations on 2998 sample points: 650 -> 641.1 ulp there; on the table's measure 649 -> 642.1 ulp: kept, certified below
-      certified: at most 646.8 ulp for every f32 x in [-3, 3], 2895 pieces: the coefficients' error at most 645.8 (640.8 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58, the candidate's exp (libm's double exp) within 2^-52
+      certified: at most 646.8 ulp for every f32 x in [-3, 3], 2895 pieces: the coefficients' error at most 645.8 (640.8 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, 5u for an x/y (Vulkan's 2.5 ulp), carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58, the candidate's exp (libm's double exp) within 2^-52
       rounding of ap1, first order, 9 operations, relative, in u = 2^-24: worst case 4.56, probable no better (under 16 operations), expected 1.18; `error ap1 ~ F` says what each means
   1 more: 'approx more [n]' (dominated or worse)

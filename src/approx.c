@@ -78,6 +78,7 @@ struct cand {
 	int keepok;		/* -1 n/a */
 	int bad;		/* NaN/inf where the target is finite */
 	int front, meets, useless;
+	int gpudiv;		/* an f32 x/y, measured at Vulkan's 2.5 ulp */
 	/* numsearch.c ran from this candidate's walked coefficients */
 	int skind, skept, snsx;
 	long sevals;
@@ -178,7 +179,7 @@ metric_name(void)
 
 /* ---- a straight-line program for the polynomial cores ---- */
 
-enum { I_X, I_K, I_ADD, I_SUB, I_MUL, I_DIV, I_FMA };
+enum { I_X, I_K, I_ADD, I_SUB, I_MUL, I_DIV, I_FMA, I_NEG };
 #define IRMAX 192
 
 struct ir {
@@ -245,6 +246,7 @@ ir_eval(const struct ir *r, ld x)
 			break;
 		case I_DIV: v[i] = w ? rnd(w, (double)a / (double)b) : a / b;
 			break;
+		case I_NEG: v[i] = -a; break;
 		case I_FMA:
 			if (w == 32)	/* correctly rounded (eval.c) */
 				v[i] = fma32((double)a, (double)b,
@@ -332,6 +334,10 @@ ir_pr(const struct ir *r, int i, struct sbuf *b, int def)
 		}
 		break;
 	}
+	case I_NEG:
+		sb_putc(b, '-');
+		ir_pr(r, r->a[i], b, 0);
+		break;
 	case I_FMA:
 		sb_puts(b, "fma(");
 		ir_pr(r, r->a[i], b, 0);
@@ -462,6 +468,7 @@ struct core {
 	char sname[8];
 	struct ir ir;
 	int lead1;
+	int rcp;		/* N/D as 1/D, a product and one fma correction */
 	double naive;		/* objective before refinement */
 	double ncoef[2 * AMAXC];	/* the naively rounded coefficients */
 	double obj;
@@ -511,7 +518,21 @@ core_build_ir(struct core *k)
 			/* the denominator's constant is 1: a fixed constant */
 			r->coef[nn] = 1;
 			D = ir_poly(r, v, nn, nd, 0, k->fma_);
-			res = ir_add(r, I_DIV, res, D, 0);
+			if (k->rcp && k->fma_) {
+				/*
+				 * q0 = N rc, rc = 1/D, then q0 + (N - q0 D) rc: the
+				 * residual is exact in an fma, so a quotient off by a
+				 * GPU's 2.5 ulp comes back to about half of one
+				 */
+				int rc = ir_add(r, I_DIV, ir_k(r, 1.0), D, 0), q0, e;
+				snprintf(r->name[rc], sizeof r->name[rc], "rc");
+				snprintf(r->name[D], sizeof r->name[D], "den");
+				q0 = ir_add(r, I_MUL, res, rc, 0);
+				snprintf(r->name[q0], sizeof r->name[q0], "q0");
+				e = ir_add(r, I_FMA, ir_add(r, I_NEG, q0, 0, 0), D, res);
+				res = ir_add(r, I_FMA, e, rc, q0);
+			} else
+				res = ir_add(r, I_DIV, res, D, 0);
 		}
 		for (i = 0; i < pb->k0; i++)
 			res = ir_add(r, I_MUL, t, res, 0);
@@ -895,9 +916,70 @@ price(nid body)
 	return sum;
 }
 
-/* error of the defined function against the reference, on the sample */
+/* an f32 division in e (measured at a GPU's division) */
+static int
+has_fdiv(nid e, uint8_t *seen)
+{
+	if (e == 0 || seen[e])
+		return 0;
+	seen[e] = 1;
+	if (N.op[e] == O_DIV && TYK(N.ty[e]) == K_FLOAT && TYW(N.ty[e]) == 32)
+		return 1;
+	if (N.op[e] == O_CONST || N.op[e] == O_VAR || N.op[e] == O_UNDEF ||
+	    N.op[e] == O_TABLE)
+		return 0;
+	return has_fdiv(N.a[e], seen) || has_fdiv(N.b[e], seen) ||
+	    has_fdiv(N.c[e], seen);
+}
+
+static void measure1(struct func *f, struct cand *c);
+
+/*
+ * The error of the defined function against the reference, on the
+ * sample.  An f32 division is measured as a GPU makes it: Vulkan gives
+ * OpFDiv 2.5 ulp, so the correctly rounded quotient and two floats to
+ * either side of it, the worst of the three runs.
+ */
 static void
 measure(struct func *f, struct cand *c)
+{
+	uint8_t *seen;
+	struct cand hi, lo;
+
+	measure1(f, c);
+	if (A.w != 32)
+		return;
+	seen = xcalloc(N.n, 1);
+	c->gpudiv = has_fdiv(f->body, seen);
+	free(seen);
+	if (!c->gpudiv)
+		return;
+	hi = lo = *c;
+	float_div_nudge = 2;
+	measure1(f, &hi);
+	float_div_nudge = -2;
+	measure1(f, &lo);
+	float_div_nudge = 0;
+	if (hi.eabs > c->eabs)
+		c->eabs = hi.eabs;
+	if (lo.eabs > c->eabs)
+		c->eabs = lo.eabs;
+	if (hi.erel > c->erel)
+		c->erel = hi.erel;
+	if (lo.erel > c->erel)
+		c->erel = lo.erel;
+	if (hi.eulp > c->eulp || lo.eulp > c->eulp) {
+		c->xw = hi.eulp > lo.eulp ? hi.xw : lo.xw;
+		c->eulp = hi.eulp > lo.eulp ? hi.eulp : lo.eulp;
+	}
+	if (hi.bad > c->bad)
+		c->bad = hi.bad;
+	if (lo.bad > c->bad)
+		c->bad = lo.bad;
+}
+
+static void
+measure1(struct func *f, struct cand *c)
 {
 	struct plan p;
 	nid roots[1];
@@ -1303,6 +1385,28 @@ machine_forms(struct core *k, const char *kind, const char *shape, int deg,
 			if (A.w && naive >= 0 && first)
 				c->naive = naive;
 		}
+		bl_free(&l);
+		free(body.p);
+		free(full.p);
+	}
+	if (qdeg > 0 && A.w == 32 && A.o.fma) {
+		/* the reciprocal and one correction, for a GPU's division */
+		struct blist l = {0};
+		struct sbuf body = {0}, full = {0};
+		struct cand *c;
+		k->estrin = 0;
+		k->fma_ = 1;
+		k->rcp = 1;
+		memcpy(k->ir.coef, coef, sizeof coef);
+		core_build_ir(k);
+		ir_text(&k->ir, &body, &l);
+		compose(&full, sb_str(&body), &l);
+		c = submit(kind, shape, "horner+rcp", deg, qdeg, sb_str(&full));
+		if (c) {
+			c->rerr = rerr;
+			c->freeerr = freeerr;
+		}
+		k->rcp = 0;
 		bl_free(&l);
 		free(body.p);
 		free(full.p);
@@ -3065,9 +3169,12 @@ print_rows(int from, int to)
 		memset(&ac, 0, sizeof ac);
 		if (c->skind && c->skept && A.w) {
 			/* what the search kept, certified on the whole interval */
-			if (f)
+			if (f) {
+				float_div_gpu = A.w == 32;
 				acert_run(A.f.body, f->body, A.lo, A.hi, A.w, A.rel,
 				    A.k0, A.c, &ac);
+				float_div_gpu = 0;
+			}
 			else
 				snprintf(ac.why, sizeof ac.why, "the candidate did not "
 				    "parse back");
@@ -3096,11 +3203,12 @@ print_rows(int from, int to)
 				printf("      certified: at most %.4g %s for every %s x in "
 				    "[%.9g, %.9g], %ld pieces: the coefficients' error at "
 				    "most %.4g (%.4g reached at a piece's middle), rounding "
-				    "the rest (each operation's result (1 + d), |d| <= u, "
+				    "the rest (each operation's result (1 + d), |d| <= u%s, "
 				    "carried through); Taylor of order %d on intervals, "
 				    "libm's long double functions taken within 2^%d%s\n",
 				    ac.bound, un, fmt_name(A.w), (double)A.lo,
 				    (double)A.hi, ac.pieces, ac.approx, ac.reached,
+				    c->gpudiv ? ", 5u for an x/y (Vulkan's 2.5 ulp)" : "",
 				    ac.order, ac.slack, ac.mexp ? ", the candidate's exp "
 				    "(libm's double exp) within 2^-52" : "");
 		}
@@ -3201,6 +3309,12 @@ print_list(void)
 		    "the target reaches 0 here, where relative error and ulp "
 		    "are unbounded\n", A.ns, fmt_name(A.w), (double)A.lo,
 		    (double)A.hi, A.exhaustive ? " (all of them)" : "");
+	for (i = 0; i < n && i < A.nc; i++)
+		if (A.cd[i].gpudiv) {
+			printf("  an f32 x/y is measured at both ends of Vulkan's 2.5 "
+			    "ulp for it (a GPU's division)\n");
+			break;
+		}
 	printf("  #   kind      deg   form        %-24s %-13s %-13s cost\n",
 	    A.w ? "error (naive)" : "", "max rel", "max abs");
 	rep_begin("approx");

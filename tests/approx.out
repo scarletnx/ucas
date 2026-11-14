@@ -178,12 +178,13 @@ approx atan(x) on [-10, 10] as f32, fma
     (stopped: the error shrinks too slowly; a range reduction or a split fits better)
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131091 f32 in [-10, 10]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   reduced   17    horner+fma  1.77 ulp                 1.58e-07      1.61e-07      21.625 at x=-1.01640344  *
-      |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = fma(r*s, fma(fma(fma(fma(fma(fma(fma(0.00291939103, s, -0.0163631011), s, 0.0432046317), s, -0.0755165592), s, 0.106657684), s, -0.14211002), s, 0.199937671), s, -0.333331525), r)
-      rounding of ap1, first order, 12 operations, relative, in u = 2^-24: worst case 3.73, probable no better (under 16 operations), expected 0.927; `error ap1 ~ F` says what each means
-  2   reduced   3     horner+fma  2.13e+05 ulp             0.0127        0.00994       14.625 at x=-1.818979e-12
+  1   reduced   3     horner+fma  2.13e+05 ulp             0.0127        0.00994       14.625 at x=-1.818979e-12
       |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = r*fma(-0.211864173, s, 0.987309217)
+      rounding of ap1, first order, 5 operations, relative, in u = 2^-24: worst case 3.64, probable no better (under 16 operations), expected 1.02; `error ap1 ~ F` says what each means
+  2   reduced   5     horner+fma  2.65e+04 ulp             0.00158       0.00123       15.625 at x=-1.818979e-12
+      |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = r*fma(fma(0.089239262, s, -0.301030308), s, 0.998423398)
   12 more: 'approx more [n]'
 > approx 1/sqrt(x) in 0.01..100 ulp 2 nosplit norational list 3
 approx 1/sqrt(x) on [0.00999999978, 100] as f32, fma
@@ -259,15 +260,16 @@ approx tan(x) on [-1.39999998, 1.39999998] as f32, fma
     11/4 5.15e-15 (4.59e-10) 9/6 3.81e-16 (3.7e-11)
   candidates ranked by max ulp and cost under cheapdiv (sampled floats); defined as ap1..:
   measured on 130999 f32 in [-1.39999998, 1.39999998]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   rational  5/4   horner+fma  4.15 ulp (4.15)          3.27e-07      1.86e-06      8    at x=-1.31185782  *
+  1   rational  5/4   horner+fma  6.15 ulp (6.15)          5.26e-07      2.81e-06      8    at x=-1.31185782  *
       x*P(x^2)/Q(x^2): x*fma(fma(0.00111710653, s, -0.111948349), s, 1.0)/fma(fma(0.0162101109, s, -0.445281416), s, 1.0) where s = x*x
       rounding of ap1, first order, 7 operations, relative, in u = 2^-24: worst case 12.2, probable no better (under 16 operations), expected 3.46; `error ap1 ~ F` says what each means
-  2   rational  7/2   horner+fma  4.97 ulp                 3.85e-07      1.81e-06      8    at x=-0.444534987  *
+  2   rational  7/2   horner+fma  6.97 ulp                 5.94e-07      2.76e-06      8    at x=0.444534987  *
       x*P(x^2)/Q(x^2): x*fma(fma(fma(-7.90835547e-05, s, -0.00175103522), s, -0.071952574), s, 1.00000012)/fma(-0.405282676, s, 1.0) where s = x*x
-  3   rational  9/2   horner+fma  3.22 ulp (3.22)          2.45e-07      1.24e-06      9    at x=-1.31895018  *
+  3   rational  9/2   horner+fma  5.22 ulp (5.22)          4.51e-07      2.19e-06      9    at x=-1.31895018  *
       x*P(x^2)/Q(x^2): x*fma(fma(fma(fma(-3.59679098e-06, s, -6.88274886e-05), s, -0.00176206161), s, -0.0719511658), s, 1.0)/fma(-0.405284613, s, 1.0) where s = x*x
-  39 more: 'approx more [n]'
+  57 more: 'approx more [n]'
 > use gt1030
 cost model: gt1030
 > g(x) = 1/(1 + x^2)
