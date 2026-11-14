@@ -14,6 +14,9 @@ Each probe answers one issue of the "calibrate later" list (gt1030: #115-#122, #
   grid and precision, the blender's and the UNORM conversion's rounding, the BC4
   palette, REPEAT at large coordinates.
 - info: vulkaninfo's subTexelPrecisionBits.
+- lat: a class's latency, one warp and one dependent chain, in SM clocks a step (clockARB
+  around builds of 32 and 64 steps): the ALU classes, and loads and texture reads as chases
+  along one cycle through a table.
 
 What snx-shaderperf cannot set up (logic ops, stencil operations, MIN/MAX and advanced
 blending) is named in the report with what the probe needs, not skipped silently.
@@ -31,7 +34,7 @@ it shows the run goes through (lavapipe: VK_ICD_FILENAMES=.../lvp_icd.x86_64.jso
 Usage: probe.py [--sp PATH] [--out DIR] [--only NAME,...] [--issue N,...] [--runs N]
                 [--tries N] [--quick] [--list] [--ucas PATH] [--timeout S]
 """
-import argparse, json, math, os, random, re, shutil, struct, subprocess, sys, time
+import argparse, fnmatch, json, math, os, random, re, shutil, struct, subprocess, sys, time
 from fractions import Fraction
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -325,6 +328,95 @@ probe('none', 'sg_operations', [146],
           'is missing is ucas operations for them, not a measure')
 
 
+# --- latencies: one warp, one dependent chain, the SM clock (clockARB) read around the loop, builds of
+# LAT_U and 2 LAT_U steps; a step's latency is the clocks the second adds over the first, a step.  For
+# the model's latency (Liz, 2026-11-13), in SM clocks, which no clock speed moves.
+LAT_U = 32
+
+
+def lat(name, cls, stp, ty='uint', **kw):
+    """an ALU class's latency: the step with the chain it reads, as gen.py's latency builds"""
+    x = dict(step=stp, ops={cls: 1}, ty=ty, exts=[], decls='', pre='', post='', C=1, ring=None, iters=64,
+             note='', A=LAT_U, wg=32, vkext=[], args=[], qual='', pre_iter='', body=None, prestep='', poststep='',
+             files={})
+    x.update(kw)
+    x['latC'] = 2 if any(t in stp for t in ('{b}', '{c}', '{d}')) else 1
+    probe('lat', 'lat_' + name, [], how='alu', cls=cls, queue='latency', **x)
+
+
+lat('iadd', 'iadd', '{a} + {b}', note='IADD (the corpus: iadd 6.1)')
+lat('logic', 'logic', '({a} & {b}) | (~{a} & k)', note='one LOP3 of three inputs')
+lat('shift', 'shift', '{a} << {b}', note='SHL by a register (the corpus: shl_var 6.1)')
+lat('imul', 'imul', '{a} * {b}', note='the XMAD sequence of a 32-bit multiply (the corpus: imul 13.6)')
+lat('imad', 'imul', '{a} * {b} + k', note='a multiply-add: the XMAD chain with the add folded')
+lat('minmax', 'minmax', 'min({a}, {b})', note='IMNMX')
+lat('bitcnt', 'bitcnt', 'uint(bitCount({a}))', note='POPC')
+lat('conv', 'conv', 'uint(float({a}))', note='two conversions a step, I2F and F2I')
+lat('fadd', 'fadd', '{a} + {b}', ty='float', note='FADD (the corpus: fadd 6.1)')
+lat('fmul', 'fmul', '{a} * {b}', ty='float', note='FMUL')
+lat('ffma', 'fmul', 'fma({a}, {b}, kf2)', ty='float', note='FFMA')
+lat('fdiv', 'fdiv', '{b} / {a}', ty='float', note='a division: MUFU.RCP and its refinement')
+lat('fsqrt', 'fsqrt', 'sqrt({a})', ty='float', note='MUFU.RSQ and a multiply')
+lat('ftrans', 'ftrans', 'exp2({a})', ty='float', note='MUFU.EX2')
+lat('f64', 'f64', '{a} + {b}', ty='double', exts=['f64'], note='DADD (1/32 rate on GP108)')
+lat('dot4x8', 'dot4x8', 'udot4x8({a}, {b}, 0)', exts=['dot'], decls=G.DOT_DECLS, note='IDP4A')
+lat('sg_shuffle', 'sg_shuffle', 'subgroupShuffle({a}, {b})', exts=SG, note='SHFL (the corpus: sg_shuffle 31.1)')
+lat('sg_ballot', 'sg_ballot', 'subgroupBallot({a} < {b}).x', exts=SG, note='a compare and VOTE')
+lat('sg_add', 'sg_add', 'subgroupAdd({a}) + {b}', exts=SG, note='the reduction with its add')
+
+
+def cycle_table(n, seed=0xc1c1e):
+    """t[j] the entry after j on one cycle through all n (Sattolo's shuffle): a chase from any entry visits
+    every one before it comes back, so no short loop stays in a cache"""
+    rnd = random.Random(seed + n)
+    t = list(range(n))
+    for i in range(n - 1, 0, -1):
+        j = rnd.randrange(i)
+        t[i], t[j] = t[j], t[i]
+    return t
+
+
+def chase(name, cls, n, where, decls, read, args, files=None, init=None, pre='', out='a', iters=64, ty='uint',
+          note=''):
+    """a memory or texture class's latency: every lane follows the same cycle, so each step is one address
+    the step's own load must return before the next can start"""
+    probe('lat', 'lat_%s_%s' % (name, where), [], how='chase', cls=cls, n=n, decls=decls, read=read, args=args,
+          files=files or {}, init=init or 'uint a = pc.k2 %% %du;' % n, pre=pre, out=out, iters=iters, ty=ty,
+          queue='latency', note=note)
+
+
+def _tb(n):
+    # made when the probe runs: the 4M-entry tables take seconds
+    return {'cycle%d.bin' % n: lambda: struct.pack('<%dI' % n, *cycle_table(n))}
+
+
+for _n, _w in ((1024, 'l1'), (65536, 'l2'), (4194304, 'dram')):
+    chase('load', 'load' if _w != 'dram' else 'load_stream', _n, _w, TB, 'a = tb.t[a];',
+          ['--bind', '0.2=file={data}/cycle%d.bin' % _n], files=_tb(_n), iters=64 if _w != 'dram' else 16,
+          note='a storage buffer of %s, every lane on one cycle through it' % {'l1': '4 KiB', 'l2': '256 KiB',
+                                                                               'dram': '16 MiB'}[_w])
+chase('load', 'load_shared', 4096, 'shared', 'shared uint sm[4096];\n' + TB, 'a = sm[a];',
+      ['--bind', '0.2=file={data}/cycle4096.bin'], files=_tb(4096), pre='for (uint j = gid; j < 4096u; j += 32u) sm[j] = tb.t[j]; barrier();',
+      note='workgroup memory, 16 KiB')
+chase('load', 'load_ubo', 1024, 'ubo', 'layout(std140, set = 0, binding = 3) uniform U { uvec4 d[1024]; } ubo;\n',
+      'a = ubo.d[a].x;', ['--bind', '0.3=file={data}/cycle1024x4.bin'],
+      files={'cycle1024x4.bin': lambda: b''.join(struct.pack('<4I', v, 0, 0, 0) for v in cycle_table(1024))},
+      note='a uniform buffer of 1024 uvec4 (16 KiB): the constant cache, one address a step')
+for _n, _wh, _w in ((1024, (32, 32), 'cached'), (4194304, (2048, 2048), 'dram')):
+    chase('tex_fetch', 'tex_fetch', _n, _w, UTEX, 'a = texelFetch(utex, ivec2(int(a %% %du), int(a / %du)), 0).x;'
+          % (_wh[0], _wh[0]), ['--bind', '0.5=format=r32_uint,size=%dx%d,raw={data}/cycle%d.bin,filter=nearest'
+                                % (_wh[0], _wh[1], _n)], files=_tb(_n), iters=64 if _w == 'cached' else 16,
+          note='texelFetch of a %dx%d R32UI texture holding the cycle (the index math is in the step)' % _wh)
+    chase('tex_sample', 'tex_sample', _n, _w, 'layout(set = 0, binding = 5) uniform sampler2D tex;\n',
+          'uv = textureLod(tex, uv, 0.0).xy;', ['--bind', '0.5=format=rg32_sfloat,size=%dx%d,raw={data}/uv%d.bin,'
+                                                'filter=linear,wrap=repeat' % (_wh[0], _wh[1], _n)],
+          files={'uv%d.bin' % _n: (lambda n=_n, w=_wh: b''.join(struct.pack('<2f', ((v % w[0]) + 0.5) / w[0], (
+              (v // w[0]) + 0.5) / w[1]) for v in cycle_table(n)))},
+          init='vec2 uv = vec2(0.5 / %d.0, 0.5 / %d.0);' % _wh, out='floatBitsToUint(uv.x)', ty='vec2',
+          iters=64 if _w == 'cached' else 16,
+          note='a bilinear read of a %dx%d RG32F texture whose texels hold the next texel\'s centre' % _wh)
+
+
 # ---------------------------------------------------------------------------
 # running
 
@@ -411,8 +503,7 @@ def run_step(p):
     ref = fadd_entry()
     shaders = [os.path.join(HERE, ref['files']['a']), os.path.join(HERE, ref['files']['b'])] + files
     test = dict(chains=x['C'], unroll=[Aun, 2 * Aun], iters=iters)
-    for fn, data in x['files'].items():
-        write(fn, data)
+    write_files(x['files'])
     extra = timing_args() + ['--size', str(lanes)] + [a.replace('{data}', os.path.join(OUT, 'data'))
                                                       for a in x['args']]
     for v in x['vkext']:
@@ -653,6 +744,63 @@ def ulp32(x):
 def ulps(got, want):
     """how far got is from want, in f32 ulps at the larger of the two"""
     return abs(got - want) / ulp32(max(abs(got), abs(want), 2.0 ** -126))
+
+
+def write_files(files):
+    """a probe's data files into OUT/data (a callable makes its bytes when the probe runs)"""
+    for fn, data in files.items():
+        write(fn, data() if callable(data) else data)
+
+
+def subst(args):
+    return [a.replace('{data}', os.path.join(OUT, 'data')) for a in args]
+
+
+def lat_shader(p, U):
+    """a chase's GLSL: one warp, the chain p['read'] U times an iteration, the SM clock around the loop"""
+    return ''.join(['#version 460\n', '#extension GL_ARB_shader_clock : require\n',
+                    '#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require\n',
+                    '// %s: latency, UNROLL %d\n' % (p['name'], U), 'layout(local_size_x = 32) in;\n', G.HEADER_PC,
+                    'layout(std430, set = 0, binding = 1) buffer Out { uint data[]; } outb;\n', p['decls'],
+                    'void main() {\n', '    uint gid = gl_GlobalInvocationID.x;\n'] +
+                   (['    %s\n' % p['pre']] if p['pre'] else []) +
+                   ['    %s\n' % p['init'], '    uint64_t c0 = clockARB();\n',
+                    '    for (uint i = 0u; i < pc.iters; i++) {\n'] + ['        %s\n' % p['read']] * U +
+                   ['    }\n', '    uint64_t c1 = clockARB();\n', '    outb.data[2u * gid] = %s;\n' % p['out'],
+                    '    outb.data[2u * gid + 1u] = uint(c1 - c0);\n', '}\n'])
+
+
+def lat_run(p, shaders, iters, chains):
+    """the U and 2U builds in one run of one warp; lane 0's clocks give the clocks a step"""
+    out = dump('lat_%s.bin' % p['name'])
+    sp(R.sp_cmd('', shaders, iters, ['--size', '32', '--runs', '3', '--warmup', '2', '--warmup-ms', '20', '--check',
+                                     '--dump', '0.1=' + out, '--json', '--quiet', '--no-smi', '--compile-runs', '1'] +
+                subst(p['args']))[1:], log_path(p['name'] + '.log'))
+    clk = []
+    for k in range(2):
+        path = out.replace('.bin', '-%d.bin' % k)
+        if not os.path.exists(path):
+            raise ProbeError('snx-shaderperf wrote no %s' % os.path.basename(path))
+        clk.append(struct.unpack('<2I', open(path, 'rb').read(8))[1])
+    return dict(cycles=(clk[1] - clk[0]) / (iters * LAT_U * chains), clocks=clk, iters=iters, chains=chains)
+
+
+def lat_alu(p):
+    x = dict(p, name=p['name'])
+    write_files(x['files'])
+    files = [compile_glsl('%s.%s' % (p['name'], t), G.gen_compute(x, U, True), 'comp')
+             for t, U in (('la', LAT_U), ('lb', 2 * LAT_U))]
+    return lat_run(p, files, 2 if A.quick else p['iters'], x['latC'])
+
+
+def lat_chase(p):
+    write_files(p['files'])
+    files = [compile_glsl('%s.%s' % (p['name'], t), lat_shader(p, U), 'comp') for t, U in (('la', LAT_U),
+                                                                                              ('lb', 2 * LAT_U))]
+    return lat_run(p, files, 2 if A.quick else p['iters'], 1)
+
+
+LATS = dict(alu=lat_alu, chase=lat_chase)
 
 
 # --- units ------------------------------------------------------------------------
@@ -1083,6 +1231,10 @@ def model_text(res, dev):
     if extra:
         out.append('  # measured, with no class or parameter in ucas yet (cost a step over fadd):\n')
         out += ['  #   %s\n' % e for e in extra]
+    lats = [(p, res[p['name']]) for p in P if p['kind'] == 'lat' and 'cycles' in res.get(p['name'], {})]
+    if lats:
+        out.append('  # latencies, SM clocks a dependent step of one warp (no latency in a ucas model yet):\n')
+        out += ['  #   %s (%s): %.1f\n' % (p['name'], p['cls'], r['cycles']) for p, r in lats]
     out.append('}\n')
     return ''.join(out)
 
@@ -1093,6 +1245,8 @@ def model_text(res, dev):
 def summary(p, r):
     """what a unit or value probe found, in a line"""
     n = p['name']
+    if p['kind'] == 'lat':
+        return '%.1f SM clocks a step (class %s)' % (r['cycles'], p['cls'])
     if n == 'setup_binding':
         return 'one more sampler: %.3g ns a dispatch (%.3g +- %.2g), %.3g fadd steps' % (
             r['ns_binding'], r['ns_one_more'], r['err_ns'], r['fadd_steps'])
@@ -1156,14 +1310,17 @@ def report(res, dev, model, ucas_check):
                                       'the fadd lane-step of the step run before them.'),
          'model.ucas: %s\n\n' % ucas_check]
     issues = sorted({i for p in P for i in p['issues']})
-    for i in issues + [None]:
-        ps = [p for p in P if (i in p['issues'] if i else not p['issues']) and p['name'] in res]
+    for i in issues + [None, 'lat']:
+        ps = [p for p in P if (i in p['issues'] if isinstance(i, int) else not p['issues'] and
+                               (p['kind'] == 'lat') == (i == 'lat')) and p['name'] in res]
         if not ps:
             continue
-        L.append('## %s\n\n' % ('#%d' % i if i else 'The queue\'s lines with no issue'))
+        L.append('## %s\n\n' % ('#%d' % i if isinstance(i, int) else 'Latencies (SM clocks a dependent step, one '
+                                  'warp)' if i == 'lat' else 'The queue\'s lines with no issue'))
         for p in ps:
             r = res.get(p['name'], {})
-            head = '- `%s`%s' % (p['name'], (' (and %s)' % p['queue']) if p.get('queue') and i else '')
+            head = '- `%s`%s' % (p['name'], (' (and %s)' % p['queue']) if p.get('queue') and isinstance(i, int)
+                                 else '')
             if p['kind'] == 'step':
                 if 'cost' in r:
                     pr = r.get('ucas_price')
@@ -1178,7 +1335,7 @@ def report(res, dev, model, ucas_check):
                 L.append('%s: not run: needs %s%s\n' % (head, p['needs'], ('; this snx-shaderperf has something '
                          'named %s now, so the probe can be written' % p['key']) if r.get('tool_has_it') else ''))
             elif p['kind'] == 'none':
-                L.append('%s%s: no probe: %s\n' % (head, (' (%s)' % p['queue']) if p.get('queue') and not i else '',
+                L.append('%s%s: no probe: %s\n' % (head, (' (%s)' % p['queue']) if p.get('queue') and i is None else '',
                                                     p['why']))
             else:
                 if 'error' in r:
@@ -1214,12 +1371,32 @@ def ucas_reads(path):
 
 # ---------------------------------------------------------------------------
 
+def choose(only_text, issue_text):
+    """the probes --only (names or patterns) and --issue pick, both when both are given"""
+    only = [o.strip() for o in only_text.split(',')] if only_text else None
+    if only:
+        unknown = [o for o in only if not any(fnmatch.fnmatchcase(p['name'], o) for p in P)]
+        if unknown:
+            sys.exit('probe.py: no probe named %s (--list shows them)' % ', '.join(unknown))
+    issues = None
+    if issue_text:
+        try:
+            issues = {int(t.strip().lstrip('#')) for t in issue_text.split(',')}
+        except ValueError:
+            sys.exit('probe.py: --issue %s: issue numbers, comma-separated' % issue_text)
+        unknown = issues - {i for p in P for i in p['issues']}
+        if unknown:
+            sys.exit('probe.py: no probe for issue %s (--list shows them)' % ', '.join('#%d' % i for i in unknown))
+    return [p for p in P if (not only or any(fnmatch.fnmatchcase(p['name'], o) for o in only)) and
+            (not issues or set(p['issues']) & issues)]
+
+
 def main():
     global A, OUT
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--sp', default=os.path.expanduser('~/ScarletNX/build/rel/snx-shaderperf'))
     ap.add_argument('--out', default=os.path.expanduser('~/ucas/work/gt1030/probe-' + time.strftime('%Y%m%d-%H%M%S')))
-    ap.add_argument('--only', help='probes by name, comma-separated')
+    ap.add_argument('--only', help="probes by name, comma-separated; a name may be a pattern ('lat_*')")
     ap.add_argument('--issue', help='probes of these issues, comma-separated numbers')
     ap.add_argument('--runs', type=int, default=20)
     ap.add_argument('--tries', type=int, default=3, help='runs of a step whose interval is wide')
@@ -1234,20 +1411,7 @@ def main():
             print('%-26s %-6s %s' % (p['name'], p['kind'], ', '.join('#%d' % i for i in p['issues']) or
                                      p.get('queue', '')))
         return 0
-    only = set(A.only.split(',')) if A.only else None
-    if only:
-        unknown = only - {p['name'] for p in P}
-        if unknown:
-            sys.exit('probe.py: no probe named %s (--list shows them)' % ', '.join(sorted(unknown)))
-    issues = None
-    if A.issue:
-        try:
-            issues = {int(s.strip().lstrip('#')) for s in A.issue.split(',')}
-        except ValueError:
-            sys.exit('probe.py: --issue %s: issue numbers, comma-separated' % A.issue)
-        unknown = issues - {i for p in P for i in p['issues']}
-        if unknown:
-            sys.exit('probe.py: no probe for issue %s (--list shows them)' % ', '.join('#%d' % i for i in unknown))
+    chosen = choose(A.only, A.issue)
     for tool in (A.sp, 'glslangValidator', 'spirv-val'):
         if not shutil.which(tool) and not os.access(tool, os.X_OK):
             sys.exit('probe.py: %s not found' % tool)
@@ -1256,8 +1420,7 @@ def main():
         os.makedirs(os.path.join(OUT, d), exist_ok=True)
     helptext = subprocess.run([A.sp, '--help'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
     res, dev = {}, {}
-    chosen = [p for p in P if (not only or p['name'] in only) and (not issues or set(p['issues']) & issues)]
-    order = {'step': 0, 'unit': 1, 'value': 2, 'info': 3, 'absent': 4, 'none': 5}
+    order = {'step': 0, 'lat': 1, 'unit': 2, 'value': 3, 'info': 4, 'absent': 5, 'none': 6}
     chosen.sort(key=lambda p: (bool(p.get('slow')), order[p['kind']]))
     t0 = time.time()
     for k, p in enumerate(chosen):
@@ -1270,6 +1433,8 @@ def main():
                 r.update(UNITS[p['how']](p))
             elif p['kind'] == 'value':
                 r.update(VALUES[p['how']](p))
+            elif p['kind'] == 'lat':
+                r.update(LATS[p['how']](p))
             elif p['kind'] == 'info':
                 r.update(info_subtexel(p))
             elif p['kind'] == 'absent':
