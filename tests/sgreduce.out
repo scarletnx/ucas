@@ -56,7 +56,7 @@ find mn: 1024 points (sampled; matches verified on the whole domain), computing 
 > find b
 find b: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
-  cost 11.875 u32(sg_all(t1)) + (popcount(sg_ballot(t1)) & 1) where t1 = t >> lane & 1 != 0
+  cost 13.875 u32(sg_all(t1)) + (popcount(sg_ballot(t1)) & 1) where t1 = t >> lane & 1 != 0
            sg_and(t >> lane & 1): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its and over the lanes is whether it is not 0 in every lane: sg_all
            sg_xor(t >> lane & 1): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its xor over the lanes is the parity of the lanes where it is not 0, the low bit of the ballot's bit count
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot), vote (GL_KHR_shader_subgroup_vote)
@@ -107,10 +107,10 @@ exec of SPIR-V (32 instructions), entry %main, 8 lanes in lockstep, cost model r
     %c = OpGroupNonUniformBitwiseAnd %uint %uint_3 Reduce %x sg_and     62.625  t = 71.25..133.875  -> 0 0 0 0 0 0 0 0
     %d = OpGroupNonUniformBitwiseOr %uint %uint_3 Reduce %x sg_or      59.75  t = 133.875..193.625  -> 7 7 7 7 7 7 7 7
     %e = OpGroupNonUniformBitwiseXor %uint %uint_3 Reduce %x sg_xor         2  t = 193.625..195.625  -> 0 0 0 0 0 0 0 0
-    %f = OpGroupNonUniformLogicalAnd %bool %uint_3 Reduce %p sg_vote        0  t = 195.625..195.625  -> false false false false false false false false
-    %g = OpGroupNonUniformLogicalOr %bool %uint_3 Reduce %p sg_vote        0  t = 195.625..195.625  -> true true true true true true true true
-    %h = OpGroupNonUniformUMin %uint %uint_3 InclusiveScan %x                0  t = 195.625..195.625  -> 0 0 0 0 0 0 0 0
-    OpStore %y %d                                               0  t = 195.625..195.625
-  time 195.625 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 990x288, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 32.6 cost units; 205979 bytes
-  (nofile: GIF checksum 1c985536)
+    %f = OpGroupNonUniformLogicalAnd %bool %uint_3 Reduce %p sg_vote        2  t = 195.625..197.625  -> false false false false false false false false
+    %g = OpGroupNonUniformLogicalOr %bool %uint_3 Reduce %p sg_vote        2  t = 197.625..199.625  -> true true true true true true true true
+    %h = OpGroupNonUniformUMin %uint %uint_3 InclusiveScan %x                0  t = 199.625..199.625  -> 0 0 0 0 0 0 0 0
+    OpStore %y %d                                               0  t = 199.625..199.625
+  time 199.625 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 990x288, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 33.3 cost units; 224258 bytes
+  (nofile: GIF checksum 3709365e)

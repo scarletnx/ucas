@@ -18,6 +18,10 @@ find mm1: 1024 points (sampled; matches verified on the whole domain), computing
       that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
       Vulkan rounds an fma once only where it is NoContraction (`precise` in GLSL): written into a shader, the two fmas go under it
+  instructions under w64 (each for the pattern it is; cost 29 as written):
+  cost 26.5 u32(mulwide(a, b) % 1000003)
+           u64(a)*u64(b): the 64-bit product of two words
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > find mm2 1
@@ -34,6 +38,10 @@ find mm2: 1024 points (sampled; matches verified on the whole domain), computing
       that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
       Vulkan rounds an fma once only where it is NoContraction (`precise` in GLSL): written into a shader, the two fmas go under it
+  instructions under w64 (each for the pattern it is; cost 29 as written):
+  cost 26.5 mulwide(u32(a), u32(b)) % 4194301
+           a*b: the 64-bit product of two words (a <= 4194300, by intervals) (b <= 4194300, by intervals)
+           checked by SAT
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
 > find mm4 1
@@ -50,6 +58,10 @@ find mm4: 1024 points (sampled; matches verified on the whole domain), computing
       that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
       Vulkan rounds an fma once only where it is NoContraction (`precise` in GLSL): written into a shader, the two fmas go under it
+  instructions under w64 (each for the pattern it is; cost 29 as written):
+  cost 26.5 mulwide(999331, u32(a)) % 1000003
+           999331a: the 64-bit product of two words (a <= 1000002, by intervals)
+           checked on every point of the domain
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
 > mm3(a: u32 in 0..65520, b: u32 in 0..65520) = (a * b) % 65521
@@ -79,6 +91,10 @@ find mm1: 1024 points (sampled; matches verified on the whole domain), computing
       that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
       Vulkan rounds an fma once only where it is NoContraction (`precise` in GLSL): written into a shader, the two fmas go under it
+  instructions under gt1030 (each for the pattern it is; cost 29 as written):
+  cost 26.5 u32(mulwide(a, b) % 1000003)
+           u64(a)*u64(b): the 64-bit product of two words
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use w64
@@ -88,10 +104,18 @@ cost model: w64
 > no3(a: u64 in 0..4000, b: u64 in 0..4000) = (a * b) % 1009
 > find no1 1
 find no1: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  instructions under w64 (each for the pattern it is; cost 29 as written):
+  cost 26.5 mulwide(u32(a), u32(b)) % 4194305
+           a*b: the 64-bit product of two words (a <= 4194304, by intervals) (b <= 4194304, by intervals)
+           checked by SAT
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
 > find no2 1
 find no2: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  instructions under w64 (each for the pattern it is; cost 29 as written):
+  cost 26.5 mulwide(u32(a), u32(b)) % 1000003
+           a*b: the 64-bit product of two words (a <= 16000000, by intervals) (b <= 16000000, by intervals)
+           checked by SAT
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
 > find no3 1
@@ -122,5 +146,9 @@ find no3: 1024 points (sampled; matches verified on the whole domain), computing
       f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
       2 operands converted by the bits: i | 0x4B000000 (0 <= i < 2^23) and i + 0x4B400000 (-2^22 <= i < 2^22) are the bits of 2^23 + i and 1.5*2^23 + i, and subtracting that constant is exact
       the result converts back exactly: it is an integer inside u64
+  instructions under w64 (each for the pattern it is; cost 29 as written):
+  cost 26.5 mulwide(u32(a), u32(b)) % 1009
+           a*b: the 64-bit product of two words (a <= 4000, by intervals) (b <= 4000, by intervals)
+           checked by SAT
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
