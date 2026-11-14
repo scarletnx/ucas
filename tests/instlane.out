@@ -4,7 +4,7 @@ cost model: il
 > sn(x: u32 uniform, y: u8 uniform, lane: u32 in 0..7) = sg_segscan((x >> (4*lane)) & 15, ((y >> lane) & 1) != 0)
 > find sn 1
 find sn: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from il
-  subgroup forms: derived, but not cheaper under il (cost 114.625, as written 84.625): a scan as a ladder of shuffles and adds
+  subgroup forms: derived, but not cheaper under il (cost 113.875, as written 83.875): a scan as a ladder of shuffles and adds
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > ex(x: u32 uniform, lane: u32 in 0..7) = sg_add((x >> lane) & 1) + ((x >> 8) & 255)
@@ -18,7 +18,7 @@ find ex: 1024 points (sampled; matches verified on the whole domain), computing 
            udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 244 AIG nodes, 0 conflicts
   subgroup forms under il (each derived, with what it holds under; cost 39.625 as written):
-  cost 12.375 popcount(sg_ballot(x >> lane & 1 != 0)) + (x >> 8 & 0xff)
+  cost 11.625 popcount(sg_ballot(x >> lane & 1 != 0)) + (x >> 8 & 0xff)
            sg_add(x >> lane & 1): x >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its sum over the 8 lanes is the number of lanes where it is not 0: the set bits of the ballot
            holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT

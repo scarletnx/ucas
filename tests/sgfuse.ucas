@@ -3,7 +3,11 @@
 # index, and the pattern matches a subgroup of any size.  The prices
 # here are the test's own, not measurements.
 
+# gt1030's own shfl_xor and shfl_rot have bfly's and rot's patterns and
+# would match first: the test's are the ones it reads
 model sgf : gt1030 {
+  nofuse shfl_xor
+  nofuse shfl_rot
   fuse ballot_eq(a: int, b: int) = sg_ballot(a == b) : 2
   fuse sumsq(a: int) = sg_add(a * a) : 30
   fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle

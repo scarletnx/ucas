@@ -2,12 +2,12 @@
 cost model: gt1030
 > spvsimplify nofile nofunctions
 simplify: 51 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 4 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 15 -> 4 (-73.3%)
+  integer arithmetic cost under gt1030 (each instruction once): 28.5 -> 4 (-86.0%)
   by kind:
-       1  a wide product's high word is one multiply extended  -11
+       1  a wide product's high word is one multiply extended  -24.5
   rewrites:
     %42 = OpUConvert %uint %41
-      ->  OpCompositeExtract %uint (OpUMulExtended %26 %32) 1   (a wide product's high word is one multiply extended; -11)
+      ->  OpCompositeExtract %uint (OpUMulExtended %26 %32) 1   (a wide product's high word is one multiply extended; -24.5)
   spirv-val accepts the written module
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 1789 bytes, checksum 77da0f47)

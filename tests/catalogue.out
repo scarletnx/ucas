@@ -116,16 +116,23 @@ domain of vs:
   undefined e.g. at x=0, y=0, k=32; x=1, y=0, k=32; x=2, y=0, k=32; x=3, y=0, k=32
   over all 656 points of the domain
 > cost d1
-cost of d1 under gt1030: inf (1 operations, shared subterms counted once)
-  bfe              1 x inf   = inf
-  bfe is not available under gt1030 (the model lists no such instruction)
+cost of d1 under gt1030: 1.25 (1 operations, shared subterms counted once)
+  bfe              1 x 1.25  = 1.25
 > find d2 1
 find d2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 3 as written):
+  cost 1   byteperm(x, 0, 0x4441)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   cost 3   x >> 8 & 0xff0000ff                      mask (proved by SAT)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > rev32(x: u32) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
 > find rev32 1
 find rev32: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 29 as written):
+  cost 1.25 brev(x)
+           d >> 0x10 | d << 16 where a = x >> 1 & 0x55555555 | (x & 0x55555555) << 1, b = a… (134 more characters): bit i is bit 31 - i of x (linear over GF(2) by its structure, every row one bit)
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model cat : gt1030 { bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }
@@ -172,7 +179,7 @@ find r7: 1024 points (sampled; matches verified on the whole domain), computing 
 > h1(a: u32, b: u32) = u32((u64(a) * u64(b)) >> 32)
 > find h1 1
 find h1: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
-  instructions under cat (each for the pattern it is; cost 5 as written):
+  instructions under cat (each for the pattern it is; cost 18.5 as written):
   cost 1   mulhi(a, b)
            u32(u64(a)*u64(b) >> 0x20): the high half of the 64-bit product
            checked by SAT
@@ -181,7 +188,7 @@ find h1: 1024 points (sampled; matches verified on the whole domain), computing 
 > h2(a: i32, b: i32) = i32((i64(a) * i64(b)) >> 32)
 > find h2 1
 find h2: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from cat
-  instructions under cat (each for the pattern it is; cost 5 as written):
+  instructions under cat (each for the pattern it is; cost 18.5 as written):
   cost 1   smulhi(a, b)
            i32(i64(a)*i64(b) >> 0x20): the high half of the 64-bit product
            checked by SAT
@@ -190,7 +197,7 @@ find h2: 1024 points (sampled; matches verified on the whole domain), computing 
 > d5(a: u32) = u32((u64(a) * 0xcccccccd) >> 34)
 > find d5 1
 find d5: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
-  instructions under cat (each for the pattern it is; cost 5 as written):
+  instructions under cat (each for the pattern it is; cost 18.5 as written):
   cost 3   mulhi(3435973837, a) >> 2
            u32(3435973837u64(a) >> 0x22): the high half of the 64-bit product, shifted by what is left
            checked by SAT
@@ -242,7 +249,8 @@ cost model: onlybfe
 > find mix 1
 find mix: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from onlybfe
   instructions under onlybfe (each for the pattern it is; cost 33 as written):
-  cost 31  bfe(x, 16, 12) + (t4 >> 0x10 | t4 << 16) where t1 = y >> 1 & 0x55555555 | (y & 0x55555555) << 1, t2 = t1 >> 2 & 0x33333333 | (t1 & 0x33333333) << 2, t3 = t2 >> 4 & 0xf0f0f0f | (t2 & 0xf0f0f0f) << 4, t4 = t3 >> 8 & 0xff00ff | (t3 & 0xff00ff) << 8
+  cost 3.25 bfe(x, 16, 12) + brev(y)
+           t4 >> 0x10 | t4 << 16 where t1 = y >> 1 & 0x55555555 | (y & 0x55555555) << 1, t2… (146 more characters): bit i is bit 31 - i of y (linear over GF(2) by its structure, every row one bit)
            x << 4 >> 0x14: bits 16..27 of x
            checked by SAT
   nothing new up to cost 3 (term bank full)
@@ -318,7 +326,7 @@ find bi4: 1024 points (sampled; matches verified on the whole domain), computing
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > find mw2 1
 find mw2: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from cat2
-  instructions under cat2 (each for the pattern it is; cost 3 as written):
+  instructions under cat2 (each for the pattern it is; cost 17.5 as written):
   cost 1   madwide(a, b, c)
            u64(a)*u64(b) + c: the 64-bit product of two words plus c
            checked by SAT
@@ -327,7 +335,7 @@ find mw2: 1024 points (sampled; matches verified on the whole domain), computing
 > mw3(a: u64 in 0..100000, b: u32) = a * u64(b) + 1
 > find mw3 1
 find mw3: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from cat2
-  instructions under cat2 (each for the pattern it is; cost 3 as written):
+  instructions under cat2 (each for the pattern it is; cost 17.5 as written):
   cost 1   madwide(u32(a), b, 1)
            a*u64(b) + 1: the 64-bit product of two words plus 1 (a <= 100000, by intervals)
            checked by SAT
@@ -336,10 +344,6 @@ find mw3: 1024 points (sampled; matches verified on the whole domain), computing
 > pr(a: u32, b: u32) = (a * b) xor mulhi(a, b)
 > find pr 1
 find pr: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
-  instructions under cat2 (each for the pattern it is; cost 5 as written):
-  cost 4   u32(mulwide(a, b)) xor u32(mulwide(a, b) >> 0x20)
-           a*b and mulhi(a, b): the low and the high word of one 64-bit product
-           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > sad(a: u32, b: u32, c: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) + (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) + (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) + (max(a >> 24, b >> 24) - min(a >> 24, b >> 24)) + c
@@ -401,7 +405,7 @@ find zb: 1024 points (sampled; matches verified on the whole domain), computing 
 > f64r(hi: u32, lo: u32) = u32(((u64(hi) << 32) | u64(lo)) >> 12)
 > find f64r 1
 find f64r: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
-  instructions under cat2 (each for the pattern it is; cost 5 as written):
+  instructions under cat2 (each for the pattern it is; cost 7 as written):
   cost 1   funr(hi, lo, 12)
            u32((u64(hi) << 32 | u64(lo)) >> 12): the low word of the 64-bit (hi:lo) >> 12
            checked by SAT
@@ -410,7 +414,7 @@ find f64r: 1024 points (sampled; matches verified on the whole domain), computin
 > f64l(hi: u32, lo: u32) = u32((((u64(hi) << 32) | u64(lo)) << 12) >> 32)
 > find f64l 1
 find f64l: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
-  instructions under cat2 (each for the pattern it is; cost 7 as written):
+  instructions under cat2 (each for the pattern it is; cost 10 as written):
   cost 1   funl(hi, lo, 12)
            u32((u64(hi) << 32 | u64(lo)) << 12 >> 0x20): the high word of the 64-bit (hi:lo) << 12
            checked by SAT
@@ -419,7 +423,10 @@ find f64l: 1024 points (sampled; matches verified on the whole domain), computin
 > use gt1030
 cost model: gt1030
 > models
-model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25 }
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
@@ -430,7 +437,10 @@ model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk:
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
   folds f32 -> f16 -> f32
-model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25 }
+model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
@@ -440,7 +450,10 @@ model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
-model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25 }
+model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
@@ -450,7 +463,10 @@ model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
-model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25 }
+model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1.25, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
@@ -468,7 +484,10 @@ model zen4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 14, idivk: 5, cmp: 1, s
 model x86v2 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
 model x86v3 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
 model x86v4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
-model cat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }
+model cat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
@@ -479,7 +498,10 @@ model cat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
   folds f32 -> f16 -> f32
-model onlybfe { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1 }
+model onlybfe { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1, brev: 1.25, funnel: 8.125, sad4x8: 15.25, byteperm: 1, mulwide: 13, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
@@ -490,7 +512,10 @@ model onlybfe { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, c
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
   folds f32 -> f16 -> f32
-model cat2 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1, bfi: 1, mulwide: 1 }
+model cat2 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 21.625, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, sg_deriv: 3.25, bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1, bfi: 1, mulwide: 1, iadd64: 2, imul64: 15.5, shift64: 3, sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
+  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+  fuse shfl_rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+  fuse ballot_bit(a: int) = sg_ballot(a & 1 != 0) : 2.625
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift

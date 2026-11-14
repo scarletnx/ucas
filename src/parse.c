@@ -2141,14 +2141,38 @@ static const char prelude[] =
      * Subgroups (a warp: 32 lanes), from the same run.  A shuffle is
      * 4.00 (sg_shuffle; by xor, broadcast, rotate and the quad swap 4.00
      * to 4.07 with the add their step has), the sum over the lanes 32.63
-     * and the inclusive scan 60.24 (each less the step's add).  The
-     * ballot and the votes fit below zero: ballot((a & 1) != 0) + b is
-     * 3.65 and any((a & 1) != 0) ? b : c 4.51 where the and, the compare
-     * and the add or select alone are 4.375 and 5 (the compare's bool is
-     * never made), so they are priced 0 and their compare as a compare.
+     * and the inclusive scan 60.24 (each less the step's add).  A ballot
+     * of a compare, ballot(a == b) + b and a < b of either sign, is 4.82
+     * (tests/gt1030/probe.py, 2026-11-13): 1.5 above the compare and the
+     * add; a ballot of a bit, ballot((a & 1) != 0) + b, is 3.65, which
+     * ballot_bit below takes.  A vote of a compare with its select,
+     * any(a == b) ? c : d and all(a < b) ? c : d, is 6.01: 2 above the
+     * compare and the select.
      */
-    "  sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4,\n"
+    "  sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4,\n"
     "  sg_scan: 60.25,\n"
+    /*
+     * The shuffle's forms (tests/gt1030/probe.py, 2026-11-13, a step
+     * of the form alone): by xor 4.01, the quad swap (xor 1) 4.00, the
+     * rotate 4.01, each one SHFL (11 B a step) where the plain shuffle
+     * is 4.00: SHFL.BFLY and SHFL.UP form the index themselves, so the
+     * fusions take the index operation off.  A ballot of a bit, (a & 1)
+     * != 0, with its add is 3.65 (the 11-11 run): 2.625 less the add.
+     * The minimum over the lanes is 32.12 with its add (395 B, the shuffle
+     * tree, as subgroupAdd's 33.63).  From the 11-11 run, each less what
+     * its step adds: the clustered sum of 4 (19.44), NV's partition
+     * (MATCH, emulated on sm_61, 54.54), the sum within a partition
+     * (65.16), the subgroup barrier (1.34).  max, and, or and xor over
+     * the lanes are the same code as min and measured 33.9 to 62.6 with
+     * intervals of 9 to 15%, so they wait for the probe's second run.
+     */
+    "  sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5,\n"
+    "  sg_partadd: 65.125, sg_barrier: 1.375\n"
+    "  fuse shfl_xor(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k)"
+    " : sg_shuffle\n"
+    "  fuse shfl_rot(v: any, lane: lane, d: const, w: const) ="
+    " sg_shuffle(v, (lane + d) % w) : sg_shuffle\n"
+    "  fuse ballot_bit(a: int) = sg_ballot((a & 1) != 0) : 2.625\n"
     /*
      * A fine derivative's exchange within the quad (the graphics run:
      * frag_dfdx 4.22, x_deriv 3.22 and the subtract's fadd).
@@ -2197,13 +2221,39 @@ static const char prelude[] =
     /*
      * The texture unit (texalu.c): the two filtered reads above are an
      * explicit-LOD bilinear read of an rgba8 texture (x_tex_bilinear,
-     * 21.65 and 21.31) and of an rgba32f one (54.80).  A nearest sampled
-     * read was not measured, so tex_nearest is not listed, and neither
-     * is tex_within (how far the filter's result is from the exact
-     * weighted sum): nothing filtered is offered until a test measures
-     * it.  subtexel is the driver's subTexelPrecisionBits.
+     * 21.65 and 21.31) and of an rgba32f one (54.80).  A nearest read of
+     * the same rgba8 texture is 22.65 with its add, as the bilinear one
+     * beside it in that run (22.42; tests/gt1030/probe.py, tex_nearest).
+     * tex_within (how far the filter's result is from the exact weighted
+     * sum) is not listed: the probe's filter run could not tell the
+     * weight grid, so nothing filtered is offered yet.  subtexel is
+     * subTexelPrecisionBits as vulkaninfo read it on the card.
      */
-    "  subtexel: 8\n"
+    "  tex_nearest: 21.625, subtexel: 8\n"
+    /*
+     * The catalogue's classes (inst.c) where the driver makes one
+     * instruction of the step, from tests/gt1030/probe.py (2026-11-13),
+     * each less its add: bitfieldExtract 2.25 (BFE, 21 B a step; the
+     * corpus's bfe 2.20), bitfieldReverse 2.25 (BREV; the corpus's
+     * bitreverse 2.26), a byte swap by shifts and masks 2.05 (one PRMT,
+     * 21 B).  funnel and sad4x8 are the time of what the driver makes of
+     * them, 4 and about 14 instructions: (a << s) | (b >> (32 - s)) 9.09,
+     * four byte differences and their sum 16.24.  mulwide is a u32 x u32
+     * product taken as u64 (the driver sees the zero extension), the
+     * high word read with its add 13.96.  Not listed: mulhi (9.55 where
+     * the corpus's identical umulhi gave 5.11), med3 (its probe's clamps
+     * were undefined).
+     */
+    "  bfe: 1.25, brev: 1.25, byteperm: 1, funnel: 8.125, sad4x8: 15.25,\n"
+    "  mulwide: 13\n"
+    /*
+     * 64-bit integers, from the 11-11 run (tests/gt1030/results): an add
+     * is two instructions with the carry (u64_add 2.02), a multiply the
+     * XMAD sequence of its three partial products (u64_mul 15.52, 160 B a
+     * step), a shift by a variable 3 of its step's 4.01 (u64_shl, three
+     * instructions), the other 1 the and on its count's low word.
+     */
+    "  iadd64: 2, imul64: 15.5, shift64: 3\n"
     /* measured: the f32 -> f16 -> f32 round trip costs nothing and does
      * not round (tests/gt1030/results/2026-11-11.md, f16 round trip) */
     "  folds f32 -> f16 -> f32\n"

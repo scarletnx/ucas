@@ -131,7 +131,7 @@ cost model: fixed
 > spvsimplify nofile assume vb 0 4539628424389459967
 simplify: 89 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   assuming vb in [0, 4539628424389459967] (every load of it)
-  integer arithmetic cost under fixed (each instruction once): 23.5 -> 23.5 (+0.0%)
+  integer arithmetic cost under fixed (each instruction once): 24.5 -> 24.5 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 memory under fixed:

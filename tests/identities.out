@@ -194,6 +194,7 @@ find sw: 1024 points (sampled; matches verified on the whole domain), computing 
       holds where x in [0, 7] (its range)
       u32(x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) at x = 0..7 is [3, 7, 1, 0, 0, 9, 0, 0] (evaluated at each of the 8)
       bits [4*i, 4*i + 4) of 0x900173 hold the value at x = i: shifting right by that many bits times x and masking reads it
+  instructions under gt1030: byteperm(x, y, 0x7654) (cost 1) does not hold: x=0, y=4294967294: 1 vs 4294967294
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > sg(x: i32 in -3..4, y: i32) = (x < 0 ? -1 : x > 0 ? 1 : 0) * y
@@ -217,6 +218,7 @@ cost model: shiftdear
 > find sw 1
 find sw: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from shiftdear
   derived, but not cheaper under shiftdear (cost 42, as written 17): the map u32(x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) of x as a table in one constant (8 entries of 4 bits)
+  instructions under shiftdear: byteperm(x, y, 0x7654) (cost 1) does not hold: x=0, y=4294967294: 1 vs 4294967294
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030
@@ -287,6 +289,10 @@ find fld: 1024 points (sampled; matches verified on the whole domain), computing
       holds where v >> 3 & 7 in [0, 7] (interval arithmetic over the parameters' ranges)
       u32(t1 == 0 ? 3 : t1 == 1 ? 7 : t1 == 2 ? 1 : t1 == 5 ? 9 : … (24 more characters) at v >> 3 & 7 = 0..7 is [3, 7, 1, 0, 0, 9, 0, 0] (evaluated at each of the 8)
       bits [4*i, 4*i + 4) of 0x900173 hold the value at v >> 3 & 7 = i: shifting right by that many bits times v >> 3 & 7 and masking reads it
+  instructions under gt1030 (each for the pattern it is; cost 20 as written):
+  cost 18.25 u32(t1 == 0 ? 3 : t1 == 1 ? 7 : t1 == 2 ? 1 : t1 == 5 ? 9 : 0) + y where t1 = bfe(v, 3, 3)
+           v >> 3 & 7: bits 3..5 of v
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > qb(v: u32, y: u32) = ((v & 255)*31 + 127)/255 + y
@@ -340,6 +346,10 @@ cost model: shiftdear
 > find fld 1
 find fld: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from shiftdear
   derived, but not cheaper under shiftdear (cost 63, as written 38): the map u32(t1 == 0 ? 3 : t1 == 1 ? 7 : t1 == 2 ? 1 : t1 == 5 ? 9 : … (24 more characters) of v >> 3 & 7 as a table in one constant (8 entries of 4 bits)
+  instructions under shiftdear (each for the pattern it is; cost 38 as written):
+  cost 18.25 u32(t1 == 0 ? 3 : t1 == 1 ? 7 : t1 == 2 ? 1 : t1 == 5 ? 9 : 0) + y where t1 = bfe(v, 3, 3)
+           v >> 3 & 7: bits 3..5 of v
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030

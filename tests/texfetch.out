@@ -54,13 +54,15 @@ texalu r1: no table read or weighted sum of neighbouring entries the texture uni
 > model stream : gt1030 { load: 90 }
 > texalu r1 under stream
 texalu r1: reads through the texture unit under stream (cost 91 as written):
-  cost 44.125 fetch_texel([10, 20, 30, 40, 50, 60, 70], i) + 1
-      [10, 20, 30, 40, 50, 60, 70][i] is fetch_texel([10, 20, 30, 40, 50, 60, 70], i)
-      holds wherever the read is defined: a texel fetch takes the integer index as it is, with no sampler and no address mode, and outside 0..6 both are undefined
-      the texel fetch is the table read by definition: no coordinate is made, nothing rounds
+  cost 26.625 fetch_clamp([10, 20, 30, 40, 50, 60, 70], i) + 1
+      [10, 20, 30, 40, 50, 60, 70][i] is fetch_clamp([10, 20, 30, 40, 50, 60, 70], i)
+      holds where the read is defined: there i is in 0..6, where every address mode is the plain read
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 7.75e-07 of a texel's centre for i in [0, 6] (its range), and the unit snaps by less than 2^-8: 7.75e-07 + 0.00391 < 1/2, the texel is i's
       the pipeline needs (a proposal: nothing is applied):
         a texture R8_UINT, 7 x 1, one level, its texels the table's entries
-        no sampler; the shader reads texelFetch(t, ivec2(int(i), 0), 0).r
+        a sampler: NEAREST filters, CLAMP_TO_EDGE, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
 > texalu r1 under buf
 texalu r1: reads through the texture unit under buf (cost 7.875 as written):
   cost 6   fetch_buffer([10, 20, 30, 40, 50, 60, 70], i) + 1
@@ -131,16 +133,16 @@ texalu bc: reads through the texture unit under three (cost 44.25 as written):
 > bd(i: u32 in 0..15, m: u32 in 1..15) = ((i*64 + m/2)/m*7 + 3)/5 % 11
 > texalu bd under stream
 texalu bd: reads through the texture unit under stream (cost 57.75 as written):
-  cost 46.125 fetch_texel([0, 2, 3, 5, 7, 8, 10, 0, 2, 4, 5, 7, 8, 10, 1, 2, 0, 1, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 0, 0, 1, 0, 8, 5, 2, 9, 7, 3, 0, 9, 5, 1, 10, 7, 3, 1, 8, 0, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 6, 6, 0, 7, 4, 9, 6, 2, 9, 5, 0, 7, 3, 0, 7, 2, 9, 5, 0, 5, 8, 1, 5, 8, 2, 6, 9, 3, 7, 10, 3, 8, 0, 4, 0, 2, 3, 5, 8, 10, 0, 2, 3, 5, 7, 10, 0, 2, 3, 5, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 0, 10, 9, 8, 6, 7, 5, 4, 3, 2, 1, 10, 9, 8, 8, 7, 0, 9, 7, 5, 4, 1, 9, 8, 6, 4, 2, 10, 9, 6, 5, 3, 0, 9, 6, 2, 10, 8, 5, 3, 0, 7, 4, 2, 10, 8, 4, 1, 0, 7, 5, 1, 8, 5, 1, 8, 5, 1, 8, 6, 2, 9, 6, 2,… (164 more characters)
-      (7((64i + m/2)/m) + 3)/5 % 11 as its table through a texel fetch: 240 entries, one for each point of i in 0..15, m in 1..15; entry k is the function at the point with index k = i + 16(m - 1)
-      holds on the function's domain: there the index is in 0..239, inside the table
+  cost 28.625 fetch_clamp([0, 2, 3, 5, 7, 8, 10, 0, 2, 4, 5, 7, 8, 10, 1, 2, 0, 1, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 0, 0, 1, 0, 8, 5, 2, 9, 7, 3, 0, 9, 5, 1, 10, 7, 3, 1, 8, 0, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 6, 6, 0, 7, 4, 9, 6, 2, 9, 5, 0, 7, 3, 0, 7, 2, 9, 5, 0, 5, 8, 1, 5, 8, 2, 6, 9, 3, 7, 10, 3, 8, 0, 4, 0, 2, 3, 5, 8, 10, 0, 2, 3, 5, 7, 10, 0, 2, 3, 5, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 0, 10, 9, 8, 6, 7, 5, 4, 3, 2, 1, 10, 9, 8, 8, 7, 0, 9, 7, 5, 4, 1, 9, 8, 6, 4, 2, 10, 9, 6, 5, 3, 0, 9, 6, 2, 10, 8, 5, 3, 0, 7, 4, 2, 10, 8, 4, 1, 0, 7, 5, 1, 8, 5, 1, 8, 5, 1, 8, 6, 2, 9, 6, 2,… (164 more characters)
+      (7((64i + m/2)/m) + 3)/5 % 11 as its table through a nearest read: 240 entries, one for each point of i in 0..15, m in 1..15; entry k is the function at the point with index k = i + 16(m - 1)
+      holds on the function's domain: there the index is in 0..239, where every address mode is the plain read
       the table is the function at every point, all 240 evaluated
-      a texel fetch takes the integer index as it is: no coordinate is made, nothing rounds
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 2.86e-05 of a texel's centre for i in [0, 239], and the unit snaps by less than 2^-8: 2.86e-05 + 0.00391 < 1/2, the texel is i's
       checked again by evaluation on all 240 points: equal
       the pipeline needs (a proposal: nothing is applied):
         a texture R8_UINT, 240 x 1, one level, its texels the function's values
-        no sampler; the shader reads texelFetch(t, ivec2(int(i + 16(m - 1)), 0), 0).r
+        a sampler: NEAREST filters, CLAMP_TO_EDGE, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 240.0), 0.0).r with i = i + 16(m - 1)
 > texalu bd
 texalu bd: the texture unit under gt1030 (cost 57.75 as written): nothing taken
-  gt1030 lists no tex_nearest: a nearest read with an address mode is not available
   gt1030 does not say how far its filter is from the exact weighted sum (tex_within): no filtered read is proved

@@ -6,7 +6,6 @@
 exec of SPIR-V (49 instructions), entry %main, 8 lanes in lockstep, cost model gt1030
   buffers start with random values (seed 1)
   subgroup: the 8 lanes run are one subgroup (SubgroupSize 8)
-  note: OpGroupNonUniformIAdd ClusteredReduce ran at cost 0 (gt1030 lists no sg_cluster4)
   note: OpGroupNonUniformUMax Reduce ran at cost 0 (gt1030 lists no sg_max)
   note: 2 subgroup reads of a lane that is not active or not in the subgroup (first: %up = OpGroupNonUniformShuffleUp %uint %uint_3 %x %uint_1): undefined, read as 0 here
   output %y per lane: 0 1 1 2 3 3 4 4
@@ -15,33 +14,33 @@ exec of SPIR-V (49 instructions), entry %main, 8 lanes in lockstep, cost model g
     %m = OpIMul %uint %l %uint_5                 imul           3  t = 0..3  -> 0 5 10 15 20 25 30 35
     %x = OpBitwiseAnd %uint %m %uint_7           logic          1  t = 3..4  -> 0 5 2 7 4 1 6 3
     %p = OpUGreaterThan %bool %x %uint_3         cmp        2.375  t = 4..6.375  -> false true false true true false true false
-    %bl = OpGroupNonUniformBallot %v4uint %uint_3 %p sg_ballot      0  t = 6.375..6.375  -> (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0)
-    %n = OpGroupNonUniformBallotBitCount %uint %uint_3 InclusiveScan %bl bitcnt         7  t = 6.375..13.375  -> 0 1 1 2 3 3 4 4
-    %nx = OpGroupNonUniformBallotBitCount %uint %uint_3 ExclusiveScan %bl bitcnt         7  t = 13.375..20.375  -> 0 0 1 1 2 3 3 4
-    %nr = OpGroupNonUniformBallotBitCount %uint %uint_3 Reduce %bl bitcnt         3  t = 20.375..23.375  -> 4 4 4 4 4 4 4 4
-    %any = OpGroupNonUniformAny %bool %uint_3 %p sg_vote        0  t = 23.375..23.375  -> true true true true true true true true
-    %all = OpGroupNonUniformAll %bool %uint_3 %p sg_vote        0  t = 23.375..23.375  -> false false false false false false false false
-    %eq = OpGroupNonUniformAllEqual %bool %uint_3 %x sg_vote    6.375  t = 23.375..29.75  -> false false false false false false false false
-    %el = OpGroupNonUniformElect %bool %uint_3   sg_ballot  5.375  t = 29.75..35.125  -> true false false false false false false false
-    %s = OpGroupNonUniformIAdd %uint %uint_3 Reduce %x sg_add     32.625  t = 35.125..67.75  -> 28 28 28 28 28 28 28 28
-    %is = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %x sg_scan    60.25  t = 67.75..128  -> 0 5 7 14 18 19 25 28
-    %xs = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %x sg_scan    61.25  t = 128..189.25  -> 0 0 5 7 14 18 19 25
-    %cs = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_4                0  t = 189.25..189.25  -> 14 14 14 14 14 14 14 14
-    %mx = OpGroupNonUniformUMax %uint %uint_3 Reduce %x                0  t = 189.25..189.25  -> 7 7 7 7 7 7 7 7
-    %sh = OpGroupNonUniformShuffle %uint %uint_3 %x %uint_2 sg_shuffle     4  t = 189.25..193.25  -> 2 2 2 2 2 2 2 2
-    %sx = OpGroupNonUniformShuffleXor %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 193.25..198.25  -> 5 0 7 2 1 4 3 6
-    %up = OpGroupNonUniformShuffleUp %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 198.25..203.25  -> 0 0 5 2 7 4 1 6
-    %dn = OpGroupNonUniformShuffleDown %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 203.25..208.25  -> 5 2 7 4 1 6 3 0
-    %bc = OpGroupNonUniformBroadcast %uint %uint_3 %x %uint_5 sg_shuffle     4  t = 208.25..212.25  -> 1 1 1 1 1 1 1 1
-    %bf = OpGroupNonUniformBroadcastFirst %uint %uint_3 %x sg_shuffle     4  t = 212.25..216.25  -> 0 0 0 0 0 0 0 0
-    %lsb = OpGroupNonUniformBallotFindLSB %uint %uint_3 %bl bitcnt         3  t = 216.25..219.25  -> 1 1 1 1 1 1 1 1
-    %msb = OpGroupNonUniformBallotFindMSB %uint %uint_3 %bl bitcnt         4  t = 219.25..223.25  -> 6 6 6 6 6 6 6 6
-    %ex = OpGroupNonUniformBallotBitExtract %bool %uint_3 %bl %uint_1 shift      5.375  t = 223.25..228.625  -> true true true true true true true true
-    %ib = OpGroupNonUniformInverseBallot %bool %uint_3 %bl shift      5.375  t = 228.625..234  -> false true false true true false true false
-    OpStore %y %n                                               0  t = 234..234
-  time 234 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 1062x418, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 39.0 cost units; 432981 bytes
-  (nofile: GIF checksum 7d34afa1)
+    %bl = OpGroupNonUniformBallot %v4uint %uint_3 %p sg_ballot    1.5  t = 6.375..7.875  -> (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0) (90,0,0,0)
+    %n = OpGroupNonUniformBallotBitCount %uint %uint_3 InclusiveScan %bl bitcnt         7  t = 7.875..14.875  -> 0 1 1 2 3 3 4 4
+    %nx = OpGroupNonUniformBallotBitCount %uint %uint_3 ExclusiveScan %bl bitcnt         7  t = 14.875..21.875  -> 0 0 1 1 2 3 3 4
+    %nr = OpGroupNonUniformBallotBitCount %uint %uint_3 Reduce %bl bitcnt         3  t = 21.875..24.875  -> 4 4 4 4 4 4 4 4
+    %any = OpGroupNonUniformAny %bool %uint_3 %p sg_vote        2  t = 24.875..26.875  -> true true true true true true true true
+    %all = OpGroupNonUniformAll %bool %uint_3 %p sg_vote        2  t = 26.875..28.875  -> false false false false false false false false
+    %eq = OpGroupNonUniformAllEqual %bool %uint_3 %x sg_vote    8.375  t = 28.875..37.25  -> false false false false false false false false
+    %el = OpGroupNonUniformElect %bool %uint_3   sg_ballot  6.875  t = 37.25..44.125  -> true false false false false false false false
+    %s = OpGroupNonUniformIAdd %uint %uint_3 Reduce %x sg_add     32.625  t = 44.125..76.75  -> 28 28 28 28 28 28 28 28
+    %is = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %x sg_scan    60.25  t = 76.75..137  -> 0 5 7 14 18 19 25 28
+    %xs = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %x sg_scan    61.25  t = 137..198.25  -> 0 0 5 7 14 18 19 25
+    %cs = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_4 sg_cluster4  19.5  t = 198.25..217.75  -> 14 14 14 14 14 14 14 14
+    %mx = OpGroupNonUniformUMax %uint %uint_3 Reduce %x                0  t = 217.75..217.75  -> 7 7 7 7 7 7 7 7
+    %sh = OpGroupNonUniformShuffle %uint %uint_3 %x %uint_2 sg_shuffle     4  t = 217.75..221.75  -> 2 2 2 2 2 2 2 2
+    %sx = OpGroupNonUniformShuffleXor %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 221.75..226.75  -> 5 0 7 2 1 4 3 6
+    %up = OpGroupNonUniformShuffleUp %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 226.75..231.75  -> 0 0 5 2 7 4 1 6
+    %dn = OpGroupNonUniformShuffleDown %uint %uint_3 %x %uint_1 sg_shuffle     5  t = 231.75..236.75  -> 5 2 7 4 1 6 3 0
+    %bc = OpGroupNonUniformBroadcast %uint %uint_3 %x %uint_5 sg_shuffle     4  t = 236.75..240.75  -> 1 1 1 1 1 1 1 1
+    %bf = OpGroupNonUniformBroadcastFirst %uint %uint_3 %x sg_shuffle     4  t = 240.75..244.75  -> 0 0 0 0 0 0 0 0
+    %lsb = OpGroupNonUniformBallotFindLSB %uint %uint_3 %bl bitcnt         3  t = 244.75..247.75  -> 1 1 1 1 1 1 1 1
+    %msb = OpGroupNonUniformBallotFindMSB %uint %uint_3 %bl bitcnt         4  t = 247.75..251.75  -> 6 6 6 6 6 6 6 6
+    %ex = OpGroupNonUniformBallotBitExtract %bool %uint_3 %bl %uint_1 shift      5.375  t = 251.75..257.125  -> true true true true true true true true
+    %ib = OpGroupNonUniformInverseBallot %bool %uint_3 %bl shift      5.375  t = 257.125..262.5  -> false true false true true false true false
+    OpStore %y %n                                               0  t = 262.5..262.5
+  time 262.5 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 1062x418, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 43.8 cost units; 484278 bytes
+  (nofile: GIF checksum 502f3ac5)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > animate exec lanes 8 seed 1 nofile
@@ -86,39 +85,39 @@ exec of SPIR-V (83 instructions), entry main, 8 lanes in lockstep, cost model gt
     OpBranchConditional %32 %33 %34              branch      6.25  t = 10.25..16.5
     %38 = OpBitwiseAnd %uint %28 %uint_1         logic          1  t = 16.5..17.5  lanes {0,1,3,4,5,7}  -> 0 0 - 1 1 1 - 1
     %39 = OpINotEqual %bool %38 %uint_0          cmp        2.375  t = 17.5..19.875  lanes {0,1,3,4,5,7}  -> false false - true true true - true
-    %42 = OpGroupNonUniformBallot %v4uint %uint_3 %39 sg_ballot      0  t = 19.875..19.875  lanes {0,1,3,4,5,7}  -> (184,0,0,0) (184,0,0,0) - (184,0,0,0) (184,0,0,0) (184,0,0,0) - (184,0,0,0)
-    %43 = OpGroupNonUniformBallotBitCount %uint %uint_3 ExclusiveScan %42 bitcnt         7  t = 19.875..26.875  lanes {0,1,3,4,5,7}  -> 0 0 - 0 1 2 - 3
-    %47 = OpUGreaterThan %bool %28 %uint_5       cmp        2.375  t = 26.875..29.25  lanes {0,1,3,4,5,7}  -> false true - false false false - false
-    %48 = OpGroupNonUniformBallot %v4uint %uint_3 %47 sg_ballot      0  t = 29.25..29.25  lanes {0,1,3,4,5,7}  -> (2,0,0,0) (2,0,0,0) - (2,0,0,0) (2,0,0,0) (2,0,0,0) - (2,0,0,0)
-    %49 = OpGroupNonUniformBallotBitCount %uint %uint_3 Reduce %48 bitcnt         3  t = 29.25..32.25  lanes {0,1,3,4,5,7}  -> 1 1 - 1 1 1 - 1
-    %50 = OpIMul %uint %uint_100 %49             imul           3  t = 32.25..35.25  lanes {0,1,3,4,5,7}  -> 100 100 - 100 100 100 - 100
-    %51 = OpIAdd %uint %43 %50                   iadd           1  t = 35.25..36.25  lanes {0,1,3,4,5,7}  -> 100 100 - 100 101 102 - 103
-    OpStore %27 %51                              store         15  t = 36.25..51.25  lanes {0,1,3,4,5,7}
-    reconverge (keep-up)                         diverge    14.375  t = 51.25..65.625
-  time 65.625 for every lane; lanes busy 87% (69.5 lane-units idle: masked, or waiting for an atomic)
-  animation: 1062x327, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 10.9 cost units; 282941 bytes
-  (nofile: GIF checksum cb982bb9)
+    %42 = OpGroupNonUniformBallot %v4uint %uint_3 %39 sg_ballot    1.5  t = 19.875..21.375  lanes {0,1,3,4,5,7}  -> (184,0,0,0) (184,0,0,0) - (184,0,0,0) (184,0,0,0) (184,0,0,0) - (184,0,0,0)
+    %43 = OpGroupNonUniformBallotBitCount %uint %uint_3 ExclusiveScan %42 bitcnt         7  t = 21.375..28.375  lanes {0,1,3,4,5,7}  -> 0 0 - 0 1 2 - 3
+    %47 = OpUGreaterThan %bool %28 %uint_5       cmp        2.375  t = 28.375..30.75  lanes {0,1,3,4,5,7}  -> false true - false false false - false
+    %48 = OpGroupNonUniformBallot %v4uint %uint_3 %47 sg_ballot    1.5  t = 30.75..32.25  lanes {0,1,3,4,5,7}  -> (2,0,0,0) (2,0,0,0) - (2,0,0,0) (2,0,0,0) (2,0,0,0) - (2,0,0,0)
+    %49 = OpGroupNonUniformBallotBitCount %uint %uint_3 Reduce %48 bitcnt         3  t = 32.25..35.25  lanes {0,1,3,4,5,7}  -> 1 1 - 1 1 1 - 1
+    %50 = OpIMul %uint %uint_100 %49             imul           3  t = 35.25..38.25  lanes {0,1,3,4,5,7}  -> 100 100 - 100 100 100 - 100
+    %51 = OpIAdd %uint %43 %50                   iadd           1  t = 38.25..39.25  lanes {0,1,3,4,5,7}  -> 100 100 - 100 101 102 - 103
+    OpStore %27 %51                              store         15  t = 39.25..54.25  lanes {0,1,3,4,5,7}
+    reconverge (keep-up)                         diverge    14.375  t = 54.25..68.625
+  time 68.625 for every lane; lanes busy 86% (75.5 lane-units idle: masked, or waiting for an atomic)
+  animation: 1062x327, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 11.4 cost units; 307591 bytes
+  (nofile: GIF checksum a423aa8d)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > use gt1030
 cost model: gt1030
 > spvsimplify nofile nofunctions
 simplify: 88 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 4 sums of bits over the lanes made a ballot's bit count (derived, below), 2 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 262 -> 96.75 (-63.1%)
+  integer arithmetic cost under gt1030 (each instruction once): 261.25 -> 102 (-61.0%)
   by kind:
-       4  a sum of bits over the lanes as a ballot's bit count  -165.25
+       4  a sum of bits over the lanes as a ballot's bit count  -159.25
   rewrites:
     %37 = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %35
-      ->  OpGroupNonUniformBallotBitCount ExclusiveScan of the ballot of %33   (a sum of bits over the lanes as a ballot's bit count; -55.875)
+      ->  OpGroupNonUniformBallotBitCount ExclusiveScan of the ballot of %33   (a sum of bits over the lanes as a ballot's bit count; -54.375)
       (line 8: uint at = subgroupExclusiveAdd(x > 5u ? 1u : 0u);)
     %47 = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %46
-      ->  OpGroupNonUniformBallotBitCount InclusiveScan of the ballot of %46 != 0   (a sum of bits over the lanes as a ballot's bit count; -50.875)
+      ->  OpGroupNonUniformBallotBitCount InclusiveScan of the ballot of %46 != 0   (a sum of bits over the lanes as a ballot's bit count; -49.375)
       (line 10: uint f = subgroupInclusiveAdd(bitfieldExtract(x, 3, 1));)
     %54 = OpGroupNonUniformIAdd %int %uint_3 Reduce %53
-      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %52   (a sum of bits over the lanes as a ballot's bit count; -31.25)
+      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %52   (a sum of bits over the lanes as a ballot's bit count; -29.75)
       (line 11: int s = subgroupAdd(int(x < 9u));)
     %41 = OpGroupNonUniformIAdd %uint %uint_3 Reduce %40
-      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %40 != 0   (a sum of bits over the lanes as a ballot's bit count; -27.25)
+      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %40 != 0   (a sum of bits over the lanes as a ballot's bit count; -25.75)
       (line 9: uint odd = subgroupAdd(x & 1u);)
   subgroup forms that need the subgroup's size fixed, proposed (pipeline state: the module is not changed), under gt1030:
     %57 = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %28
@@ -127,22 +126,22 @@ simplify: 88 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
   subgroup sums of bits (a value that is 0 or 1 in every lane, summed over the lanes, is a ballot's bit count), under gt1030:
     %37 = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %35
-      ->  OpGroupNonUniformBallotBitCount ExclusiveScan of the ballot of %33   (cost 62.875 -> 7)
+      ->  OpGroupNonUniformBallotBitCount ExclusiveScan of the ballot of %33   (cost 62.875 -> 8.5)
       (line 8: uint at = subgroupExclusiveAdd(x > 5u ? 1u : 0u);)
       %35 is %33 ? 1 : 0, so its sum over the lanes before this one is the number of those lanes where it is not 0: the set bits of their ballot, which OpGroupNonUniformBallotBitCount ExclusiveScan counts
       holds for any subgroup size and any set of active lanes: both sides count the active lanes only
     %41 = OpGroupNonUniformIAdd %uint %uint_3 Reduce %40
-      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %40 != 0   (cost 32.625 -> 5.375)
+      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %40 != 0   (cost 32.625 -> 6.875)
       (line 9: uint odd = subgroupAdd(x & 1u);)
       %40 is %28 & 1, in [0, 1] by intervals, so its sum over the lanes is the number of those lanes where it is not 0: the set bits of their ballot, which OpGroupNonUniformBallotBitCount Reduce counts
       holds for any subgroup size and any set of active lanes: both sides count the active lanes only
     %47 = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %46
-      ->  OpGroupNonUniformBallotBitCount InclusiveScan of the ballot of %46 != 0   (cost 60.25 -> 9.375)
+      ->  OpGroupNonUniformBallotBitCount InclusiveScan of the ballot of %46 != 0   (cost 60.25 -> 10.875)
       (line 10: uint f = subgroupInclusiveAdd(bitfieldExtract(x, 3, 1));)
       %46 is %28 >> 3 & 1, in [0, 1] by intervals, so its sum over the lanes up to this one is the number of those lanes where it is not 0: the set bits of their ballot, which OpGroupNonUniformBallotBitCount InclusiveScan counts
       holds for any subgroup size and any set of active lanes: both sides count the active lanes only
     %54 = OpGroupNonUniformIAdd %int %uint_3 Reduce %53
-      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %52   (cost 34.25 -> 3)
+      ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %52   (cost 34.25 -> 4.5)
       (line 11: int s = subgroupAdd(int(x < 9u));)
       %53 is %52 ? 1 : 0, so its sum over the lanes is the number of those lanes where it is not 0: the set bits of their ballot, which OpGroupNonUniformBallotBitCount Reduce counts
       holds for any subgroup size and any set of active lanes: both sides count the active lanes only
@@ -160,10 +159,10 @@ simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   subgroup sums of bits (a value that is 0 or 1 in every lane, summed over the lanes, is a ballot's bit count), under cheapsum:
     %37 = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %35
       (line 8: b.d[i] = subgroupExclusiveAdd(x > 5u ? 1u : 0u) + subgroupAdd(x & 1u);)
-      %35 is %33 ? 1 : 0; as a ballot's bit count it costs 7 against 4.625 under cheapsum: left as it is
+      %35 is %33 ? 1 : 0; as a ballot's bit count it costs 8.5 against 4.625 under cheapsum: left as it is
     %40 = OpGroupNonUniformIAdd %uint %uint_3 Reduce %39
       (line 8: b.d[i] = subgroupExclusiveAdd(x > 5u ? 1u : 0u) + subgroupAdd(x & 1u);)
-      %39 is %28 & 1, in [0, 1] by intervals; as a ballot's bit count it costs 5.375 against 1 under cheapsum: left as it is
+      %39 is %28 & 1, in [0, 1] by intervals; as a ballot's bit count it costs 6.875 against 1 under cheapsum: left as it is
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
