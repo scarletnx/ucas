@@ -10655,11 +10655,18 @@ float_pass(const char *text, int *changed)
  */
 enum { FQ_CONST, FQ_DRAW, FQ_PRIM, FQ_VERTEX, FQ_SCREEN, FQ_RUN };
 static int advice_on;
+static double adv_overdraw;	/* fragments a pixel gets; 0: not said */
 
 void
 spirv_advice_opt(int on)
 {
 	advice_on = on;
+}
+
+void
+spirv_overdraw_opt(double k)
+{
+	adv_overdraw = k;
 }
 
 static int
@@ -11460,6 +11467,36 @@ adv_early(struct sbuf *rep, const struct model *m)
 		    "proposal: what hidden fragments stored is no longer stored)\n",
 		    neff, neff == 1 ? "" : "s");
 		rep_str("early_tests", "offered");
+	}
+	if (adv_overdraw >= 1 && !depth && !stencil) {
+		/* what the overdraw makes of it, in runs of the shader a pixel
+		 * (a run is not priced as a whole) */
+		double K = adv_overdraw, H = 0;
+		int j;
+		for (j = 1; K == floor(K) && j <= (int)K; j++)
+			H += 1.0 / j;
+		if (!why) {
+			sb_printf(rep, "    with overdraw %g (fragments a pixel): late "
+			    "tests run the shader %g times a pixel; early tests once "
+			    "front to back (%g runs saved)", K, K, K - 1);
+			if (H > 0)
+				sb_printf(rep, ", H_%g = %.3g times in a random order (%.3g "
+				    "saved)", K, H, K - H);
+			sb_printf(rep, ", %g times back to front (none saved); a "
+			    "depth-only prepass makes it once in any order, for the "
+			    "vertices again and %g depth-only fragments a pixel\n", K,
+			    K);
+		} else
+			sb_printf(rep, "    with overdraw %g (fragments a pixel): it runs "
+			    "%g times a pixel; a depth-only prepass (the discard's test "
+			    "and the depth in a pass of its own, then this shader on an "
+			    "EQUAL test) runs it once, %g runs saved, for the vertices "
+			    "again and %g fragments of the prepass a pixel\n", K, K, K - 1,
+			    K);
+		rep_num("overdraw", K);
+		rep_num("runs_saved_front_to_back", K - 1);
+		if (H > 0 && !why)
+			rep_num("runs_saved_in_random_order", K - H);
 	}
 	sb_printf(rep, "    %s\n", V.in[eff].text);
 	src_line(ins_line(eff), sl, sizeof sl);
@@ -14600,6 +14637,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		spirv_sink_opt(NULL);
 		spirv_tex_binding(-1, -1);
 		advice_on = 0;
+		adv_overdraw = 0;
 		fnl_mode = 0;
 		return;
 	}
@@ -15519,5 +15557,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 	spirv_sink_opt(NULL);
 	spirv_tex_binding(-1, -1);
 	advice_on = 0;
+	adv_overdraw = 0;
 	fnl_mode = 0;
 }

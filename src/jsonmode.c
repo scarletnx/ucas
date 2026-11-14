@@ -677,6 +677,9 @@ static const struct jcmd cmds[] = {
 	    BO("advice", "", "also report what could leave the shader: values "
 	    "of a draw's frequency, and in a fragment shader what is affine in "
 	    "the varyings"),
+	    NUO("overdraw", "", "advice: the fragments a pixel gets (1 or "
+	    "more): the shader's runs that early fragment tests and a depth "
+	    "prepass save"),
 	    {"sink", P_TEXT, 0, "", "float rewrites: the format the stored "
 	    "and returned floats end in (unorm8, rgba8, r8g8b8a8_unorm, "
 	    "rgb10a2, f16): one step of it is the error budget; or int: a "
@@ -2537,6 +2540,11 @@ cmd_spirv(struct req *r, const char **code)
 	}
 	if ((v = jv_get(r->args, "advice")) != NULL && v->t == J_TRUE)
 		sb_puts(&r->stmt, " advice");
+	if ((v = jv_get(r->args, "overdraw")) != NULL) {
+		sb_puts(&r->stmt, " overdraw ");
+		if (!render_num(r, &r->stmt, v, "overdraw"))
+			return 0;
+	}
 	if ((v = jv_get(r->args, "sink")) != NULL) {
 		const char *q;
 		if (v->t != J_STR || !v->s[0])
