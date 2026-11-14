@@ -1028,8 +1028,8 @@ commands (F is a function name or an expression like isqrt(x: u4))
   equiv F G [ftz|noftz] [nanbits] | error G ~ F
   fit G ~ F [metric maxrel|maxabs|rms]
   gates F [basis b] [max k] [nodes n] [as c]
-  find F [n] [max cost] | more [n]
-  cost F [model m] [consecutive i] | use m
+  find F [n] [max cost] [occupancy w] | more [n]
+  cost F [model m] [consecutive i] [occupancy w] | use m
   stoke F [steps n] [restarts r] [len l] [seed k] [model m]
   pit F G [trials n] [seed k] | phash F [seed k] [model m]
   dword F [tol r | atol t | ulp x] [model m] | foldproof F [model m]
@@ -1050,7 +1050,7 @@ commands (F is a function name or an expression like isqrt(x: u4))
     [at a]
 loops and calculus
   sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }
-  closed F | scheme F [more] [model m] | continuous F
+  closed F | scheme F [more] [model m] [occupancy w] | continuous F
   integrate F [wrt x] [from a to b] | antiderivative F [wrt x]
   diff F [x y ...] [n] | grad|hessian|laplacian F [at a, b] | F'' | F'(a)
   jacobian F, G [wrt x, y] [at ...] | ddir F along v [at p] [raw]

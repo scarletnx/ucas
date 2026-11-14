@@ -1,0 +1,31 @@
+# A model's latencies (Liz, on #24 and #25: "(b)"): each class's latency
+# in the prices' unit, `occupancy` the warps a scheduler keeps resident to
+# hide it, and a price of max(throughput, critical path / occupancy).
+# gt1030 lists none: every price there is the throughput, as before.
+model lat : gt1030 {
+  latency fadd: 6, fmul: 6, iadd: 6, logic: 6, shift: 6, imul: 9, load: 200
+  occupancy: 2
+}
+p(x: f32 in -1..1) = 1.5*x^12 - 0.75*x^11 + 2.25*x^10 + 0.5*x^9 - 1.25*x^8 + 3.5*x^7 + 0.125*x^6 - 2.5*x^5 + 1.75*x^4 + 0.625*x^3 - 1.5*x^2 + 2.75*x + 0.375
+# Horner's 12 FFMAs are one chain of 72: at two warps 36 a warp, so
+# Estrin's 15 with a path of 24 (12 a warp) wins
+scheme p model lat
+# eight warps hide Horner's chain: its throughput decides
+scheme p model lat occupancy 8
+cost p model lat
+cost p model lat occupancy 8
+# a load's latency makes find prefer arithmetic to a table
+days(m: u8 in 1..12) = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+use lat
+find days
+use gt1030
+# inherited, and taken back
+model lat8 : lat { occupancy: 8 }
+model thr : lat { latency none }
+cost p model thr
+# what is refused, and a word that changes nothing
+model bad : gt1030 { latency fadd: 6 }
+model bad2 : gt1030 { latency nosuch: 6, occupancy: 2 }
+model bad3 : gt1030 { latency fadd: 2000000, occupancy: 2 }
+cost p model lat occupancy 0
+cost p occupancy 4

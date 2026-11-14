@@ -1,0 +1,104 @@
+> model lat : gt1030 {
+    latency fadd: 6, fmul: 6, iadd: 6, logic: 6, shift: 6, imul: 9, load: 200
+    occupancy: 2
+  }
+> p(x: f32 in -1..1) = 1.5*x^12 - 0.75*x^11 + 2.25*x^10 + 0.5*x^9 - 1.25*x^8 + 3.5*x^7 + 0.125*x^6 - 2.5*x^5 + 1.75*x^4 + 0.625*x^3 - 1.5*x^2 + 2.75*x + 0.375
+> scheme p model lat
+evaluation schemes for p under lat
+polynomial of degree 12 in x:
+  as written cost 105    depth 21    35 ops  1.5x^12 - 0.75x^11 + 2.25x^10 + 0.5x^9 - 1.25x^8 + 3.5x^7 + 0.125x^6 - 2.5x^5 + 1.75x^4 + 0.625x^3 - 1.5x^2 + 2.75x + 0.375
+  pow()      cost 105    depth 21    35 ops  1.5x^12 - 0.75x^11 + 2.25x^10 + 0.5x^9 - 1.25x^8 + 3.5x^7 + 0.125x^6 - 2.5x^5 + 1.75x^4 + 0.625x^3 - 1.5x^2 + 2.75x + 0.375
+  products   cost 35     depth 24    35 ops  1.5(x*x*x*x*x*x*x*x*x*x*x*x) - 0.75(x*x*x*x*x*x*x*x*x*x*x) + 2.25(x*x*x*x*x*x*x*x*x*x) + 0.5(x*x*x*x*x*x*x*x*x) - 1.25(x*x*x*x*x*x*x*x) + 3.5(x*x*x*x*x*x*x) + 0.125(x*x*x*x*x*x) - 2.5(x*x*x*x*x) + 1.75(x*x*x*x) + 0.625(x*x*x) - 1.5(x*x) + 2.75x + 0.375
+             max relative difference 1.2e-07 (rounding) at 4096 points
+  Horner     cost 24     depth 24    24 ops  (((((((((((1.5x - 0.75)*x + 2.25)*x + 0.5)*x - 1.25)*x + 3.5)*x + 0.125)*x - 2.5)*x + 1.75)*x + 0.625)*x - 1.5)*x + 2.75)*x + 0.375
+             max relative difference 3.5e-06 (rounding) at 4096 points
+  Estrin     cost 27     depth 7     27 ops  2.75x + 0.375 + (0.625x - 1.5)*(x*x) + (1.75 - 2.5x + (3.5x + 0.125)*(x*x))*(x*x*(x*x)) + (0.5x - 1.25 + (2.25 - 0.75x)*(x*x) + 1.5(x*x*(x*x)))*(x*x*(x*x)*(x*x*(x*x)))
+             max relative difference 1.1e-06 (rounding) at 4096 points
+  (depth is the critical path: Estrin trades operations for parallelism)
+  cheapest with lat's fusions and latencies counted (occupancy 2; the critical path in parentheses): Estrin 15 (24); products 69 (138), Horner 36 (72)
+> scheme p model lat occupancy 8
+evaluation schemes for p under lat
+polynomial of degree 12 in x:
+  as written cost 105    depth 21    35 ops  1.5x^12 - 0.75x^11 + 2.25x^10 + 0.5x^9 - 1.25x^8 + 3.5x^7 + 0.125x^6 - 2.5x^5 + 1.75x^4 + 0.625x^3 - 1.5x^2 + 2.75x + 0.375
+  pow()      cost 105    depth 21    35 ops  1.5x^12 - 0.75x^11 + 2.25x^10 + 0.5x^9 - 1.25x^8 + 3.5x^7 + 0.125x^6 - 2.5x^5 + 1.75x^4 + 0.625x^3 - 1.5x^2 + 2.75x + 0.375
+  products   cost 35     depth 24    35 ops  1.5(x*x*x*x*x*x*x*x*x*x*x*x) - 0.75(x*x*x*x*x*x*x*x*x*x*x) + 2.25(x*x*x*x*x*x*x*x*x*x) + 0.5(x*x*x*x*x*x*x*x*x) - 1.25(x*x*x*x*x*x*x*x) + 3.5(x*x*x*x*x*x*x) + 0.125(x*x*x*x*x*x) - 2.5(x*x*x*x*x) + 1.75(x*x*x*x) + 0.625(x*x*x) - 1.5(x*x) + 2.75x + 0.375
+             max relative difference 1.2e-07 (rounding) at 4096 points
+  Horner     cost 24     depth 24    24 ops  (((((((((((1.5x - 0.75)*x + 2.25)*x + 0.5)*x - 1.25)*x + 3.5)*x + 0.125)*x - 2.5)*x + 1.75)*x + 0.625)*x - 1.5)*x + 2.75)*x + 0.375
+             max relative difference 3.5e-06 (rounding) at 4096 points
+  Estrin     cost 27     depth 7     27 ops  2.75x + 0.375 + (0.625x - 1.5)*(x*x) + (1.75 - 2.5x + (3.5x + 0.125)*(x*x))*(x*x*(x*x)) + (0.5x - 1.25 + (2.25 - 0.75x)*(x*x) + 1.5(x*x*(x*x)))*(x*x*(x*x)*(x*x*(x*x)))
+             max relative difference 1.1e-06 (rounding) at 4096 points
+  (depth is the critical path: Estrin trades operations for parallelism)
+  cheapest with lat's fusions and latencies counted (occupancy 8; the critical path in parentheses): Horner 12 (72); products 24 (138), Estrin 15 (24)
+> cost p model lat
+cost of p under lat: 94 (35 operations, shared subterms counted once)
+  latency: critical path 86 at occupancy 2 is 43 a warp, within the throughput's 94: the throughput decides
+  fadd             1 x 1     = 1
+  fmul             2 x 1     = 2
+  fpow            10 x 8     = 80
+  fused by the model (one instruction for several operations):
+    ffms             1 x 1     = 1  (a*b - c, contracted: one rounding; saves 1)
+    ffma             7 x 1     = 7  (a*b + c, contracted: one rounding; saves 7)
+    ffmr             3 x 1     = 3  (c - a*b, contracted: one rounding; saves 3)
+> cost p model lat occupancy 8
+cost of p under lat: 94 (35 operations, shared subterms counted once)
+  latency: critical path 86 at occupancy 8 is 10.75 a warp, within the throughput's 94: the throughput decides
+  fadd             1 x 1     = 1
+  fmul             2 x 1     = 2
+  fpow            10 x 8     = 80
+  fused by the model (one instruction for several operations):
+    ffms             1 x 1     = 1  (a*b - c, contracted: one rounding; saves 1)
+    ffma             7 x 1     = 7  (a*b + c, contracted: one rounding; saves 7)
+    ffmr             3 x 1     = 3  (c - a*b, contracted: one rounding; saves 3)
+> days(m: u8 in 1..12) = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+> use lat
+cost model: lat
+> find days
+  note: the result is int: searching in u8
+find days: 12 points, computing in u8, costs from lat
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 12  int(0x3bbeecc >> (u32(m) << 1) & 3) + 28 the map [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] of m as a table in one constant (12 entries of 2 bits) (derived; checked on every point)
+      holds where m in [1, 12] (its range)
+      [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] at m = 1..12 is [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] (evaluated at each of the 12)
+      bits [2*i, 2*i + 2) of 0x3bbeecc hold the value at m = i, less the least value: shifting right by that many bits times m and masking reads it
+  cost 15  u8(0x3bbeecc >> (u32(m) << 1) & 3) + 28  packed table in one constant
+  cost 103 [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] lookup table (baseline)
+  [searched every term up to cost 5: 1398101 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> model lat8 : lat { occupancy: 8 }
+> model thr : lat { latency none }
+> cost p model thr
+cost of p under thr: 94 (35 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  fmul             2 x 1     = 2
+  fpow            10 x 8     = 80
+  fused by the model (one instruction for several operations):
+    ffms             1 x 1     = 1  (a*b - c, contracted: one rounding; saves 1)
+    ffma             7 x 1     = 7  (a*b + c, contracted: one rounding; saves 7)
+    ffmr             3 x 1     = 3  (c - a*b, contracted: one rounding; saves 3)
+> model bad : gt1030 { latency fadd: 6 }
+latency.ucas:27:39: error: model bad lists latencies but no occupancy: say how many warps a scheduler keeps resident to hide them (occupancy: N), or take them back with `latency none`
+    model bad : gt1030 { latency fadd: 6 }
+                                          ^
+> model bad2 : gt1030 { latency nosuch: 6, occupancy: 2 }
+latency.ucas:28:31: error: latency: unknown cost class 'nosuch' (see 'models'): latency fadd: 6, fmul: 6
+    model bad2 : gt1030 { latency nosuch: 6, occupancy: 2 }
+                                  ^
+> model bad3 : gt1030 { latency fadd: 2000000, occupancy: 2 }
+latency.ucas:29:44: error: latency fadd: from 0 to 1e6, not 2e+06
+    model bad3 : gt1030 { latency fadd: 2000000, occupancy: 2 }
+                                               ^
+> cost p model lat occupancy 0
+latency.ucas:30:29: error: occupancy: a whole count of warps from 1 to 4096, not 0
+    cost p model lat occupancy 0
+                                ^
+> cost p occupancy 4
+  note: occupancy 4 changes nothing: gt1030 lists no latencies, so its prices are throughput alone
+cost of p under gt1030: 94 (35 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  fmul             2 x 1     = 2
+  fpow            10 x 8     = 80
+  fused by the model (one instruction for several operations):
+    ffms             1 x 1     = 1  (a*b - c, contracted: one rounding; saves 1)
+    ffma             7 x 1     = 7  (a*b + c, contracted: one rounding; saves 7)
+    ffmr             3 x 1     = 3  (c - a*b, contracted: one rounding; saves 3)
