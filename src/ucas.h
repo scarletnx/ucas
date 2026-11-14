@@ -838,7 +838,7 @@ int find_cands(struct func *f, int maxcost, double seconds, nid *out,
     char (*why)[96], int max);
 extern uint64_t gates_budget;
 void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost,
-    int snip, const char *snipname);
+    int snip, const char *snipname, int saturate);
 /* a rewrite rule: l = r for every value of the pattern variables pv
  * (O_VAR nodes of type ty), proved when it was kept */
 struct rwrule {
@@ -847,6 +847,10 @@ struct rwrule {
 	int nin;
 	ty_t ty;
 };
+/* egraph.c: the cheapest member of root's class after equality
+ * saturation with the written rules and the ones given */
+nid egraph_best(nid root, const struct rwrule *rr, int nr, char *stat,
+    size_t nstat);
 /* find.c: `rule NAME(a: T, ...) = L => R`, proved, kept for find */
 void cmd_rule(const struct func *f, nid l, nid r);
 /* find.c: snippets grow [NAME] ...: the enumeration with no target */

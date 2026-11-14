@@ -5396,6 +5396,25 @@ otherwise, with where the sides differ; a rule of the same name replaces
 it.  The rules last for the session, declared and inferred, a later
 `rules infer` replacing only the inferred ones (tests/rules.ucas).
 
+**Equality saturation.**  `find F saturate` puts F's integer arithmetic
+in an e-graph (src/egraph.c): classes of equal terms, an e-node being an
+add, sub, mul, and, or, xor, shl, neg or not on classes, or a leaf kept
+whole.  Each round applies every rule to every match in every class,
+both ways, adds the other side and merges its class with the matched
+one, then closes the classes under congruence; it stops when a round
+adds nothing (saturated), at 10000 nodes or after 10 rounds, and says
+which.  The rules are a written set for any integer type
+(commutativity, associativity, * over + and -, & over |, a - b as a +
+(-b), -a and ~a as subtractions, de Morgan, x + x and x << 1 as 2x, a
+shift by a constant k as a multiply by 2^k, x - x, x xor x, x & x, x |
+x) and the rules `rules infer` kept, at their width; constants fold
+where both operands of a node are constants.  The cheapest tree of the
+root's class under the model's prices is extracted, priced again by the
+cover, and listed when it is below F as written, checked like every
+match.  A form that pays only after a dearer one on the way is found
+this way: `x*(y + z) - x*z` is `xy` through the distributed `x*y + x*z
+- x*z` (tests/saturate.ucas).
+
 ## Float simplify
 
 After the integer part, `simplify` reads every float value the module
