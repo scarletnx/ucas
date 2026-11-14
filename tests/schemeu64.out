@@ -2,14 +2,14 @@
 > scheme c
 evaluation schemes for c under gt1030
 polynomial of degree 3 in x:
-  as written cost 21     depth 10     8 ops  50x + 18446744073709551615 + 44x^2 + 15x^3
-  pow()      cost 21     depth 12     8 ops  15x^3 + 44x^2 + 50x + 18446744073709551615
+  as written cost 99     depth 48.5   8 ops  50x + 18446744073709551615 + 44x^2 + 15x^3
+  pow()      cost 99     depth 52.5   8 ops  15x^3 + 44x^2 + 50x + 18446744073709551615
              equal at all 4096 points checked
-  products   cost 18     depth 12     8 ops  15(x*x*x) + 44(x*x) + 50x + 18446744073709551615
+  products   cost 83.5   depth 52.5   8 ops  15(x*x*x) + 44(x*x) + 50x + 18446744073709551615
              equal at all 4096 points checked
-  Horner     cost 12     depth 12     6 ops  ((15x + 44)*x + 50)*x + 18446744073709551615
+  Horner     cost 52.5   depth 52.5   6 ops  ((15x + 44)*x + 50)*x + 18446744073709551615
              equal at all 4096 points checked
-  Estrin     cost 15     depth 8      7 ops  50x + 18446744073709551615 + (15x + 44)*(x*x)
+  Estrin     cost 68     depth 35     7 ops  50x + 18446744073709551615 + (15x + 44)*(x*x)
              equal at all 4096 points checked
   (depth is the critical path: Estrin trades operations for parallelism)
   differences, for x = 0, 1, ...: start d0 = -9223372036854775808 d1 = 0 d2 = 0 d3 = 0
@@ -19,13 +19,13 @@ polynomial of degree 3 in x:
 > scheme h
 evaluation schemes for h under gt1030
 polynomial of degree 2 in x:
-  as written cost 11     depth 8      5 ops  11400714819323198485x^2 + 13787848793156543929x + 10723151780598845931
-  pow()      cost 11     depth 8      5 ops  11400714819323198485x^2 + 13787848793156543929x + 10723151780598845931
-  products   cost 11     depth 8      5 ops  11400714819323198485(x*x) + 13787848793156543929x + 10723151780598845931
+  as written cost 50.5   depth 35     5 ops  11400714819323198485x^2 + 13787848793156543929x + 10723151780598845931
+  pow()      cost 50.5   depth 35     5 ops  11400714819323198485x^2 + 13787848793156543929x + 10723151780598845931
+  products   cost 50.5   depth 35     5 ops  11400714819323198485(x*x) + 13787848793156543929x + 10723151780598845931
              equal at all 4096 points checked
-  Horner     cost 8      depth 8      4 ops  (11400714819323198485x + 13787848793156543929)*x + 10723151780598845931
+  Horner     cost 35     depth 35     4 ops  (11400714819323198485x + 13787848793156543929)*x + 10723151780598845931
              equal at all 4096 points checked
-  Estrin     cost 11     depth 7      5 ops  13787848793156543929x + 10723151780598845931 + 11400714819323198485(x*x)
+  Estrin     cost 50.5   depth 33     5 ops  13787848793156543929x + 10723151780598845931 + 11400714819323198485(x*x)
              equal at all 4096 points checked
   (depth is the critical path: Estrin trades operations for parallelism)
   differences, for x = 0, 1, ...: start d0 = -9223372036854775808 d1 = 0 d2 = 0

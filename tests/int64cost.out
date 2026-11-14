@@ -9,12 +9,12 @@
 > a9(a: u64, b: u64) = a ^ b
   note: '^' is power; use 'xor' or '⊕' for exclusive or
 > cost a1
-cost of a1 under gt1030: 1 (1 operations, shared subterms counted once)
-  iadd             1 x 1     = 1
+cost of a1 under gt1030: 2 (1 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
 > cost a2
-cost of a2 under gt1030: 3 (2 operations, shared subterms counted once)
-  fused by the model (one instruction for several operations):
-    imad             1 x 3     = 3  (a*b + c; saves 1)
+cost of a2 under gt1030: 17.5 (2 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
 > model w64 : gt1030 { iadd64: 2, imul64: 15.5, shift64: 2 }
 > use w64
 cost model: w64

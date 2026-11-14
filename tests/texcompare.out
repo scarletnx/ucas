@@ -181,7 +181,7 @@ texalu q5: reads through the texture unit under cal (cost 58 as written):
 > l4(x: u8 in 0..1, y: u8 in 0..1, z: u8 in 0..1, r: f32 in 0..1) = u32(r <= L[z*12 + y*3 + x]) + u32(r <= L[z*12 + y*3 + x + 1]) + u32(r <= L[z*12 + y*3 + x + 3]) + u32(r <= L[z*12 + y*3 + x + 4])
 > texalu l4 under cal
 texalu l4: reads through the texture unit under cal (cost 62 as written):
-  cost 40  u32(4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125, 0.5, 0, 1, 0.25, 0.75, 0.5, 0.125, 0], 3, 0.333333343(f32(x) + 1), 0.125(f32(i64(y) + 4i64(z)) + 1), r) + 0.5)
+  cost 43  u32(4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125, 0.5, 0, 1, 0.25, 0.75, 0.5, 0.125, 0], 3, 0.333333343(f32(x) + 1), 0.125(f32(i64(y) + 4i64(z)) + 1), r) + 0.5)
       4 compares of r with entries of the 3 x 8 table from offset (0, 0), weights' sum 4: one compare read at fraction 0.5 along x, 0.5 along y
       holds where x in [0, 1], i64(y) + 4i64(z) in [0, 5] (proved ranges): every texel read is inside the table
       a compare read at fractions (u, v) of texels a b / c d is (1-u)(1-v) [ref <= a] + u(1-v) [ref <= b] + (1-u)v [ref <= c] + uv [ref <= d], [ ] 1 where it holds and 0 elsewhere, ref = r: times 4 with u = 0.5, v = 0.5 those are the entries' weights
@@ -198,7 +198,7 @@ texalu l4: reads through the texture unit under cal (cost 62 as written):
 > l8(x: u8 in 0..1, y: u8 in 0..1, z: u8 in 0..0, r: f32 in 0..1) = u32(r <= L[z*12 + y*3 + x]) + u32(r <= L[z*12 + y*3 + x + 1]) + u32(r <= L[z*12 + y*3 + x + 3]) + u32(r <= L[z*12 + y*3 + x + 4]) + u32(r <= L[z*12 + y*3 + x + 12]) + u32(r <= L[z*12 + y*3 + x + 13]) + u32(r <= L[z*12 + y*3 + x + 15]) + u32(r <= L[z*12 + y*3 + x + 16])
 > texalu l8 under cal
 texalu l8: reads through the texture unit under cal (cost 119 as written):
-  cost 68  u32(4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125, 0.5, 0, 1, 0.25, 0.75, 0.5, 0.125, 0], 3, t2, 0.125(t1 + 1), r) + 4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125, 0.5, 0, 1, 0.25, 0.75, 0.5, 0.125, 0], 3, t2, 0.125(t1 + 5), r) + 0.5) where t1 = f32(i64(y) + 4i64(z)), t2 = 0.333333343(f32(x) + 1)
+  cost 71  u32(4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125, 0.5, 0, 1, 0.25, 0.75, 0.5, 0.125, 0], 3, t2, 0.125(t1 + 1), r) + 4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125, 0.5, 0, 1, 0.25, 0.75, 0.5, 0.125, 0], 3, t2, 0.125(t1 + 5), r) + 0.5) where t1 = f32(i64(y) + 4i64(z)), t2 = 0.333333343(f32(x) + 1)
       4 compares of r with entries of the 3 x 8 table from offset (0, 0), weights' sum 4: one compare read at fraction 0.5 along x, 0.5 along y
       4 compares of r with entries of the 3 x 8 table from offset (0, 4), weights' sum 4: one compare read at fraction 0.5 along x, 0.5 along y
       holds where x in [0, 1], i64(y) + 4i64(z) in [0, 1] (proved ranges): every texel read is inside the table

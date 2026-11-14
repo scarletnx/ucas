@@ -2,7 +2,7 @@
 lperm: the lane map lane xor (lane & 1) << 1 over 32 lanes
   map: 0 3 2 1 4 7 6 5 8 11 10 9 12 15 14 13 16 19 18 17 20 23 22 21 24 27 26 25 28 31 30 29
   affine: lane -> A lane xor 0, A's columns (lane bit j goes to) 3 2 4 8 16; rank(I xor A) = 1
-  stages: 1 stage: lane xor 2 where lane & 1 is not 0 (sg_shuffle), cost 10 (not the cheapest)
+  stages: 1 stage: lane xor 2 where lane & 1 is not 0 (sg_shuffle), cost 9 (not the cheapest)
   one shuffle by the index: cost 8
   chosen under gt1030: one shuffle by an index (sg_shuffle), cost 8
 > lperm lane xor (lane & 1) << 1 model rdna2
@@ -63,10 +63,10 @@ lperm: the lane map lane xor (lane & 1) << 1 over 16 lanes
   chosen under mali_g715: no realisation under the model, cost inf
 > xr(x: u32 uniform, lane: u32 in 0..31) = sg_shuffle_xor(x + lane, 1)
 > cost xr
-cost of xr under gt1030: 6 (3 operations, shared subterms counted once)
+cost of xr under gt1030: 5 (3 operations, shared subterms counted once)
   iadd             1 x 1     = 1
-  logic            1 x 1     = 1
-  sg_shuffle       1 x 4     = 4
+  fused by the model (one instruction for several operations):
+    shfl_xor         1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
 > cost xr model rdna2
 cost of xr under rdna2: 2 (3 operations, shared subterms counted once)
   iadd             1 x 1     = 1
@@ -94,7 +94,7 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
 cost model: gt1030
 > find f 1
 find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  subgroup forms: derived, but not cheaper under gt1030 (cost 13, as written 11): a shuffle's lane map as exchanges by xor
+  subgroup forms: derived, but not cheaper under gt1030 (cost 12, as written 11): a shuffle's lane map as exchanges by xor
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use rdna2

@@ -20,6 +20,15 @@ find add8: 1024 points (sampled; matches verified on the whole domain), computin
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 333 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 35 as written):
+  cost 23  (a & 0xff) + (b & 0xff) & 0xff | (byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441) & 0xff) << 8 | (byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442) & 0xff) << 16 | (byteperm(a, 0, 0x4443) + byteperm(b, 0, 0x4443) & 0xff) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18 & 0xff: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18 & 0xff: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 35 as written):
   cost 5   (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080
            4 x 8-bit lanes, a + b in each: the lanes' top bits go apart, so no carry crosses a lane
@@ -48,6 +57,15 @@ find rsub8: 1024 points (sampled; matches verified on the whole domain), computi
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 337 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 33 as written):
+  cost 23  (b & 0xff) - (a & 0xff) & 0xff | (byteperm(b, 0, 0x4441) - byteperm(a, 0, 0x4441) & 0xff) << 8 | (byteperm(b, 0, 0x4442) - byteperm(a, 0, 0x4442) & 0xff) << 16 | (byteperm(b, 0, 0x4443) - byteperm(a, 0, 0x4443) & 0xff) << 24
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 33 as written):
   cost 5   (b | 0x80808080) - (a & 0x7f7f7f7f) xor ~(b xor a) & 0x80808080
            4 x 8-bit lanes, b - a in each: the lanes' top bits go apart, so no carry crosses a lane
@@ -62,6 +80,11 @@ find sub16: 1024 points (sampled; matches verified on the whole domain), computi
   cost 11  (a & 0xffff) - b & 0xffff | ((a >> 0x10) - (b >> 0x10) & 0xffff) << 16 drops & 65535 (proved by SAT)
   cost 11  a - (b & 0xffff) & 0xffff | ((a >> 0x10) - (b >> 0x10) & 0xffff) << 16 drops & 65535 (proved by SAT)
   cost 9   a - b & 0xffff | (a >> 0x10) - (b >> 0x10) << 16 all of them: drops & 65535, then & 65535, then & 65535 (proved by SAT)
+  instructions under gt1030 (each for the pattern it is; cost 12 as written):
+  cost 10  (a & 0xffff) - (b & 0xffff) & 0xffff | (byteperm(a, 0, 0x4432) - byteperm(b, 0, 0x4432) & 0xffff) << 16
+           a >> 0x10: bytes 2, 3, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10: bytes 2, 3, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 12 as written):
   cost 5   (a | 0x80008000) - (b & 0x7fff7fff) xor ~(a xor b) & 0x80008000
            2 x 16-bit lanes, a - b in each: the lanes' top bits go apart, so no carry crosses a lane
@@ -80,6 +103,21 @@ find add4: 1024 points (sampled; matches verified on the whole domain), computin
   cost 72  (a & 15) + (b & 15) & 15 | ((a >> 4 & 15) + (b >> 4 & 15) & 15) << 4 | ((a >> 8 & 15) + (b >> 8 & 15) & 15) << 8 | ((a >> 12 & 15) + (b >> 12 & 15) & 15) << 12 | ((a >> 0x10) + (b >> 0x10 & 15) & 15) << 16 | ((a >> 0x14 & 15) + (b >> 0x14 & 15) & 15) << 20 | ((a >> 0x18 & 15) + (b >> 0x18 & 15) & 15… (48 more characters) drops & 15 (proved by SAT)
   ... 9 more single drops hold (not listed)
   cost 53  a + b & 15 | ((a >> 4) + (b >> 4) & 15) << 4 | ((a >> 8) + (b >> 8) & 15) << 8 | ((a >> 12) + (b >> 12) & 15) << 12 | ((a >> 0x10) + (b >> 0x10) & 15) << 16 | ((a >> 0x14) + (b >> 0x14) & 15) << 20 | ((a >> 0x18) + (b >> 0x18) & 15) << 24 | (a >> 0x1c) + (b >> 0x1c) << 28 all of them: drops & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15, then & 15 (proved by SAT)
+  instructions under gt1030 (each for the pattern it is; cost 74 as written):
+  cost 53  (a & 15) + (b & 15) & 15 | (bfe(a, 4, 4) + bfe(b, 4, 4) & 15) << 4 | (bfe(a, 8, 4) + bfe(b, 8, 4) & 15) << 8 | (bfe(a, 12, 4) + bfe(b, 12, 4) & 15) << 12 | (bfe(a, 16, 4) + bfe(b, 16, 4) & 15) << 16 | (bfe(a, 20, 4) + bfe(b, 20, 4) & 15) << 20 | (bfe(a, 24, 4) + bfe(b, 24, 4) & 15) << 24 | ((a >> 0x1c) + (b >> 0x1c) & 15) << 28
+           a >> 4 & 15: bits 4..7 of a
+           b >> 4 & 15: bits 4..7 of b
+           a >> 8 & 15: bits 8..11 of a
+           b >> 8 & 15: bits 8..11 of b
+           a >> 12 & 15: bits 12..15 of a
+           b >> 12 & 15: bits 12..15 of b
+           a >> 0x10 & 15: bits 16..19 of a
+           b >> 0x10 & 15: bits 16..19 of b
+           a >> 0x14 & 15: bits 20..23 of a
+           b >> 0x14 & 15: bits 20..23 of b
+           a >> 0x18 & 15: bits 24..27 of a
+           b >> 0x18 & 15: bits 24..27 of b
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 74 as written):
   cost 5   (a & 0x77777777) + (b & 0x77777777) xor (a xor b) & 0x88888888
            8 x 4-bit lanes, a + b in each: the lanes' top bits go apart, so no carry crosses a lane
@@ -99,6 +137,14 @@ find avg8: 1024 points (sampled; matches verified on the whole domain), computin
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 333 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 37 as written):
+  cost 28  (a & 0xff) + (b & 0xff) >> 1 | byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441) >> 1 << 8 | byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442) >> 1 << 16 | byteperm(a, 0, 0x4443) + (b >> 0x18) >> 1 << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 37 as written):
   cost 4   (a & b) + (((a xor b) & 0xfefefefe) >> 1)
            4 x 8-bit lanes, (a + b) >> 1 in each: what both have plus half of what one has
@@ -108,6 +154,10 @@ find avg8: 1024 points (sampled; matches verified on the whole domain), computin
 > avgc16(a: u32, b: u32) = (((a & 0xffff) + (b & 0xffff) + 1) >> 1) | (((a >> 16) + (b >> 16) + 1) >> 1) << 16
 > find avgc16 1
 find avgc16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 16 as written):
+  cost 15  (a & 0xffff) + (b & 0xffff) + 1 >> 1 | byteperm(a, 0, 0x4432) + (b >> 0x10) + 1 >> 1 << 16
+           a >> 0x10: bytes 2, 3, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 16 as written):
   cost 5   (a | b) - (((a xor b) & 0xfffefffe) >> 1)
            2 x 16-bit lanes, (a + b + 1) >> 1 in each: what either has less half of what one has
@@ -117,6 +167,15 @@ find avgc16: 1024 points (sampled; matches verified on the whole domain), comput
 > max8(a: u32, b: u32) = max(a & 255, b & 255) | max((a >> 8) & 255, (b >> 8) & 255) << 8 | max((a >> 16) & 255, (b >> 16) & 255) << 16 | max(a >> 24, b >> 24) << 24
 > find max8 1
 find max8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 30 as written):
+  cost 20  max(a & 0xff, b & 0xff) | max(byteperm(a, 0, 0x4441), byteperm(b, 0, 0x4441)) << 8 | max(byteperm(a, 0, 0x4442), byteperm(b, 0, 0x4442)) << 16 | max(byteperm(a, 0, 0x4443), byteperm(b, 0, 0x4443)) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 30 as written):
   cost 12  b xor (a xor b) & (t1 - (t1 >> 7) | t1) where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
            4 x 8-bit lanes, max(a, b) in each: chosen by whole lanes from the top bit a word-wide compare leaves
@@ -126,6 +185,15 @@ find max8: 1024 points (sampled; matches verified on the whole domain), computin
 > min8(a: u32, b: u32) = min(a & 255, b & 255) | min((a >> 8) & 255, (b >> 8) & 255) << 8 | min((a >> 16) & 255, (b >> 16) & 255) << 16 | min(a >> 24, b >> 24) << 24
 > find min8 1
 find min8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 30 as written):
+  cost 20  min(a & 0xff, b & 0xff) | min(byteperm(a, 0, 0x4441), byteperm(b, 0, 0x4441)) << 8 | min(byteperm(a, 0, 0x4442), byteperm(b, 0, 0x4442)) << 16 | min(byteperm(a, 0, 0x4443), byteperm(b, 0, 0x4443)) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 30 as written):
   cost 12  a xor (a xor b) & (t1 - (t1 >> 7) | t1) where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
            4 x 8-bit lanes, min(a, b) in each: chosen by whole lanes from the top bit a word-wide compare leaves
@@ -135,6 +203,15 @@ find min8: 1024 points (sampled; matches verified on the whole domain), computin
 > absd8(a: u32, b: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) | (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) << 8 | (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) << 16 | (max(a >> 24, b >> 24) - min(a >> 24, b >> 24)) << 24
 > find absd8 1
 find absd8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 38 as written):
+  cost 28  max(a & 0xff, b & 0xff) - min(a & 0xff, b & 0xff) | max(t1, t2) - min(t1, t2) << 8 | max(t3, t4) - min(t3, t4) << 16 | max(t5, t6) - min(t5, t6) << 24 where t1 = byteperm(a, 0, 0x4441), t2 = byteperm(b, 0, 0x4441), t3 = byteperm(a, 0, 0x4442), t4 = byteperm(b, 0, 0x4442), t5 = byteperm(a, 0, 0x4443), t6 = byteperm(b, 0, 0x4443)
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 38 as written):
   cost 14  (b xor t2) - (a xor t2) where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080, t2 = (a xor b) & (t1 - (t1 >> 7) | t1)
            4 x 8-bit lanes, |a - b| in each: max - min, which borrows from no lane
@@ -154,6 +231,14 @@ find sat8: 1024 points (sampled; matches verified on the whole domain), computin
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 397 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 33 as written):
+  cost 24  min((a & 0xff) + (b & 0xff), 255) | min(byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441), 255) << 8 | min(byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442), 255) << 16 | min(byteperm(a, 0, 0x4443) + (b >> 0x18), 255) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 33 as written):
   cost 11  t1 | (t2 - (t2 >> 7) | t2) where t1 = (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080, t2 = (a & b | (a | b) & ~t1) & 0x80808080
            4 x 8-bit lanes, min(a + b, the lane's largest) in each: the sum, all ones where a lane carried
@@ -163,6 +248,15 @@ find sat8: 1024 points (sampled; matches verified on the whole domain), computin
 > ssub8(a: u32, b: u32) = ((a & 255) - min(a & 255, b & 255)) | (((a >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) << 8 | (((a >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) << 16 | ((a >> 24) - min(a >> 24, b >> 24)) << 24
 > find ssub8 1
 find ssub8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 34 as written):
+  cost 24  (a & 0xff) - min(a & 0xff, b & 0xff) | t1 - min(t1, byteperm(b, 0, 0x4441)) << 8 | t2 - min(t2, byteperm(b, 0, 0x4442)) << 16 | t3 - min(t3, byteperm(b, 0, 0x4443)) << 24 where t1 = byteperm(a, 0, 0x4441), t2 = byteperm(a, 0, 0x4442), t3 = byteperm(a, 0, 0x4443)
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 34 as written):
   cost 12  (t2 xor t1 & 0x80808080) & (t3 - (t3 >> 7) | t3) where t1 = ~(a xor b), t2 = (a | 0x80808080) - (b & 0x7f7f7f7f), t3 = (a & ~b | t1 & t2) & 0x80808080
            4 x 8-bit lanes, max(a - b, 0) in each: the difference, 0 where a lane would borrow
@@ -173,6 +267,15 @@ find ssub8: 1024 points (sampled; matches verified on the whole domain), computi
 > find eq8 1
   note: the result is int: searching in u32
 find eq8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 42 as written):
+  cost 32  (a & 0xff == b & 0xff ? 255 : 0) | (byteperm(a, 0, 0x4441) == byteperm(b, 0, 0x4441) ? 255 : 0) << 8 | (byteperm(a, 0, 0x4442) == byteperm(b, 0, 0x4442) ? 255 : 0) << 16 | (byteperm(a, 0, 0x4443) == byteperm(b, 0, 0x4443) ? 255 : 0) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 42 as written):
   cost 8   int(t1 - (t1 >> 7) | t1) where t1 = ~(((a xor b) & 0x7f7f7f7f) + 2139062143 | a xor b) & 0x80808080
            4 x 8-bit lanes, a == b ? all ones : 0 in each: whole lanes from the top bit a word-wide compare leaves
@@ -183,6 +286,11 @@ find eq8: 1024 points (sampled; matches verified on the whole domain), computing
 > find ne16 1
   note: the result is int: searching in u32
 find ne16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 17 as written):
+  cost 15  (a & 0xffff != b & 0xffff ? 65535 : 0) | (byteperm(a, 0, 0x4432) != byteperm(b, 0, 0x4432) ? 65535 : 0) << 16
+           a >> 0x10: bytes 2, 3, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10: bytes 2, 3, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 17 as written):
   cost 8   int(t1 - (t1 >> 15) | t1) where t1 = (((a xor b) & 0x7fff7fff) + 2147450879 | a xor b) & 0x80008000
            2 x 16-bit lanes, a != b ? all ones : 0 in each: whole lanes from the top bit a word-wide compare leaves
@@ -193,6 +301,15 @@ find ne16: 1024 points (sampled; matches verified on the whole domain), computin
 > find ge8 1
   note: the result is int: searching in u32
 find ge8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 42 as written):
+  cost 32  (a & 0xff >= b & 0xff ? 255 : 0) | (byteperm(a, 0, 0x4441) >= byteperm(b, 0, 0x4441) ? 255 : 0) << 8 | (byteperm(a, 0, 0x4442) >= byteperm(b, 0, 0x4442) ? 255 : 0) << 16 | (byteperm(a, 0, 0x4443) >= byteperm(b, 0, 0x4443) ? 255 : 0) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x18: bytes 3, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 42 as written):
   cost 9   int(t1 - (t1 >> 7) | t1) where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
            4 x 8-bit lanes, a >= b ? all ones : 0 in each: whole lanes from the top bit a word-wide compare leaves
@@ -203,6 +320,11 @@ find ge8: 1024 points (sampled; matches verified on the whole domain), computing
 > find lt16 1
   note: the result is int: searching in u32
 find lt16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 17 as written):
+  cost 15  (a & 0xffff < b & 0xffff ? 65535 : 0) | (byteperm(a, 0, 0x4432) < byteperm(b, 0, 0x4432) ? 65535 : 0) << 16
+           a >> 0x10: bytes 2, 3, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10: bytes 2, 3, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 17 as written):
   cost 9   int(t1 - (t1 >> 15) | t1) where t1 = ~(a & ~b | ~(b xor a) & (a | 0x80008000) - (b & 0x7fff7fff)) & 0x80008000
            2 x 16-bit lanes, b > a ? all ones : 0 in each: whole lanes from the top bit a word-wide compare leaves
@@ -225,6 +347,11 @@ find inc8: 1024 points (sampled; matches verified on the whole domain), computin
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 139 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 23 as written):
+  cost 19  (a & 0xff) + 3 & 0xff | (byteperm(a, 0, 0x4441) + 200 & 0xff) << 8 | (byteperm(a, 0, 0x4442) + 1 & 0xff) << 16 | ((a >> 0x18) + 77 & 0xff) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 23 as written):
   cost 4   (a & 0x7f7f7f7f) + 1291929603 xor (a xor 0x4d01c803) & 0x80808080
            4 x 8-bit lanes, a + 0x4d01c803 in each: the lanes' top bits go apart, so no carry crosses a lane
@@ -234,6 +361,12 @@ find inc8: 1024 points (sampled; matches verified on the whole domain), computin
 > clamp8(a: u32) = min(a & 255, 235) | min((a >> 8) & 255, 240) << 8 | min((a >> 16) & 255, 240) << 16 | (a >> 24) << 24
 > find clamp8 1
 find clamp8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 20 as written):
+  cost 13  min(a & 0xff, 235) | min(byteperm(a, 0, 0x4441), 240) << 8 | min(byteperm(a, 0, 0x4442), 240) << 16 | byteperm(a, 0, 0x3444)
+           a >> 0x18 << 24: bytes 4, 4, 4, 3 of 0:a (8 and up: a byte's sign), told at 48 random points
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 20 as written):
   cost 9   a xor (a xor 0xfff0f0eb) & (t1 - (t1 >> 7) | t1) where t1 = ~(~a & 0xfeefefea | ~(a xor 0xfeefefea) & 4277137386 - (a & 0x7f7f7f7f)) & 0x80808080
            4 x 8-bit lanes, min(a, 0xfff0f0eb) in each: chosen by whole lanes from the top bit a word-wide compare leaves
@@ -254,6 +387,14 @@ find mix: 1024 points (sampled; matches verified on the whole domain), computing
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 648 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 38 as written):
+  cost 29  c + ((a & 0xff) + (b & 0xff) >> 1 | byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441) >> 1 << 8 | byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442) >> 1 << 16 | byteperm(a, 0, 0x4443) + (b >> 0x18) >> 1 << 24)
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 38 as written):
   cost 5   c + ((a & b) + (((a xor b) & 0xfefefefe) >> 1))
            4 x 8-bit lanes, (a + b) >> 1 in each: what both have plus half of what one has
@@ -264,6 +405,13 @@ find mix: 1024 points (sampled; matches verified on the whole domain), computing
 cost model: sm75
 > find max8 1
 find max8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sm75
+  instructions under sm75 (each for the pattern it is; cost 21 as written):
+  cost 17  max(a & 0xff, b & 0xff) | max(byteperm(a, 0, 0x4441), byteperm(b, 0, 0x4441)) << 8 | max(byteperm(a, 0, 0x4442), byteperm(b, 0, 0x4442)) << 16 | max(a >> 0x18, b >> 0x18) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under sm75 (every lane in one word-wide operation; cost 21 as written):
   cost 11  b xor (a xor b) & (t1 - (t1 >> 7) | t1) where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
            4 x 8-bit lanes, max(a, b) in each: chosen by whole lanes from the top bit a word-wide compare leaves
@@ -293,6 +441,13 @@ find rgbadd: 1024 points (sampled; matches verified on the whole domain), comput
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 266 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 26 as written):
+  cost 18  (a & 0xff) + (b & 0xff) & 0xff | (byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441) & 0xff) << 8 | (byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442) & 0xff) << 16 | a & 0xff000000
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 26 as written):
   cost 6   a xor ((a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080 xor a) & 0xffffff
            4 x 8-bit lanes, a + b in the lanes of 0x00ffffff: the lanes' top bits go apart, so no carry crosses a lane; 0xff000000 kept from a
@@ -312,6 +467,13 @@ find rgbavg: 1024 points (sampled; matches verified on the whole domain), comput
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 266 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 29 as written):
+  cost 21  (a & 0xff) + (b & 0xff) >> 1 | byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441) >> 1 << 8 | byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442) >> 1 << 16 | b & 0xff000000
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 29 as written):
   cost 5   b xor ((a & b) + (((a xor b) & 0xfefefefe) >> 1) xor b) & 0xffffff
            4 x 8-bit lanes, (a + b) >> 1 in the lanes of 0x00ffffff: what both have plus half of what one has; 0xff000000 kept from b
@@ -331,6 +493,13 @@ find rgbsat: 1024 points (sampled; matches verified on the whole domain), comput
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 314 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 26 as written):
+  cost 18  min((a & 0xff) + (b & 0xff), 255) | min(byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441), 255) << 8 | min(byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442), 255) << 16 | 0xff000000
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 26 as written):
   cost 12  ((t1 | (t2 - (t2 >> 7) | t2)) xor 0xff000000) & 0xffffff xor 0xff000000 where t1 = (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080, t2 = (a & b | (a | b) & ~t1) & 0x80808080
            4 x 8-bit lanes, min(a + b, the lane's largest) in the lanes of 0x00ffffff: the sum, all ones where a lane carried; the rest the constant 0xff000000
@@ -340,6 +509,13 @@ find rgbsat: 1024 points (sampled; matches verified on the whole domain), comput
 > rgbmin(a: u32, b: u32) = min(a & 255, b & 255) | min((a >> 8) & 255, (b >> 8) & 255) << 8 | min((a >> 16) & 255, (b >> 16) & 255) << 16 | (a & 0xff000000)
 > find rgbmin 1
 find rgbmin: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 23 as written):
+  cost 15  min(a & 0xff, b & 0xff) | min(byteperm(a, 0, 0x4441), byteperm(b, 0, 0x4441)) << 8 | min(byteperm(a, 0, 0x4442), byteperm(b, 0, 0x4442)) << 16 | a & 0xff000000
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 23 as written):
   cost 12  a xor (a xor (a xor b) & (t1 - (t1 >> 7) | t1) xor a) & 0xffffff where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
            4 x 8-bit lanes, min(a, b) in the lanes of 0x00ffffff: chosen by whole lanes from the top bit a word-wide compare leaves; 0xff000000 kept from a
@@ -349,6 +525,13 @@ find rgbmin: 1024 points (sampled; matches verified on the whole domain), comput
 > rgbdiff(a: u32, b: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) | (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) << 8 | (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) << 16
 > find rgbdiff 1
 find rgbdiff: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 28 as written):
+  cost 20  max(a & 0xff, b & 0xff) - min(a & 0xff, b & 0xff) | max(t1, t2) - min(t1, t2) << 8 | max(t3, t4) - min(t3, t4) << 16 where t1 = byteperm(a, 0, 0x4441), t2 = byteperm(b, 0, 0x4441), t3 = byteperm(a, 0, 0x4442), t4 = byteperm(b, 0, 0x4442)
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 28 as written):
   cost 15  (b xor t2) - (a xor t2) & 0xffffff where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080, t2 = (a xor b) & (t1 - (t1 >> 7) | t1)
            4 x 8-bit lanes, |a - b| in the lanes of 0x00ffffff: max - min, which borrows from no lane; the rest 0
@@ -374,6 +557,11 @@ find two: 1024 points (sampled; matches verified on the whole domain), computing
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 200 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 14 as written):
+  cost 10  (a & 0xff) + (b & 0xff) & 0xff | (byteperm(a, 0, 0x4441) - byteperm(b, 0, 0x4441) & 0xff) << 8
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 14 as written):
   cost 9   (a & 0xff) + (b & 0xff) & 0xff | ((a | 0x80808080) - (b & 0x7f7f7f7f) xor ~(a xor b) & 0x80808080) & 0xff00
            4 x 8-bit lanes, a - b in the lanes of 0x0000ff00: the lanes' top bits go apart, so no carry crosses a lane; the rest 0
@@ -383,6 +571,11 @@ find two: 1024 points (sampled; matches verified on the whole domain), computing
 > min16(a: u32, b: u32) = min(a & 0xffff, b & 0xffff) | min(a >> 16, b >> 16) << 16
 > find min16 1
 find min16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 11 as written):
+  cost 9   min(a & 0xffff, b & 0xffff) | min(byteperm(a, 0, 0x4432), byteperm(b, 0, 0x4432)) << 16
+           a >> 0x10: bytes 2, 3, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10: bytes 2, 3, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > plain(a: u32, b: u32) = a + b

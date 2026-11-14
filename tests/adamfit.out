@@ -76,12 +76,12 @@ adamfit x/3 (x: u16 in 0..65535) -> u16: 7 fixed-point forms
   the domain's 65536 points, every one measured
   fit: Adam (b1 0.9, b2 0.999, step 0.05 decaying to a tenth), 200 steps from 3 starts on 264 points, the absolute residual; then the integers C, B and the shift by CMA-ES on the exact error
   score = 0.8 * cost / 8.75 (x/3's cost under gt1030) + 0.5 * log2(1 + error / 1)
-  measured: front (cost/error) 7/0
+  measured: front (cost/error) 21.5/0
   closest candidates (defined as af1 ...):
   #   score   cost  measured      proved             shape
-  1   0.640   7     0             exact (exhaustive) u16((C0 * i64(x) + B) >> s) (fixed)
+  1   1.966   21.5  0             exact (exhaustive) u16((C0 * i64(x) + B) >> s) (fixed)
       af1(x) = u16((43691 * i64(x) + 21845) >> 17)
-  2   6.622   10    2732          <= 2732 (exhaustive) u16((C0 * i64(x) * i64(x) + B) >> s) (fixed)
+  2   9.091   37    2732          <= 2732 (exhaustive) u16((C0 * i64(x) * i64(x) + B) >> s) (fixed)
       af2(x) = u16((10923 * i64(x) * i64(x) + 5866006081748) >> 31)
   66850 integer forms evaluated in the search
 > mul8(x: u8, y: u8) = u8((u16(x) * u16(y) + 127) / 255)

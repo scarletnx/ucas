@@ -5,14 +5,14 @@
 cost model: gt1030
 > spvsimplify nofile nofunctions
 simplify: 112 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 23 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 31 -> 5 (-83.9%)
-  counting the strength reductions any driver also does: 33 -> 5 (-84.8%)
-  also done by any driver compiler (1 rewrite, -2; kept in the written module, not counted above): 1 two shifts by constants are one bitfield extract
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 30.25 -> 2.5 (-91.7%)
+  counting the strength reductions any driver also does: 33 -> 2.5 (-92.4%)
+  also done by any driver compiler (1 rewrite, -2.75; kept in the written module, not counted above): 1 two shifts by constants are one bitfield extract
   by kind:
-       1  the bits of one word reversed are one bit reverse  -30
+       1  the bits of one word reversed are one bit reverse  -31.75
   rewrites:
     %69 = OpBitwiseOr %uint %66 %68
-      ->  OpBitReverse %uint %27   (the bits of one word reversed are one bit reverse; -30)
+      ->  OpBitReverse %uint %27   (the bits of one word reversed are one bit reverse; -31.75)
       (line 12: x = (x >> 16) | (x << 16);)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 2912 bytes, checksum 50f21932)
@@ -68,21 +68,21 @@ simplify: 77 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal f
 cost model: gt1030
 > spvsimplify nofile nofunctions
 simplify: 144 SPIR-V instructions, 4 rewrites proved by SAT (bit-precise: equal for every input), 8 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 60 -> 44 (-26.7%)
+  integer arithmetic cost under gt1030 (each instruction once): 128.5 -> 71 (-44.7%)
   by kind:
-       4  a wide product's high word is one multiply extended  -16
+       4  a wide product's high word is one multiply extended  -57.5
   rewrites:
     %62 = OpUConvert %uint %61
-      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -8)
+      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -21.5)
       (line 11: b.d[i] = uint((uint64_t(x) * uint64_t(y)) >> 32);)
     %72 = OpUConvert %uint %71
-      ->  OpShiftRightLogical %uint (OpCompositeExtract %uint (OpUMulExtended %27 %ucas_uint_2863311531) 1) 1   (a wide product's high word is one multiply extended; -3)
+      ->  OpShiftRightLogical %uint (OpCompositeExtract %uint (OpUMulExtended %27 %ucas_uint_2863311531) 1) 1   (a wide product's high word is one multiply extended; -16.5)
       (line 12: b.d[i + 64u] = uint((uint64_t(x) * 0xAAAAAAABul) >> 33);)
     %97 = OpSConvert %int %96
-      ->  OpShiftRightArithmetic %int (OpCompositeExtract %int (OpSMulExtended %41 %ucas_int_4294967289) 1) 2   (a wide product's high word is one multiply extended; -3)
+      ->  OpShiftRightArithmetic %int (OpCompositeExtract %int (OpSMulExtended %41 %ucas_int_4294967289) 1) 2   (a wide product's high word is one multiply extended; -16.5)
       (line 14: c.s[i + 64u] = int((int64_t(p) * -7l) >> 34);)
     %86 = OpSConvert %int %85
-      ->  OpCompositeExtract %int (OpSMulExtended %41 %48) 1   (a wide product's high word is one multiply extended; -2)
+      ->  OpCompositeExtract %int (OpSMulExtended %41 %48) 1   (a wide product's high word is one multiply extended; -3)
       (line 13: c.s[i] = int((int64_t(p) * int64_t(q)) >> 32);)
   spirv-val accepts the written module
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
@@ -94,12 +94,12 @@ simplify: 144 SPIR-V instructions, 4 rewrites proved by SAT (bit-precise: equal 
 cost model: catm
 > spvsimplify nofile nofunctions
 simplify: 82 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 4 dead instructions removed
-  integer arithmetic cost under catm (each instruction once): 15 -> 5 (-66.7%)
+  integer arithmetic cost under catm (each instruction once): 28.5 -> 5 (-82.5%)
   by kind:
-       1  a wide product's high word is one multiply extended  -10
+       1  a wide product's high word is one multiply extended  -23.5
   rewrites:
     %47 = OpUConvert %uint %46
-      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -10)
+      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -23.5)
       (line 9: b.d[i] = uint((uint64_t(x) * uint64_t(y)) >> 32);)
   spirv-val accepts the written module
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
