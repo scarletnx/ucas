@@ -39,15 +39,14 @@ _() = -9
 _() = 250
   -> u32
 > cost mn
-cost of mn under gt1030: inf (3 operations, shared subterms counted once)
+cost of mn under gt1030: 35.125 (3 operations, shared subterms counted once)
   logic            1 x 1     = 1
   imul             1 x 3     = 3
-  sg_min           1 x inf   = inf
-  sg_min is not available under gt1030 (the model lists no such instruction)
+  sg_min           1 x 31.125 = 31.125
 > find mn
 find mn: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
-  cost 22  min(min(min(t xor 37lane, sg_shuffle(t1, lane xor 1)), sg_shuffle(t2, lane xor 2)), sg_shuffle(min(t2, sg_shuffle(t2, lane xor 2)), lane xor 4)) where t1 = t xor 37lane, t2 = min(t1, sg_shuffle(t1, lane xor 1))
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 35.125 as written):
+  cost 19  min(min(min(t xor 37lane, sg_shuffle(t1, lane xor 1)), sg_shuffle(t2, lane xor 2)), sg_shuffle(min(t2, sg_shuffle(t2, lane xor 2)), lane xor 4)) where t1 = t xor 37lane, t2 = min(t1, sg_shuffle(t1, lane xor 1))
            sg_min(t xor 37lane): a butterfly of 3 shuffles by lane xor 1, 2, 4 and mins: after the step for d a lane holds the minimum of the 2d lanes that agree with it from bit d up; proved for any value per lane (with a free word in each lane, every lane's result is the minimum of the 8 words of its subgroup, each once)
            holds in a full subgroup (all 8 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
            checked by SAT
@@ -57,7 +56,7 @@ find mn: 1024 points (sampled; matches verified on the whole domain), computing 
 > find b
 find b: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
-  cost 10.375 u32(sg_all(t1)) + (popcount(sg_ballot(t1)) & 1) where t1 = t >> lane & 1 != 0
+  cost 11.875 u32(sg_all(t1)) + (popcount(sg_ballot(t1)) & 1) where t1 = t >> lane & 1 != 0
            sg_and(t >> lane & 1): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its and over the lanes is whether it is not 0 in every lane: sg_all
            sg_xor(t >> lane & 1): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its xor over the lanes is the parity of the lanes where it is not 0, the low bit of the ballot's bit count
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot), vote (GL_KHR_shader_subgroup_vote)
@@ -76,7 +75,7 @@ cost of mn under red: 35 (3 operations, shared subterms counted once)
 find x: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from red
   dropping operations of x (cost 6 as written; each checked on the whole domain):
   cost 0   496                                      drops xor t (proved by SAT)
-  subgroup forms: derived, but not cheaper under red (cost 22, as written 6): a reduction as a butterfly of shuffles by xor
+  subgroup forms: derived, but not cheaper under red (cost 19, as written 6): a reduction as a butterfly of shuffles by xor
   cost 0   496                                      constant (proved by SAT)
   cost 2   (t | lane - 8) & 0x1f0                   mask (proved by SAT)
   cost 3   lane << 4 | 0x1f0                        or constant (proved by SAT)

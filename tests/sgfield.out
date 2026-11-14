@@ -8,10 +8,32 @@ find sub: 1024 points (sampled; matches verified on the whole domain), computing
   dropping operations of sub (cost 95 as written; each checked on the whole domain):
   cost 94  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 4 & 15] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 8 & 15] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 12 & 15] << 12 | [12, 5, … (300 more characters) drops & 15 (proved by SAT)
   subgroup forms under gt1030 (each derived, with what it holds under; cost 95 as written):
-  cost 17.25 sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> (lane & 0x1c) & 15] >> (lane & 3) & 1 != 0)
+  cost 16.5 sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> (lane & 0x1c) & 15] >> (lane & 3) & 1 != 0)
            every bit of the result reads one field of x and nothing else, 8 fields of 4 bits (told by flipping each bit of x at 48 values of it), and each field goes through the same function, tabulated at its 16 values with the other fields 0; lane i works out bit i, the function of the field it belongs to at the bit's place in it, and the ballot puts it at bit i; a guess until the check below, which proves the form equal to the function
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT
+  instructions under gt1030 (each for the pattern it is; cost 95 as written):
+  cost 82.75 [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 4, 4)] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 8, 4)] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 12, 4)] << 12 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 16, 4)] << 16 | [12, 5, 6, 11, 9, 0, 10, 13… (204 more characters)
+           x >> 4 & 15: bits 4..7 of x
+           x >> 8 & 15: bits 8..11 of x
+           x >> 12 & 15: bits 12..15 of x
+           x >> 0x10 & 15: bits 16..19 of x
+           x >> 0x14 & 15: bits 20..23 of x
+           x >> 0x18 & 15: bits 24..27 of x
+           x >> 0x1c & 15: bits 28..31 of x
+           checked by SAT
+  the texture unit under gt1030 (cost 95 as written): nothing taken
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 12 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 12)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x10 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x10)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x14 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x14)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x18 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x18)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x1c & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x1c)
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] agrees with fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x) on the points tried, but x is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > s16(x: u16 uniform) = u16(S(x & 15) | (S((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (S((x >> 12) & 15) << 12))
@@ -23,7 +45,7 @@ find s16: 1024 points (sampled; matches verified on the whole domain), computing
   cost 46  u16([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 4 & 15)] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 8 & 15)] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 12… (9 more characters) drops & 15 (exhaustive)
   cost 45  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 4 & 15)] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 8 & 15)] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 12)] <… (4 more characters) all of them: drops the conversion u16(...), then & 15 (exhaustive)
   subgroup forms under gt1030 (each derived, with what it holds under; cost 46.5 as written):
-  cost 19.25 u16(sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> (lane & 12) & 15] >> (lane & 3) & 1 != 0) & 0xffff)
+  cost 18.5 u16(sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> (lane & 12) & 15] >> (lane & 3) & 1 != 0) & 0xffff)
            every bit of the result reads one field of x and nothing else, 4 fields of 4 bits (told by flipping each bit of x at 48 values of it), and each field goes through the same function, tabulated at its 16 values with the other fields 0; lane i works out bit i, the function of the field it belongs to at the bit's place in it, and the ballot puts it at bit i; a guess until the check below, which proves the form equal to the function
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked on every point of the domain
@@ -32,6 +54,15 @@ find s16: 1024 points (sampled; matches verified on the whole domain), computing
            65536 entries of u16 (131072 bytes of constant data), one for each point of x in 0..65535; entry k is the function at the point with index k = u32(x), all 65536 evaluated
            priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
            checked on every point of the domain
+  the texture unit under gt1030 (cost 46.5 as written): nothing taken
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x)
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 4 & 15)] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 4)
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 8 & 15)] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 8)
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x >> 12 & 15)] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 12)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > sq(x: u32 uniform) = { a = x & 255; b = (x >> 8) & 255; c = (x >> 16) & 255; d = x >> 24; ((a*a) & 255) | (((b*b) & 255) << 8) | (((c*c) & 255) << 16) | (((d*d) & 255) << 24) }
@@ -44,9 +75,15 @@ find sq: 1024 points (sampled; matches verified on the whole domain), computing 
   cost 31  x*x & 0xff | (b*b & 0xff) << 8 | (c*c & 0xff) << 16 | ((x >> 0x18)*(x >> 0x18) & 0xff) << 24 where b = x >> 8 & 0xff, c = x >> 0x10 & 0xff drops & 255 (proved by SAT)
   cost 28  x*x & 0xff | ((x >> 8)*(x >> 8) & 0xff) << 8 | ((x >> 0x10)*(x >> 0x10) & 0xff) << 16 | (x >> 0x18)*(x >> 0x18) << 24 all of them: drops & 255, then & 255, then & 255, then & 255 (proved by SAT)
   subgroup forms under gt1030 (each derived, with what it holds under; cost 32 as written):
-  cost 18.25 sg_ballot([0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225, 0, 33, 68, 105, 144, 185, 228, 17, 64, 113, 164, 217, 16, 73, 132, 193, 0, 65, 132, 201, 16, 89, 164, 241, 64, 145, 228, 57, 144, 233, 68, 161, 0, 97, 196, 41, 144, 249, 100, 209, 64, 177, 36, 153, 16, 137, 4, 129, 0, 129, 4, 137, 16, 153, 36, 177, 64, 209, 100, 249, 144, 41, 196, 97, 0, 161, 68, 233, 144, 57, 228, 145, 6… (236 more characters)
+  cost 17.5 sg_ballot([0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225, 0, 33, 68, 105, 144, 185, 228, 17, 64, 113, 164, 217, 16, 73, 132, 193, 0, 65, 132, 201, 16, 89, 164, 241, 64, 145, 228, 57, 144, 233, 68, 161, 0, 97, 196, 41, 144, 249, 100, 209, 64, 177, 36, 153, 16, 137, 4, 129, 0, 129, 4, 137, 16, 153, 36, 177, 64, 209, 100, 249, 144, 41, 196, 97, 0, 161, 68, 233, 144, 57, 228, 145, 6… (236 more characters)
            every bit of the result reads one field of x and nothing else, 4 fields of 7 bits (told by flipping each bit of x at 48 values of it), and each field goes through the same function, tabulated at its 128 values with the other fields 0; lane i works out bit i, the function of the field it belongs to at the bit's place in it, and the ballot puts it at bit i; a guess until the check below, which proves the form equal to the function
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  instructions under gt1030 (each for the pattern it is; cost 32 as written):
+  cost 27  (x & 0xff)*(x & 0xff) & 0xff | (t2*t2 & 0xff) << 8 | (t3*t3 & 0xff) << 16 | (t1*t1 & 0xff) << 24 where t1 = byteperm(x, 0, 0x4443), t2 = byteperm(x, 0, 0x4441), t3 = byteperm(x, 0, 0x4442)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x18: bytes 3, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
            checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
@@ -61,6 +98,28 @@ find trap: 1024 points (sampled; matches verified on the whole domain), computin
            the table [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], read 8 times: lane i holds entry i (the table read once in each lane, at the lane's index, the lanes past its end holding 0), and sg_shuffle(v, i) is v in lane i, so each lookup is one shuffle; an index outside the table stays outside (undefined before, 0 or undefined now)
            holds in a full subgroup (all 32 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
            checked by SAT
+  instructions under gt1030 (each for the pattern it is; cost 99 as written):
+  cost 86.75 ([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 4, 4)] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 8, 4)] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 12, 4)] << 12 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 16, 4)] << 16 | [12, 5, 6, 11, 9, 0, 10, 1… (235 more characters)
+           x >> 4 & 15: bits 4..7 of x
+           x >> 8 & 15: bits 8..11 of x
+           x >> 12 & 15: bits 12..15 of x
+           x >> 0x10 & 15: bits 16..19 of x
+           x >> 0x14 & 15: bits 20..23 of x
+           x >> 0x18 & 15: bits 24..27 of x
+           x >> 0x1c & 15: bits 28..31 of x
+           checked by SAT
+  the texture unit under gt1030 (cost 99 as written): nothing taken
+  derived, but not cheaper under gt1030 (cost 116.75, as written 99):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 12 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 12)
+  derived, but not cheaper under gt1030 (cost 116.75, as written 99):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x10 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x10)
+  derived, but not cheaper under gt1030 (cost 116.75, as written 99):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x14 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x14)
+  derived, but not cheaper under gt1030 (cost 116.75, as written 99):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x18 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x18)
+  derived, but not cheaper under gt1030 (cost 116.75, as written 99):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x1c & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x1c)
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] agrees with fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x) on the points tried, but x is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > R(i: u32 in 0..15) = [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][i]
@@ -72,10 +131,32 @@ find alt: 1024 points (sampled; matches verified on the whole domain), computing
   dropping operations of alt (cost 95 as written; each checked on the whole domain):
   cost 94  u32([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][x >> 4 & 15] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 8 & 15] << 8 | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][x >> 12 & 15] << 12 | [12,… (305 more characters) drops & 15 (proved by SAT)
   subgroup forms under gt1030 (each derived, with what it holds under; cost 95 as written):
-  cost 20.25 sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2, 14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][(x >> (lane & 0x1c) & 15) + ((lane & 4) << 2)] >> (lane & 3) & 1 != 0)
+  cost 19.5 sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2, 14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][(x >> (lane & 0x1c) & 15) + ((lane & 4) << 2)] >> (lane & 3) & 1 != 0)
            every bit of the result reads one field of x and nothing else, 8 fields of 4 bits (told by flipping each bit of x at 48 values of it), and the fields go through 2 functions, each tabulated at its 16 values with the other fields 0, one after the other in a table; lane i works out bit i, its field's function of the field at the bit's place in it, and the ballot puts it at bit i; a guess until the check below, which proves the form equal to the function
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT
+  instructions under gt1030 (each for the pattern it is; cost 95 as written):
+  cost 82.75 u32([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][bfe(x, 4, 4)] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 8, 4)] << 8 | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][bfe(x, 12, 4)] << 12 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 16, 4)] << 16 | [14, 4, 13, 1, 2, 15, 1… (209 more characters)
+           x >> 4 & 15: bits 4..7 of x
+           x >> 8 & 15: bits 8..11 of x
+           x >> 12 & 15: bits 12..15 of x
+           x >> 0x10 & 15: bits 16..19 of x
+           x >> 0x14 & 15: bits 20..23 of x
+           x >> 0x18 & 15: bits 24..27 of x
+           x >> 0x1c & 15: bits 28..31 of x
+           checked by SAT
+  the texture unit under gt1030 (cost 95 as written): nothing taken
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][x >> 12 & 15] is fetch_repeat([14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7], x >> 12)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x10 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x10)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][x >> 0x14 & 15] is fetch_repeat([14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7], x >> 0x14)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x18 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x18)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][x >> 0x1c & 15] is fetch_repeat([14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7], x >> 0x1c)
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] agrees with fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x) on the points tried, but x is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > four(x: u16 uniform) = u16(S(x & 15) | (R((x >> 4) & 15) << 4) | (Q((x >> 8) & 15) << 8) | (P((x >> 12) & 15) << 12))
@@ -90,7 +171,7 @@ find four: 1024 points (sampled; matches verified on the whole domain), computin
   cost 46  u16([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][u32(x >> 4 & 15)] << 4 | [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][u32(x >> 8 & 15)] << 8 | [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> 12… (9 more characters) drops & 15 (exhaustive)
   cost 45  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][u32(x >> 4 & 15)] << 4 | [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][u32(x >> 8 & 15)] << 8 | [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> 12)] <… (4 more characters) all of them: drops the conversion u16(...), then & 15 (exhaustive)
   subgroup forms under gt1030 (each derived, with what it holds under; cost 46.5 as written):
-  cost 21.25 u16(sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2, 14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7, 7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15, 2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> (lane & 12) & 15) + ((lane & 12) << 2)] >> (lane & 3) & 1 != 0) & 0xffff)
+  cost 20.5 u16(sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2, 14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7, 7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15, 2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> (lane & 12) & 15) + ((lane & 12) << 2)] >> (lane & 3) & 1 != 0) & 0xffff)
            every bit of the result reads one field of x and nothing else, 4 fields of 4 bits (told by flipping each bit of x at 48 values of it), and the fields go through 4 functions, each tabulated at its 16 values with the other fields 0, one after the other in a table; lane i works out bit i, its field's function of the field at the bit's place in it, and the ballot puts it at bit i; a guess until the check below, which proves the form equal to the function
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked on every point of the domain
@@ -99,6 +180,15 @@ find four: 1024 points (sampled; matches verified on the whole domain), computin
            65536 entries of u16 (131072 bytes of constant data), one for each point of x in 0..65535; entry k is the function at the point with index k = u32(x), all 65536 evaluated
            priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
            checked on every point of the domain
+  the texture unit under gt1030 (cost 46.5 as written): nothing taken
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x)
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][u32(x >> 4 & 15)] is fetch_repeat([14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7], x >> 4)
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][u32(x >> 8 & 15)] is fetch_repeat([7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15], x >> 8)
+  derived, but not cheaper under gt1030 (cost 64.25, as written 46.5):
+  [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> 12 & 15)] is fetch_repeat([2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9], x >> 12)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > two(x: u32 uniform) = u32(S(x & 15)) | (((x >> 4) & 15) * 5 % 16 << 4)
@@ -112,6 +202,12 @@ find two: 1024 points (sampled; matches verified on the whole domain), computing
            x >> 4 & 15 in 0..15 (proved range)
            udot4x8's sum is in 0..75: it does not wrap
            proved by SAT: 200 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 17.875 as written):
+  cost 16.125 u32([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15]) | 5bfe(x, 4, 4) % 16 << 4
+           x >> 4 & 15: bits 4..7 of x
+           checked by SAT
+  the texture unit under gt1030 (cost 17.875 as written): nothing taken
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] agrees with fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x) on the points tried, but x is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > pc(x: u32 uniform) = { a = x - ((x >> 1) & 0x55555555); (a & 0x33333333) + ((a >> 2) & 0x33333333) }
@@ -130,6 +226,28 @@ find subv: 1024 points (sampled; matches verified on the whole domain), computin
            the table [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], read 8 times: lane i holds entry i (the table read once in each lane, at the lane's index, the lanes past its end holding 0), and sg_shuffle(v, i) is v in lane i, so each lookup is one shuffle; an index outside the table stays outside (undefined before, 0 or undefined now)
            holds in a full subgroup (all 32 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
            checked by SAT
+  instructions under gt1030 (each for the pattern it is; cost 95 as written):
+  cost 82.75 [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 4, 4)] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 8, 4)] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 12, 4)] << 12 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 16, 4)] << 16 | [12, 5, 6, 11, 9, 0, 10, 13… (204 more characters)
+           x >> 4 & 15: bits 4..7 of x
+           x >> 8 & 15: bits 8..11 of x
+           x >> 12 & 15: bits 12..15 of x
+           x >> 0x10 & 15: bits 16..19 of x
+           x >> 0x14 & 15: bits 20..23 of x
+           x >> 0x18 & 15: bits 24..27 of x
+           x >> 0x1c & 15: bits 28..31 of x
+           checked by SAT
+  the texture unit under gt1030 (cost 95 as written): nothing taken
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 12 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 12)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x10 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x10)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x14 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x14)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x18 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x18)
+  derived, but not cheaper under gt1030 (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x1c & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x1c)
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] agrees with fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x) on the points tried, but x is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model noballot : gt1030 { sg_ballot: none, sg_shuffle: none }
@@ -140,5 +258,27 @@ cost model: noballot
 find sub: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from noballot
   dropping operations of sub (cost 95 as written; each checked on the whole domain):
   cost 94  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 4 & 15] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 8 & 15] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 12 & 15] << 12 | [12, 5, … (300 more characters) drops & 15 (proved by SAT)
+  instructions under noballot (each for the pattern it is; cost 95 as written):
+  cost 82.75 [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 4, 4)] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 8, 4)] << 8 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 12, 4)] << 12 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][bfe(x, 16, 4)] << 16 | [12, 5, 6, 11, 9, 0, 10, 13… (204 more characters)
+           x >> 4 & 15: bits 4..7 of x
+           x >> 8 & 15: bits 8..11 of x
+           x >> 12 & 15: bits 12..15 of x
+           x >> 0x10 & 15: bits 16..19 of x
+           x >> 0x14 & 15: bits 20..23 of x
+           x >> 0x18 & 15: bits 24..27 of x
+           x >> 0x1c & 15: bits 28..31 of x
+           checked by SAT
+  the texture unit under noballot (cost 95 as written): nothing taken
+  derived, but not cheaper under noballot (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 12 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 12)
+  derived, but not cheaper under noballot (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x10 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x10)
+  derived, but not cheaper under noballot (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x14 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x14)
+  derived, but not cheaper under noballot (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x18 & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x18)
+  derived, but not cheaper under noballot (cost 112.75, as written 95):
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 0x1c & 15] is fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x >> 0x1c)
+  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] agrees with fetch_repeat([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2], x) on the points tried, but x is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

@@ -83,6 +83,12 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
            x >> 0x18 is bits 24..31 of x: lane 3 as it is
            udot4x8's sum is in 0..6120: it does not wrap
            proved by SAT: 755 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 21 as written):
+  cost 16  3(x & 0xff) + 5byteperm(x, 0, 0x4441) + 7byteperm(x, 0, 0x4442) + 9byteperm(x, 0, 0x4443)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x18: bytes 3, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > g(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a*b + c
@@ -125,6 +131,15 @@ find p: 1024 points (sampled; matches verified on the whole domain), computing i
            y >> 0x18 is bits 24..31 of y: lane 3 as it is
            udot4x8's sum is in 0..260100: it does not wrap
            proved by SAT: 2606 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 30 as written):
+  cost 20  (x & 0xff)*(y & 0xff) + byteperm(x, 0, 0x4441)*byteperm(y, 0, 0x4441) + byteperm(x, 0, 0x4442)*byteperm(y, 0, 0x4442) + byteperm(x, 0, 0x4443)*byteperm(y, 0, 0x4443)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           y >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:y (8 and up: a byte's sign), told at 48 random points
+           x >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           y >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:y (8 and up: a byte's sign), told at 48 random points
+           x >> 0x18: bytes 3, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           y >> 0x18: bytes 3, 4, 4, 4 of 0:y (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > s(a: i8, b: i8, c: i8, d: i8) = i32(a)*3 - i32(b)*5 + i32(c)*d
@@ -160,6 +175,15 @@ find e8: 1024 points (sampled; matches verified on the whole domain), computing 
            x >> 0x18 is bits 24..31 of x: lane 3 as it is
            udot4x8's sum is in 0..6630: it does not wrap; udot4x8's sum is in 0..2550: it does not wrap
            by lanes (proved by SAT or exhaustively each; no multiplier for the solver): lane 0 of y is y & 0xff; lane 1 of y is y >> 8 & 0xff; lane 2 of y is y >> 0x10 & 0xff; lane 3 of y is y >> 0x18; lane 0 of x is x & 0xff; lane 1 of x is x >> 8 & 0xff; lane 2 of x is x >> 0x10 & 0xff; lane 3 of x is x >> 0x18; so each dot is the exact sum of its terms (its range above), and the rest is the sum's own terms regrouped (+ and - associate and commute mod 2^32; the conversions passed keep the value mod 2^32 or exactly); the whole at once: SAT gave up, sampled without a difference
+  instructions under gt1030 (each for the pattern it is; cost 36 as written):
+  cost 26  (x & 0xff) + 2byteperm(x, 0, 0x4441) + 3byteperm(x, 0, 0x4442) + 4byteperm(x, 0, 0x4443) + 5(y & 0xff) + 6byteperm(y, 0, 0x4441) + 7byteperm(y, 0, 0x4442) + 8byteperm(y, 0, 0x4443)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           y >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:y (8 and up: a byte's sign), told at 48 random points
+           y >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:y (8 and up: a byte's sign), told at 48 random points
+           x >> 0x18: bytes 3, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           y >> 0x18: bytes 3, 4, 4, 4 of 0:y (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > bs(x: u32) = (x & 255) + ((x >> 8) & 255) + ((x >> 16) & 255) + (x >> 24)
@@ -174,6 +198,11 @@ find bs: 1024 points (sampled; matches verified on the whole domain), computing 
            x >> 0x18 is bits 24..31 of x: lane 3 as it is
            udot4x8's sum is in 0..1020: it does not wrap
            proved by SAT: 246 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 11 as written):
+  cost 7   (x & 0xff) + byteperm(x, 0, 0x4441) + byteperm(x, 0, 0x4442) + (x >> 0x18)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > pk(x: u32, w: u32 in 0..15) = (x & 255)*w + ((x >> 8) & 255)*(16 - w)
@@ -189,6 +218,10 @@ find pk: 1024 points (sampled; matches verified on the whole domain), computing 
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..7905: it does not wrap
            by lanes (proved by SAT or exhaustively each; no multiplier for the solver): lane 0 of x is x & 0xff; lane 0 of w | 16 - w << 8 is w; lane 1 of x is x >> 8 & 0xff; lane 1 of w | 16 - w << 8 is 16 - w; lane 2 of w | 16 - w << 8 is 0; lane 3 of w | 16 - w << 8 is 0; so each dot is the exact sum of its terms (its range above), and the rest is the sum's own terms regrouped (+ and - associate and commute mod 2^32; the conversions passed keep the value mod 2^32 or exactly); the whole at once: SAT gave up, sampled without a difference
+  instructions under gt1030 (each for the pattern it is; cost 11 as written):
+  cost 9   (x & 0xff)*w + byteperm(x, 0, 0x4441)*(16 - w)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model nodot : gt1030 { dot4x8: none, dot4x8sat: none }
@@ -204,6 +237,12 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
       the float result + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (the float result + 2^22) = 0x4B400000 + the float result (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves the float result
   dot products: nodot has no dot product forms (products of lane-sized factors are left as they are)
+  instructions under nodot (each for the pattern it is; cost 21 as written):
+  cost 16  3(x & 0xff) + 5byteperm(x, 0, 0x4441) + 7byteperm(x, 0, 0x4442) + 9byteperm(x, 0, 0x4443)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x18: bytes 3, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > find g 1
@@ -231,6 +270,13 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
            x >> 0x18 is bits 24..31 of x: lane 3 as it is
            udot4x8's sum is in 0..6120: it does not wrap
            proved by SAT: 755 AIG nodes, 0 conflicts
+  instructions under sm86 (each for the pattern it is; cost 20 as written):
+  cost 12  3byteperm(x, 0, 0x4440) + 5byteperm(x, 0, 0x4441) + 7byteperm(x, 0, 0x4442) + 9byteperm(x, 0, 0x4443)
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x & 0xff: bytes 0, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           x >> 0x18: bytes 3, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 6 (term bank full)
   [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
 > find g 1
@@ -299,6 +345,10 @@ find n: 1024 points (sampled; matches verified on the whole domain), computing i
            the word's other lanes meet zero lanes
            udot8x4's sum is in 0..270: it does not wrap
            proved by SAT: 383 AIG nodes, 1249 conflicts
+  instructions under rdna2 (each for the pattern it is; cost 12 as written):
+  cost 11.25 (x & 15)*(x >> 0x1c) + 3bfe(x, 4, 4)
+           x >> 4 & 15: bits 4..7 of x
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030

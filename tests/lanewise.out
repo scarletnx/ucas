@@ -60,6 +60,14 @@ find badd: 1024 points (sampled; matches verified on the whole domain), computin
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 333 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 32 as written):
+  cost 23  (a & 0xff) + (b & 0xff) & 0xff | (byteperm(a, 0, 0x4441) + byteperm(b, 0, 0x4441) & 0xff) << 8 | (byteperm(a, 0, 0x4442) + byteperm(b, 0, 0x4442) & 0xff) << 16 | (byteperm(a, 0, 0x4443) + (b >> 0x18) & 0xff) << 24
+           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
+           a >> 0x18: bytes 3, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   packed lanes under gt1030 (every lane in one word-wide operation; cost 32 as written):
   cost 5   (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080
            4 x 8-bit lanes, a + b in each: the lanes' top bits go apart, so no carry crosses a lane

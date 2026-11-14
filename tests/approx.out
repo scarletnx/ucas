@@ -302,7 +302,7 @@ approx sin(x) on [-100, 100] as f64, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 132796 f64 in [-100, 100]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   reduced   13    horner+fma  1.48 ulp                 2.32e-16      1.65e-16      656.5 at x=-91.9127184  *
+  1   reduced   13    horner+fma  1.48 ulp                 2.32e-16      1.65e-16      657.5 at x=-91.9127184  *
       quadrant r=x-k*pi/2 (3-part), sin+cos: asfloat(asuint((q & 1) == 0 ? fma(r*s, fma(fma(fma(fma(fma(1.5890165763480382e-10, s, -2.5050660648150814e-08), s, 2.7557313203521987e-06), s, -0.00019841269828859708), s, 0.0083333333333218042), s, -0.1666666666666663), r) : fma(fma(fma(fma(fma(fma(2.0630099438987169e-09, s, -2.7555233299654548e-07), s, 2.480157859219434e-05), s, -0.0013888888870429968), s, 0.041666666666485865), s, -0.49999999999999406), s, 1.0)) xor ((q & 2) << 62)) where j = x*0.63661977236758138 + 6755399441055744.0, q = asuint(j), k = j - 6755399441055744.0, r = fma(k, -2.0222662487959506e-21, fma(k, -6.077100506303966e-11, fma(k, -1.5707963267341256, x))), s = r*r
       rounding of ap1, first order, 18 operations, relative, in u = 2^-53: worst case 4.16, probable no better (under 16 operations), expected 1.15; `error ap1 ~ F` says what each means
   8 more: 'approx more [n]'

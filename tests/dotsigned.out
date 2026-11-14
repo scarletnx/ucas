@@ -8,6 +8,10 @@ find sx: 1024 points (sampled; matches verified on the whole domain), computing 
            the word's other lanes meet zero lanes
            sudot4x8's sum is in -128..127: it does not wrap
            proved by SAT: 252 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 4 as written):
+  cost 3   i32(i8(byteperm(x, 0, 0x4321))) + y
+           x >> 8: bytes 1, 2, 3, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > show sx(0x8000, 3)
@@ -24,6 +28,10 @@ find sw: 1024 points (sampled; matches verified on the whole domain), computing 
            the word's other lanes meet zero lanes
            sudot4x8's sum is in -1024..1016: it does not wrap
            proved by SAT: 1188 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 10 as written):
+  cost 9   3i32(i8(x)) + 5i32(i8(byteperm(x, 0, 0x4321)))
+           x >> 8: bytes 1, 2, 3, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > rs(x: i32, y: i32 in -100..100) = (x >> 24) * 7 + ((x << 8) >> 24) * 9 + y
@@ -37,6 +45,10 @@ find rs: 1024 points (sampled; matches verified on the whole domain), computing 
            the word's other lanes meet zero lanes
            sudot4x8's sum is in -2048..2032: it does not wrap
            proved by SAT: 2084 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 13 as written):
+  cost 10.25 7(x >> 0x18) + 9sbfe(u32(x), 16, 8) + y
+           x << 8 >> 0x18: bits 16..23 of x with their sign
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > s4(x: i32) = ((x << 24) >> 24) + ((x << 16) >> 24) + ((x << 8) >> 24) + (x >> 24)
@@ -51,6 +63,12 @@ find s4: 1024 points (sampled; matches verified on the whole domain), computing 
            x >> 0x18 is bits 24..31 of x read signed: lane 3 as it is
            sudot4x8's sum is in -512..508: it does not wrap
            proved by SAT: 786 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 14 as written):
+  cost 7.75 sbfe(u32(x), 0, 8) + sbfe(u32(x), 8, 8) + sbfe(u32(x), 16, 8) + (x >> 0x18)
+           x << 24 >> 0x18: bits 0..7 of x with their sign
+           x << 16 >> 0x18: bits 8..15 of x with their sign
+           x << 8 >> 0x18: bits 16..23 of x with their sign
+           checked by SAT
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
 > mx(x: u32, y: i32 in -8..7) = i32(i8(x)) * 3 + i32((x >> 8) & 255) * 5 + y
@@ -66,6 +84,10 @@ find mx: 1024 points (sampled; matches verified on the whole domain), computing 
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..1275: it does not wrap; sudot4x8's sum is in -384..381: it does not wrap
            proved by SAT: 1012 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 11 as written):
+  cost 9   3i32(i8(x)) + 5i32(byteperm(x, 0, 0x4441)) + y
+           x >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > un(x: u32, y: u32 in 0..15) = u32(u8(i8(x >> 8))) + y
@@ -78,11 +100,19 @@ find un: 1024 points (sampled; matches verified on the whole domain), computing 
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 112 AIG nodes, 0 conflicts
+  instructions under gt1030 (each for the pattern it is; cost 4 as written):
+  cost 2   byteperm(x, 0, 0x4441) + y
+           u32(u8(i8(x >> 8))): bytes 1, 4, 4, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > bad(x: u32) = i32(u16(i8(x >> 8))) * 3
 > find bad 1
 find bad: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 6 as written):
+  cost 5   3i32(u16(i8(byteperm(x, 0, 0x4321))))
+           x >> 8: bytes 1, 2, 3, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model nodot : gt1030 { dot4x8: none, dot4x8sat: none }
@@ -90,6 +120,10 @@ find bad: 1024 points (sampled; matches verified on the whole domain), computing
 cost model: nodot
 > find sx 1
 find sx: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from nodot
+  instructions under nodot (each for the pattern it is; cost 4 as written):
+  cost 3   i32(i8(byteperm(x, 0, 0x4321))) + y
+           x >> 8: bytes 1, 2, 3, 4 of 0:x (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030

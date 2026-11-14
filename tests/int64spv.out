@@ -6,12 +6,12 @@
 cost model: hi
 > spvsimplify nofile nofunctions
 simplify: 82 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 4 dead instructions removed
-  integer arithmetic cost under hi (each instruction once): 15 -> 9.5 (-36.7%)
+  integer arithmetic cost under hi (each instruction once): 28.5 -> 9.5 (-66.7%)
   by kind:
-       1  a wide product's high word is one multiply extended  -5.5
+       1  a wide product's high word is one multiply extended  -19
   rewrites:
     %47 = OpUConvert %uint %46
-      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -5.5)
+      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -19)
       (line 9: b.d[i] = uint((uint64_t(x) * uint64_t(y)) >> 32);)
   spirv-val accepts the written module
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
