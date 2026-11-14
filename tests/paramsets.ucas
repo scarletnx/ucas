@@ -13,6 +13,8 @@ c(x: u8) = x in {2, 3, 5, 7} ? 1 : 0
 table c max 8
 # a value outside the type is refused, naming it
 bad(x: u8 in {3, 300}) = x
+# a value past 2^63 - 1 is refused, as a range bound is: the hull is int64
+huge(x: u64 in {1, 9223372036854775808}) = x
 # without braces a list has two readings after a comma (the values, or one
 # value and the next condition): said, not guessed
 w2(x: u32) = x where x in 3, 17

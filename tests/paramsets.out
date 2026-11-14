@@ -31,7 +31,11 @@ two and two are equal on the domain of two (exhaustive)
 paramsets.ucas:15:21: error: x: 300 is not a u8
     bad(x: u8 in {3, 300}) = x
                         ^
+> huge(x: u64 in {1, 9223372036854775808}) = x
+paramsets.ucas:17:39: error: x's listed value 9223372036854775808 is too large: a list takes at most 2^63 - 1 = 9223372036854775807, as a range does (without a list a u64 takes every value)
+    huge(x: u64 in {1, 9223372036854775808}) = x
+                                          ^
 > w2(x: u32) = x where x in 3, 17
-paramsets.ucas:18:28: error: `in` before a list without braces has two readings: the values `in {3, ...}`, or one value and the next condition after the comma; write the braces, or a range a..b
+paramsets.ucas:20:28: error: `in` before a list without braces has two readings: the values `in {3, ...}`, or one value and the next condition after the comma; write the braces, or a range a..b
     w2(x: u32) = x where x in 3, 17
                                ^
