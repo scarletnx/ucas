@@ -124,7 +124,27 @@ find h: 1024 points (sampled; matches verified on the whole domain), computing i
       the fma rounds f32((a*a + 3)) - 11 q0 = (a*a + 3) % 11 once: an integer in [0, 11), an f32, so it does not round
       that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
-  cost 64  t1 - 11(373*t1 >> 12) + (t2 - 11(373*t2 >> 12)) + (t3 - 11(373*t3 >> 12)) + (t4 - 11(373*t4 >> 12)) + (t5 - 11(373*t5 >> 12)) where t1 = a*a + 3, t2 = b*b + 3, t3 = c*c + 3, t4 = d*d + 3, t5 = e*e + 3 all of them: the remainder (e*e + 3) % 11 as a multiply and a shift in u32, then the remainder (d*d + 3) % 11 as a multiply and a shift in u32, then the remainder (c*c + 3) % 11 as a multiply and a shift in u32, then the remainder (b*b + 3) % 11 as a multiply and a shift in u32, then the remainder (a*a + 3) % 11 as a multiply and a shift in u32 (derived)
+  cost 77  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (u32(0x1ede334f0f6f19a >> 3u64(e) & 7) + 1) the map (e*e + 3) % 11 of e as a table in one u64 constant (20 entries of 3 bits) (derived; checked on every point)
+      holds where e in [0, 19] (its range)
+      (e*e + 3) % 11 at e = 0..19 is [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, ... (4 more)] (evaluated at each of the 20)
+      bits [3*i, 3*i + 3) of 0x1ede334f0f6f19a hold the value at e = i, less the least value: shifting right by that many bits times e and masking reads it
+  cost 77  (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (u32(0x1ede334f0f6f19a >> 3u64(d) & 7) + 1) + (e*e + 3) % 11 the map (d*d + 3) % 11 of d as a table in one u64 constant (20 entries of 3 bits) (derived; checked on every point)
+      holds where d in [0, 19] (its range)
+      (d*d + 3) % 11 at d = 0..19 is [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, ... (4 more)] (evaluated at each of the 20)
+      bits [3*i, 3*i + 3) of 0x1ede334f0f6f19a hold the value at d = i, less the least value: shifting right by that many bits times d and masking reads it
+  cost 77  (a*a + 3) % 11 + (b*b + 3) % 11 + (u32(0x1ede334f0f6f19a >> 3u64(c) & 7) + 1) + (d*d + 3) % 11 + (e*e + 3) % 11 the map (c*c + 3) % 11 of c as a table in one u64 constant (20 entries of 3 bits) (derived; checked on every point)
+      holds where c in [0, 19] (its range)
+      (c*c + 3) % 11 at c = 0..19 is [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, ... (4 more)] (evaluated at each of the 20)
+      bits [3*i, 3*i + 3) of 0x1ede334f0f6f19a hold the value at c = i, less the least value: shifting right by that many bits times c and masking reads it
+  cost 77  (a*a + 3) % 11 + (u32(0x1ede334f0f6f19a >> 3u64(b) & 7) + 1) + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 the map (b*b + 3) % 11 of b as a table in one u64 constant (20 entries of 3 bits) (derived; checked on every point)
+      holds where b in [0, 19] (its range)
+      (b*b + 3) % 11 at b = 0..19 is [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, ... (4 more)] (evaluated at each of the 20)
+      bits [3*i, 3*i + 3) of 0x1ede334f0f6f19a hold the value at b = i, less the least value: shifting right by that many bits times b and masking reads it
+  cost 77  u32(0x1ede334f0f6f19a >> 3u64(a) & 7) + 1 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11 the map (a*a + 3) % 11 of a as a table in one u64 constant (20 entries of 3 bits) (derived; checked on every point)
+      holds where a in [0, 19] (its range)
+      (a*a + 3) % 11 at a = 0..19 is [3, 4, 7, 1, 8, 6, 6, 8, 1, 7, 4, 3, 4, 7, 1, 8, ... (4 more)] (evaluated at each of the 20)
+      bits [3*i, 3*i + 3) of 0x1ede334f0f6f19a hold the value at a = i, less the least value: shifting right by that many bits times a and masking reads it
+  cost 39  u32(0x1ede334f0f6f19a >> 3u64(a) & 7) + 1 + (u32(0x1ede334f0f6f19a >> 3u64(b) & 7) + 1) + (u32(0x1ede334f0f6f19a >> 3u64(c) & 7) + 1) + (u32(0x1ede334f0f6f19a >> 3u64(d) & 7) + 1) + (u32(0x1ede334f0f6f19a >> 3u64(e) & 7) + 1) all of them: the map (e*e + 3) % 11 of e as a table in one u64 constant (20 entries of 3 bits), then the map (d*d + 3) % 11 of d as a table in one u64 constant (20 entries of 3 bits), then the map (c*c + 3) % 11 of c as a table in one u64 constant (20 entries of 3 bits), then the map (b*b + 3) % 11 of b as a table in one u64 constant (20 entries of 3 bits), then the map (a*a + 3) % 11 of a as a table in one u64 constant (20 entries of 3 bits) (derived)
   dot products under gt1030 (sums of products laid into lanes; cost 86.5 as written):
   cost 85.5 (a*a + 3) % 11 + (udot4x8(b, b) + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: b * b
