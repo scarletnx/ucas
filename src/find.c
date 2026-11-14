@@ -76,6 +76,10 @@ static struct {
 	int snip, timedout;
 	clock_t deadline;
 	uint32_t tick;
+	/* rules infer: the dearer programs whose column the bank has */
+	int rules;
+	struct rcand { uint8_t op; uint32_t a, b, ex; } *rc;
+	uint32_t nrc, caprc;
 } F;
 
 static int fquiet;	/* find_cands: no output, no proofs */
@@ -92,6 +96,7 @@ finder_free(void)
 	free(F.col);
 	free(F.ht);
 	free(F.m);
+	free(F.rc);
 	memset(&F, 0, sizeof F);
 }
 
@@ -628,6 +633,19 @@ build(int op, uint32_t a, uint32_t b, int cost, int64_t *scratch)
 	if (i == F.P)
 		return;   /* constants come from the leaves and the holes */
 	if (F.snip) {
+		uint32_t slot, ex;
+		if (F.rules && (ex = lookup(scratch, &slot)) != NOTOK &&
+		    F.cost[ex] < cost && F.nrc < (1u << 20)) {
+			if (F.nrc == F.caprc) {
+				F.caprc = F.caprc ? F.caprc * 2 : 4096;
+				F.rc = xrealloc(F.rc, F.caprc * sizeof *F.rc);
+			}
+			F.rc[F.nrc].op = (uint8_t)op;
+			F.rc[F.nrc].a = a;
+			F.rc[F.nrc].b = b;
+			F.rc[F.nrc++].ex = ex;
+			return;
+		}
 		insert(op, a, b, cost, scratch, &t);
 		return;
 	}
@@ -2750,9 +2768,11 @@ op_named(const char *s)
 	return -1;
 }
 
-/* find's bank set up for N inputs of W bits on the fixed points */
+/* find's bank set up for N inputs of W bits on the fixed points; few:
+ * only the constants 1 and all ones (rules: every other constant gives
+ * its own instance of a rule) */
 static void
-snip_setup(int nin, int w)
+snip_setup(int nin, int w, int few)
 {
 	static const char *const pn[3] = {"a", "b", "c"};
 	int64_t pc[3 * SNIP_P], ks[8], c[SNIP_P];
@@ -2776,12 +2796,14 @@ snip_setup(int nin, int w)
 			F.node[t] = mk_var((uint32_t)j, sym_cstr(pn[j]), F.W);
 	F.firstk = F.n;
 	ks[nk++] = 1;
-	ks[nk++] = 2;
-	ks[nk++] = 3;
-	ks[nk++] = 4;
-	ks[nk++] = 5;
-	ks[nk++] = 8;
-	ks[nk++] = w - 1;
+	if (!few) {
+		ks[nk++] = 2;
+		ks[nk++] = 3;
+		ks[nk++] = 4;
+		ks[nk++] = 5;
+		ks[nk++] = 8;
+		ks[nk++] = w - 1;
+	}
 	ks[nk++] = -1;
 	for (j = 0; j < nk; j++) {
 		int64_t v = int_norm(F.W, ks[j]);
@@ -3081,7 +3103,7 @@ cmd_snippets_grow(const char *name, int nin, int w, int maxcost,
 		fail("snippets: seconds %g: more than 0, at most 120 (a slice; "
 		    "grow again to go on)", seconds);
 	F.active = 0;
-	snip_setup(nin, w);
+	snip_setup(nin, w, 0);
 	if (name && !fresh) {
 		char path[160];
 		snprintf(path, sizeof path, "%s.snip", name);
@@ -3283,6 +3305,321 @@ snip_lookup(const char *name)
 		    sym_str(SD.model));
 		add_match(M_FORM, cost, e, why);
 	}
+}
+
+/* ---- rules inferred from the enumeration ---- */
+
+/*
+ * `rules infer [inputs N] [width W] [cost C] [seconds S]` runs the same
+ * enumeration and keeps what the bank throws away: a program whose values
+ * on the points a cheaper one already has.  Each such pair is a candidate
+ * rule, the dearer side to the cheaper one under the active model, over
+ * the inputs a, b, c as pattern variables (Ruler's enumeration, with the
+ * model's prices for its direction).  In the order they were met
+ * (cheapest first) a candidate is dropped when the rules kept so far
+ * already rewrite one side into the other (two steps, either way), else
+ * proved over every W-bit value of its variables (enumeration or SAT) and
+ * kept.  find then tries the kept rules on every subterm of its function
+ * of their width, as rewrites with their proof.
+ */
+#define RULE_MAX 256
+#define RULE_FRONT 256
+
+static struct {
+	int n, nin, w;
+	uint32_t model;
+	nid l[RULE_MAX], r[RULE_MAX];
+	int cl[RULE_MAX], cr[RULE_MAX];
+	nid pv[3];			/* the pattern variables a, b, c */
+} RS;
+
+static int
+rmatch(nid p, nid t, nid *bind)
+{
+	int k;
+
+	for (k = 0; k < RS.nin; k++)
+		if (p == RS.pv[k]) {
+			if (N.ty[t] != N.ty[p])
+				return 0;
+			if (bind[k])
+				return bind[k] == t;
+			bind[k] = t;
+			return 1;
+		}
+	if (p == t)
+		return 1;
+	if (N.op[p] == O_CONST)
+		return N.op[t] == O_CONST && N.ty[p] == N.ty[t] && N.ki[p] ==
+		    N.ki[t];
+	if (N.op[p] != N.op[t] || N.ty[p] != N.ty[t] || N.op[p] == O_VAR)
+		return 0;
+	if (N.a[p] && (!N.a[t] || !rmatch(N.a[p], N.a[t], bind)))
+		return 0;
+	/* a shift's amount by its value: it may be typed otherwise */
+	if ((N.op[p] == O_SHL || N.op[p] == O_SHR) && N.op[N.b[p]] == O_CONST &&
+	    N.b[t] && N.op[N.b[t]] == O_CONST)
+		return N.ki[N.b[p]] == N.ki[N.b[t]];
+	if (N.b[p] && (!N.b[t] || !rmatch(N.b[p], N.b[t], bind)))
+		return 0;
+	return !N.c[p] && !N.c[t] && (!N.b[p]) == (!N.b[t]);
+}
+
+/* the pattern variables in p, a bit each */
+static int
+rvars(nid p)
+{
+	int k;
+
+	for (k = 0; k < RS.nin; k++)
+		if (p == RS.pv[k])
+			return 1 << k;
+	if (N.op[p] == O_CONST || N.op[p] == O_VAR)
+		return 0;
+	return (N.a[p] ? rvars(N.a[p]) : 0) | (N.b[p] ? rvars(N.b[p]) : 0);
+}
+
+static int
+rbound(const nid *bind)
+{
+	int k, m = 0;
+
+	for (k = 0; k < RS.nin; k++)
+		if (bind[k])
+			m |= 1 << k;
+	return m;
+}
+
+static nid
+rinst(nid p, const nid *bind)
+{
+	int k;
+
+	for (k = 0; k < RS.nin; k++)
+		if (p == RS.pv[k])
+			return bind[k];
+	if (N.op[p] == O_CONST || N.op[p] == O_VAR)
+		return p;
+	if (!N.b[p])
+		return mk_un(N.op[p], rinst(N.a[p], bind));
+	return mk_bin(N.op[p], rinst(N.a[p], bind), rinst(N.b[p], bind));
+}
+
+/* the terms one rule step from t, either way, into out (deduplicated) */
+static int
+rstep(nid t, nid *out, int n, int max)
+{
+	nid st[64], s;
+	int sp = 0, i, d, k;
+
+	st[sp++] = t;
+	while (sp && n < max) {
+		s = st[--sp];
+		if (N.op[s] == O_CONST || N.op[s] == O_VAR)
+			continue;
+		if (N.a[s] && sp < 64)
+			st[sp++] = N.a[s];
+		if (N.b[s] && sp < 64)
+			st[sp++] = N.b[s];
+		for (i = 0; i < RS.n && n < max; i++)
+			for (d = 0; d < 2 && n < max; d++) {
+				nid bind[3] = {0, 0, 0}, to;
+				if (!rmatch(d ? RS.r[i] : RS.l[i], s, bind))
+					continue;
+				if (rvars(d ? RS.l[i] : RS.r[i]) & ~rbound(bind))
+					continue;	/* a variable only the other side has */
+				to = xreplace(t, s, rinst(d ? RS.l[i] : RS.r[i], bind));
+				for (k = 0; k < n && out[k] != to; k++)
+					;
+				if (k == n && to)
+					out[n++] = to;
+			}
+	}
+	return n;
+}
+
+/* the kept rules take l to r in two steps or fewer */
+static int
+rderived(nid l, nid r)
+{
+	nid a[RULE_FRONT], b[RULE_FRONT];
+	int na, nb = 0, i;
+
+	na = rstep(l, a, 0, RULE_FRONT);
+	for (i = 0; i < na; i++)
+		if (a[i] == r)
+			return 1;
+	for (i = 0; i < na && nb < RULE_FRONT; i++)
+		nb = rstep(a[i], b, nb, RULE_FRONT);
+	for (i = 0; i < nb; i++)
+		if (b[i] == r)
+			return 1;
+	return 0;
+}
+
+void
+cmd_rules_infer(int nin, int w, int maxcost, double seconds)
+{
+	static const char *const pn[3] = {"a", "b", "c"};
+	clock_t t0 = clock();
+	struct func g;
+	struct sbuf wb = {0};
+	uint32_t i, nder = 0, nunp = 0, nsame = 0, done = 0, ncheap = 0;
+	int c, k, timed = 0;
+
+	if (nin < 1 || nin > 3)
+		fail("rules: inputs %d: from 1 to 3", nin);
+	if (w != 8 && w != 16 && w != 32)
+		fail("rules: width %d: 8, 16 or 32", w);
+	if (maxcost < 1 || maxcost > 30)
+		fail("rules: cost %d: from 1 to 30", maxcost);
+	if (seconds <= 0 || seconds > 120)
+		fail("rules: seconds %g: more than 0, at most 120", seconds);
+	F.active = 0;
+	snip_setup(nin, w, 1);
+	F.rules = 1;
+	F.deadline = t0 + (clock_t)(seconds * CLOCKS_PER_SEC);
+	for (c = 1; c <= maxcost && c < 62; c++) {
+		enumerate_level(c);
+		if (F.full)
+			break;
+	}
+	memset(&RS, 0, sizeof RS);
+	RS.nin = nin;
+	RS.w = w;
+	RS.model = model_active()->name;
+	for (k = 0; k < nin; k++)
+		RS.pv[k] = mk_var((uint32_t)k, sym_cstr(pn[k]), F.W);
+	memset(&g, 0, sizeof g);
+	g.np = nin;
+	g.anon = 1;
+	for (k = 0; k < nin; k++) {
+		g.p[k].name = sym_cstr(pn[k]);
+		g.p[k].ty = F.W;
+	}
+	for (i = 0; i < F.nrc && RS.n < RULE_MAX; i++) {
+		const struct rcand *q = &F.rc[i];
+		struct eqproof pr;
+		nid l, r;
+		if (clock() > F.deadline) {
+			timed = 1;
+			break;
+		}
+		done++;
+		l = q->op >= O_NOPS ? xo_node(q->op, term_node(q->a),
+		    oarity(q->op) > 1 ? term_node(q->b) : 0) :
+		    opinfo[q->op].arity == 1 ? mk_un(q->op, term_node(q->a)) :
+		    mk_bin(q->op, term_node(q->a), term_node(q->b));
+		r = term_node(q->ex);
+		if (l == r) {
+			nsame++;	/* the constructors already make one the other */
+			continue;
+		}
+		if (rderived(l, r)) {
+			nder++;
+			continue;
+		}
+		g.body = l;
+		sb_clear(&wb);
+		if (equiv_decide(&g, l, r, &wb, &pr) || pr.how == EQ_SAMPLED ||
+		    pr.how == EQ_UNDECIDED) {
+			nunp++;
+			continue;
+		}
+		if (icost(l) <= icost(r)) {
+			ncheap++;	/* the cover prices them alike */
+			continue;
+		}
+		RS.l[RS.n] = l;
+		RS.r[RS.n] = r;
+		RS.cl[RS.n] = icost(l);
+		RS.cr[RS.n] = icost(r);
+		RS.n++;
+	}
+	printf("rules from the enumeration: %d input%s of %d bits under %s, "
+	    "programs up to cost %d%s\n", nin, nin == 1 ? "" : "s", w,
+	    sym_str(model_active()->name), F.full ? F.done - 1 : F.done,
+	    F.full ? (F.timedout ? " (the next cut by time)" :
+	    " (the next cut: the bank is full)") : "");
+	printf("  %u candidates (a dearer program with a cheaper one's values "
+	    "on %d points; constants 1 and all ones); %u read: %d kept, %u "
+	    "derived from the kept ones, %u priced alike by the cover, %u made "
+	    "one by the constructors, %u not proved equal%s\n", F.nrc, SNIP_P,
+	    done, RS.n, nder, ncheap, nsame, nunp, timed ? "; out of time" :
+	    RS.n == RULE_MAX ? "; the most rules kept" : "");
+	rep_begin("rules");
+	rep_int("candidates", F.nrc);
+	rep_int("kept", RS.n);
+	rep_list("rules");
+	for (k = 0; k < RS.n; k++) {
+		char ls[200];
+		snprintf(ls, sizeof ls, "%s", shared_str(RS.l[k], 120));
+		printf("  %-34s => %-24s cost %d -> %d\n", ls, shared_str(RS.r[k],
+		    120), RS.cl[k], RS.cr[k]);
+		rep_obj(NULL);
+		rep_expr("from", RS.l[k]);
+		rep_expr("to", RS.r[k]);
+		rep_num("cost_from", RS.cl[k]);
+		rep_num("cost_to", RS.cr[k]);
+		rep_end();
+	}
+	rep_end();
+	free(wb.p);
+	finder_free();
+}
+
+/* find's rewrites: each kept rule at each subterm of its width */
+void
+rule_cands(nid root, struct irw **out, int *cnt, int *cap)
+{
+	uint32_t lim = (uint32_t)root + 1, sp = 0;
+	uint8_t *mark;
+	nid *st, s;
+	int i;
+
+	if (!RS.n)
+		return;
+	mark = xcalloc(lim, 1);
+	st = xmalloc(((size_t)lim * 3 + 4) * sizeof *st);
+	st[sp++] = root;
+	while (sp) {
+		s = st[--sp];
+		if (s == 0 || s >= lim || mark[s])
+			continue;
+		mark[s] = 1;
+		if (N.op[s] == O_CONST || N.op[s] == O_VAR || N.op[s] == O_TABLE ||
+		    N.op[s] == O_LOOP || N.op[s] == O_UNDEF)
+			continue;
+		if (N.a[s])
+			st[sp++] = N.a[s];
+		if (N.b[s])
+			st[sp++] = N.b[s];
+		if (N.c[s])
+			st[sp++] = N.c[s];
+		for (i = 0; i < RS.n; i++) {
+			nid bind[3] = {0, 0, 0}, to;
+			char what[200], cond[200], ls[100];
+			struct irw *rw;
+			if (!rmatch(RS.l[i], s, bind) || (rvars(RS.r[i]) &
+			    ~rbound(bind)))
+				continue;
+			to = rinst(RS.r[i], bind);
+			snprintf(ls, sizeof ls, "%s", shared_str(RS.l[i], 90));
+			snprintf(what, sizeof what, "the rule %s => %s, inferred from "
+			    "the enumeration", ls, shared_str(RS.r[i], 90));
+			snprintf(cond, sizeof cond, "every %d-bit value of its "
+			    "variables: proved when it was inferred", RS.w);
+			rw = irw_add(out, cnt, cap, root, s, to, what, cond,
+			    "a dearer and a cheaper program with the same values on "
+			    "the enumeration's points, then equal on every input "
+			    "(enumerated or SAT); the rule's variables bound to "
+			    "subterms here", 1);
+			if (rw)
+				rw->derived = 1;
+		}
+	}
+	free(mark);
+	free(st);
 }
 
 /*

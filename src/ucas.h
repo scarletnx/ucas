@@ -842,6 +842,8 @@ void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost,
 /* find.c: snippets grow [NAME] ...: the enumeration with no target */
 void cmd_snippets_grow(const char *name, int nin, int w, int maxcost,
     double seconds, int fresh);
+/* find.c: rules infer ...: rules from the enumeration's dearer twins */
+void cmd_rules_infer(int nin, int w, int maxcost, double seconds);
 void cmd_more(int want);
 void cmd_fit(struct func *g, struct func *f, int metric);
 void error_measured(const struct func *f, nid approx, double *maxabs,

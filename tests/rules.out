@@ -1,0 +1,85 @@
+> rules infer inputs 1 width 32 cost 2
+rules from the enumeration: 1 input of 32 bits under gt1030, programs up to cost 2
+  25 candidates (a dearer program with a cheaper one's values on 32 points; constants 1 and all ones); 25 read: 17 kept, 1 derived from the kept ones, 2 priced alike by the cover, 5 made one by the constructors, 0 not proved equal
+  a - (a + a)                        => -a                       cost 2 -> 1
+  a + a - a                          => a                        cost 2 -> 0
+  -a - 1                             => 4294967295 - a           cost 2 -> 1
+  -a - 4294967295                    => 1 - a                    cost 2 -> 1
+  a & (a | 1)                        => a                        cost 1 -> 0
+  -a & 1                             => a & 1                    cost 2 -> 1
+  a | a & 1                          => a                        cost 1 -> 0
+  a + 4294967295 xor 0xffffffff      => -a                       cost 2 -> 1
+  4294967295 - a xor 0xffffffff      => a                        cost 2 -> 0
+  -a xor 0xffffffff                  => a + 4294967295           cost 2 -> 1
+  a << 1                             => a + a                    cost 2 -> 1
+  -(a + 1)                           => 4294967295 - a           cost 2 -> 1
+  -(a + 4294967295)                  => 1 - a                    cost 2 -> 1
+  -(1 - a)                           => a + 4294967295           cost 2 -> 1
+  -(4294967295 - a)                  => a + 1                    cost 2 -> 1
+  ~(a + 4294967295)                  => -a                       cost 2 -> 1
+  ~(4294967295 - a)                  => a                        cost 2 -> 0
+> f(x: u32, y: u32, z: u32) = ((x * y + z) << 1) xor (z * 3)
+> find f 1
+find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 8   t1 + t1 xor 3z where t1 = x*y + z        the rule a << 1 => a + a, inferred from the enumeration (derived; checked by SAT)
+      holds where every 32-bit value of its variables: proved when it was inferred
+      a dearer and a cheaper program with the same values on the enumeration's points, then equal on every input (enumerated or SAT); the rule's variables bound to subterms here
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model cheapshift : gt1030 { shift: 1 }
+> use cheapshift
+cost model: cheapshift
+> rules infer inputs 1 width 32 cost 2
+rules from the enumeration: 1 input of 32 bits under cheapshift, programs up to cost 2
+  26 candidates (a dearer program with a cheaper one's values on 32 points; constants 1 and all ones); 26 read: 18 kept, 1 derived from the kept ones, 2 priced alike by the cover, 5 made one by the constructors, 0 not proved equal
+  a - (a + a)                        => -a                       cost 2 -> 1
+  a + a - a                          => a                        cost 2 -> 0
+  -a - 1                             => 4294967295 - a           cost 2 -> 1
+  -a - 4294967295                    => 1 - a                    cost 2 -> 1
+  a & (a | 1)                        => a                        cost 1 -> 0
+  -a & 1                             => a & 1                    cost 2 -> 1
+  a | a & 1                          => a                        cost 1 -> 0
+  a + 4294967295 xor 0xffffffff      => -a                       cost 2 -> 1
+  4294967295 - a xor 0xffffffff      => a                        cost 2 -> 0
+  -a xor 0xffffffff                  => a + 4294967295           cost 2 -> 1
+  (a | 1) >> 1                       => a >> 1                   cost 2 -> 1
+  (a xor 1) >> 1                     => a >> 1                   cost 2 -> 1
+  -(a + 1)                           => 4294967295 - a           cost 2 -> 1
+  -(a + 4294967295)                  => 1 - a                    cost 2 -> 1
+  -(1 - a)                           => a + 4294967295           cost 2 -> 1
+  -(4294967295 - a)                  => a + 1                    cost 2 -> 1
+  ~(a + 4294967295)                  => -a                       cost 2 -> 1
+  ~(4294967295 - a)                  => a                        cost 2 -> 0
+> use gt1030
+cost model: gt1030
+> rules infer inputs 2 width 32 cost 2
+rules from the enumeration: 2 inputs of 32 bits under gt1030, programs up to cost 2
+  76 candidates (a dearer program with a cheaper one's values on 32 points; constants 1 and all ones); 76 read: 27 kept, 27 derived from the kept ones, 10 priced alike by the cover, 12 made one by the constructors, 0 not proved equal
+  a + (b - a)                        => b                        cost 2 -> 0
+  a - (a + a)                        => -a                       cost 2 -> 1
+  a - (a + b)                        => -b                       cost 2 -> 1
+  a - (a - b)                        => b                        cost 2 -> 0
+  b - (a + b)                        => -a                       cost 2 -> 1
+  a + a - a                          => a                        cost 2 -> 0
+  a + b - a                          => b                        cost 2 -> 0
+  a + b - b                          => a                        cost 2 -> 0
+  a - b - a                          => -b                       cost 2 -> 1
+  -a - 1                             => 4294967295 - a           cost 2 -> 1
+  -a - 4294967295                    => 1 - a                    cost 2 -> 1
+  a & (a | b)                        => a                        cost 1 -> 0
+  -a & 1                             => a & 1                    cost 2 -> 1
+  a | a & b                          => a                        cost 1 -> 0
+  a xor (a xor b)                    => b                        cost 1 -> 0
+  b xor (a xor b)                    => a                        cost 1 -> 0
+  a + 4294967295 xor 0xffffffff      => -a                       cost 2 -> 1
+  4294967295 - a xor 0xffffffff      => a                        cost 2 -> 0
+  -a xor 0xffffffff                  => a + 4294967295           cost 2 -> 1
+  a << 1                             => a + a                    cost 2 -> 1
+  -(a + 1)                           => 4294967295 - a           cost 2 -> 1
+  -(a + 4294967295)                  => 1 - a                    cost 2 -> 1
+  -(a - b)                           => b - a                    cost 2 -> 1
+  -(1 - a)                           => a + 4294967295           cost 2 -> 1
+  -(4294967295 - a)                  => a + 1                    cost 2 -> 1
+  ~(a + 4294967295)                  => -a                       cost 2 -> 1
+  ~(4294967295 - a)                  => a                        cost 2 -> 0
