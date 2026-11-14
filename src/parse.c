@@ -3397,6 +3397,30 @@ statement(struct P *p)
 			cmd_approx(p);
 			return;
 		}
+		if (is_kw(p, "rules") && !func_find(tsym(p, p->i))) {
+			int nin = 2, w = 32, cost = 3;
+			double secs = 10;
+			adv(p);
+			if (!accept_kw(p, "infer"))
+				fail("rules infer [inputs N] [width W] [cost C] [seconds S]");
+			for (;;) {
+				if (is_kw(p, "inputs"))
+					nin = opt_int(p, "inputs", nin);
+				else if (is_kw(p, "width"))
+					w = opt_int(p, "width", w);
+				else if (is_kw(p, "cost"))
+					cost = opt_int(p, "cost", cost);
+				else if (accept_kw(p, "seconds")) {
+					nid v = number(p);
+					secs = TY_FP(N.ty[v]) ? N.kr[v] : (double)N.ki[v];
+				} else
+					break;
+			}
+			expect_eos(p);
+			notes_flush();
+			cmd_rules_infer(nin, w, cost, secs);
+			return;
+		}
 		if (is_kw(p, "snippets") && !func_find(tsym(p, p->i))) {
 			char sname[96] = "";
 			int nin = 2, w = 32, cost = 4, fresh = 0;

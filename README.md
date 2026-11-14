@@ -173,6 +173,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, or the draw whose coverage is a predicate P(x, y) of a pixel, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
+| `rules infer [inputs N] [width W] [cost C] [seconds S]` | rules from the enumeration's dearer twins, proved, directed by the model's prices; find tries them (see "Stochastic search") |
 | `snippets grow [NAME] [fresh] [inputs N] [width W] [cost C] [seconds S]`, `find F snippets [NAME]` | a database of the cheapest program for each column of values on 32 fixed points, grown by find's enumeration with no target and consulted by find (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, or its values from the key by a multiply-add and a shift with no value table, when the model prices that below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
@@ -5370,6 +5371,25 @@ do not tell every pair of functions apart: a program that matches there
 and differs on F's domain is said, not listed.  The database is not
 consulted for parameters of another width or more parameters than it has
 inputs, and says so.
+
+**Rules from the enumeration.**  `rules infer [inputs N] [width W]
+[cost C] [seconds S]` (defaults 2 inputs of 32 bits, cost 3, 10 s) runs
+the same enumeration with only the constants 1 and all ones (each other
+constant would give its own instance of a rule) and keeps what the bank
+throws away: a program whose values on the points a cheaper one already
+has.  Each such pair is a candidate rule over the inputs as pattern
+variables, from the dearer side to the cheaper one under the active
+model (Ruler's enumeration, directed by the prices).  Read in the order
+they were met, a candidate is dropped when the cover prices both sides
+alike, or when the rules already kept rewrite one side into the other in
+two steps (either way), and otherwise proved equal on every W-bit value
+of its variables (enumeration or SAT) and kept, 256 at most.  Under
+gt1030 a shift costs 2 and an add 1, so `a << 1 => a + a` is one; under
+a model whose shift costs 1 it is not.  `find` then tries every kept
+rule on every subterm of its width (`((x*y + z) << 1) xor 3z`: 9 -> 8,
+the rule's variables bound to subterms), checked like every rewrite;
+the rules last for the session, the latest `rules infer` replacing them
+(tests/rules.ucas).
 
 ## Float simplify
 

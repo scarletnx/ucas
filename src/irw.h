@@ -61,6 +61,8 @@ void ifx_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 /* npn.c: a bitwise cone of 4 leaves as its minimum network of 3-input
  * tables, where the model has a lut fusion */
 void npn_cands(struct ivc *c, nid root, struct irw **out, int *cnt, int *cap);
+/* find.c: the rules `rules infer` kept, at each subterm of their width */
+void rule_cands(nid root, struct irw **out, int *cnt, int *cap);
 void irw_free(struct irw *r, int n);
 void irw_print(const struct irw *r, const char *ind);
 
