@@ -6,7 +6,7 @@
 exec of SPIR-V (49 instructions), entry %main, 8 lanes in lockstep, cost model gt1030
   buffers start with random values (seed 1)
   subgroup: the 8 lanes run are one subgroup (SubgroupSize 8)
-  note: OpGroupNonUniformIAdd ClusteredReduce ran at cost 0 (no operation of the model stands for it)
+  note: OpGroupNonUniformIAdd ClusteredReduce ran at cost 0 (gt1030 lists no sg_cluster4)
   note: OpGroupNonUniformUMax Reduce ran at cost 0 (gt1030 lists no sg_max)
   note: 2 subgroup reads of a lane that is not active or not in the subgroup (first: %up = OpGroupNonUniformShuffleUp %uint %uint_3 %x %uint_1): undefined, read as 0 here
   output %y per lane: 0 1 1 2 3 3 4 4

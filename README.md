@@ -3459,6 +3459,9 @@ subgroup, all W lanes active:
 | `sg_shuffle(v, i)` | v in lane i; undefined when i is not in 0..W-1 | OpGroupNonUniformShuffle |
 | `sg_scan(v)` | in lane l, the sum of v over lanes 0..l | OpGroupNonUniformIAdd InclusiveScan, `subgroupInclusiveAdd` |
 | `sg_min(v)`, `sg_max(v)`, `sg_and(v)`, `sg_or(v)`, `sg_xor(v)` | the minimum, maximum, and, or, xor of v over the lanes, integers (min and max by v's signedness) | OpGroupNonUniform[SU]Min, [SU]Max, Bitwise* Reduce, `subgroupMin` ... `subgroupXor` |
+| `sg_clustered_add(v, n)` | in lane l, the sum of v over l's cluster, the n lanes from `l & ~(n - 1)`; n a power of two, an operation each (2 to 32 below W; n = W is `sg_add`, n = 1 the value) | OpGroupNonUniformIAdd ClusteredReduce, `subgroupClusteredAdd` |
+| `sg_partition(k)` | in lane l, the ballot of the lanes whose k equals l's (integers) | OpGroupNonUniformPartitionNV, `subgroupPartitionNV` |
+| `sg_partitioned_add(v, m)` | the sum of v over the lanes of m, a ballot `sg_partition` made (another mask is refused: on the card only a partition has a value, and the other lanes' masks cannot be checked from one lane) | OpGroupNonUniformIAdd PartitionedReduceNV, `subgroupPartitionedAddNV` |
 | `sg_dfdx(v)`, `sg_dfdy(v)`, `sg_fwidth(v)` | of a float, the lanes in fours as quads (lane bit 0 the column, bit 1 the row: Vulkan's layout): in lane l, v in lane l \| 1 less v in lane l & ~1, the same with bit 1, and \|dfdx\| + \|dfdy\|; W a multiple of 4 | `dFdxFine`, `dFdyFine`, `fwidthFine` (a fragment shader's quads; GL_NV_compute_shader_derivatives in compute) |
 
 and, written with them, `sg_exclusive(v)` = `sg_scan(v) - v`,
@@ -3572,7 +3575,10 @@ _() = 6
 
 **Cost classes.**  `sg_ballot`, `sg_vote` (any, all), `sg_add`,
 `sg_shuffle`, `sg_scan`, `sg_deriv`, `sg_min`, `sg_max`, `sg_and`, `sg_or`,
-`sg_xor`; like the dot forms, a model that does not list
+`sg_xor`, `sg_cluster2` ... `sg_cluster32` (a clustered sum's, by its
+cluster), `sg_partition`, `sg_partadd` and `sg_barrier` (`animate exec`
+prices an OpControlBarrier of Subgroup execution scope so, else as a
+workgroup `barrier`, said); like the dot forms, a model that does not list
 one cannot use it (`sg_scan: none` takes one away).  An operation costs its class once and its operand
 once in each lane: a value computed in every lane is priced once,
 whether an operation reads it across the lanes or the lane uses it
@@ -3629,6 +3635,9 @@ under; the whole is then checked against the function on its domain
   each lane, every lane's result is the operation over all W words,
   each once.  gt1030 lists none of the five classes, so find writes
   them so (tests/sgreduce.ucas).
+- A clustered sum is the same butterfly with d below the cluster's n,
+  and of a value that is 0 or 1 in every lane the count of the ballot's
+  n bits from the cluster's first lane (tests/sgcluster.ucas).
 - A constant table of at most W entries can sit one entry per lane (the
   table read once in each lane, at the lane's index) and be read by a
   shuffle: no memory, no bank conflicts.  Every lookup of the table or

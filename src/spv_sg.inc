@@ -18,7 +18,10 @@
  * (the quad's lanes in fours, bit 0 its column), a bit count of a ballot the
  * popcount and the mask of the lanes it keeps, an integer min, max, and,
  * or, xor over the lanes (Reduce) sg_min ... sg_xor, a logical and or or
- * the vote it is.  An instruction no operation stands for (a product, a
+ * the vote it is, a clustered sum sg_clustered_add, NV's partition and
+ * its partitioned sum sg_partition and sg_partitioned_add (a ballot that
+ * is no partition undefined, counted).  An instruction no operation
+ * stands for (a product, a
  * float min, a scan of a min, a clustered sum ...), or one
  * whose class the model does not list, runs at cost 0, and a note names
  * it.
@@ -40,6 +43,7 @@ static struct {
 	int nunpriced;
 	int fsum;		/* a float sum or product ran in lane order */
 	int used;		/* a subgroup instruction ran */
+	int sgbar;		/* a Subgroup-scope barrier priced as barrier */
 } SGX;
 
 static void
@@ -124,6 +128,10 @@ sg_expr_of(const struct sins *I, int W, int *cls)
 		*cls = C_SG_SHUF;
 		return mk_sg(O_SGSHUF, v, at, w);
 	}
+	if (O("PartitionNV")) {
+		*cls = C_SG_PART;
+		return mk_sg(O_SGPART, v, l, w);
+	}
 	if (O("Elect")) {	/* the lowest lane the ballot has */
 		*cls = C_SG_BALLOT;
 		return mk_bin(O_EQ, l, mk_cast(u, mk_un(O_CTZ, mk_sg(O_SGBALLOT,
@@ -178,6 +186,29 @@ sg_expr_of(const struct sins *I, int W, int *cls)
 			*cls = C_SG_ADD;
 			return mk_sg(O_SGADD, v, w, 0);
 		}
+		if (!strcmp(gop, "ClusteredReduce")) {
+			/* a cluster of the whole subgroup is its sum, of one lane
+			 * the value itself */
+			int cs = I->nop > 4 ? opid(I, 4) : -1, op = O_SGCADD2;
+			uint64_t n;
+			if (cs < 0 || V.id[cs].kind != K_CONST)
+				return 0;
+			n = V.id[cs].c[0];
+			if (n == (uint64_t)W) {
+				*cls = C_SG_ADD;
+				return mk_sg(O_SGADD, v, w, 0);
+			}
+			if (n < 2 || n > (uint64_t)W || (n & (n - 1)))
+				return 0;
+			while ((uint64_t)SGCADD_N(op) < n)
+				op++;
+			*cls = sg_class(op);
+			return mk_sg(op, v, l, w);
+		}
+		if (!strcmp(gop, "PartitionedReduceNV")) {
+			*cls = C_SG_PADD;
+			return mk_sg(O_SGPADD, v, b, w);
+		}
 		*cls = C_SG_SCAN;
 		if (!strcmp(gop, "InclusiveScan"))
 			return mk_sg(O_SGSCAN, v, l, w);
@@ -215,7 +246,8 @@ sg_price(const struct sins *I, int W, int *cls)
 	if (I->nop >= 1 && I->opnd[0][0] == '%') {
 		int t = idx(I->opnd[0]);
 		if (V.id[t].kind == K_TYPE && T(t)->k == S_VEC &&
-		    strcmp(I->op + 17, "Ballot") != 0)
+		    strcmp(I->op + 17, "Ballot") != 0 &&
+		    strcmp(I->op + 17, "PartitionNV") != 0)
 			nc = T(t)->n;	/* one instruction a component */
 	}
 	return c * nc;
@@ -310,9 +342,11 @@ exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc)
 
 	if (!is_sg_ins(I->op))
 		return 0;
-	if (rt < 0 || I->nop < (strcmp(I->op + 17, "Elect") ? 3 : 2))
+	/* Elect has no operand past the scope, PartitionNV no scope */
+	if (rt < 0 || I->nop < (strcmp(I->op + 17, "Elect") &&
+	    strcmp(I->op + 17, "PartitionNV") ? 3 : 2))
 		die("unsupported instruction \"%s\"", I->text);
-	{
+	if (strcmp(I->op + 17, "PartitionNV")) {
 		int sc = opid(I, 1);
 		if (V.id[sc].kind != K_CONST || V.id[sc].c[0] != 3)
 			die("unsupported instruction \"%s\": only Subgroup scope (3) "
@@ -363,6 +397,25 @@ exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc)
 			    x < 0 || x >= NL ? -1 : (int)x;
 			if (sg_lane_ok(s, mask, I))
 				r[l] = val(vid, s);
+		}
+	} else if (O("PartitionNV")) {
+		/* the ballot of the active lanes whose value is this lane's */
+		int at, fl;
+		vid = opid(I, 1);
+		at = type_of(vid);
+		fl = T(scalar_of(at))->k == S_FLOAT;
+		if (fl || ncomp(at) != 1)
+			die("unsupported instruction \"%s\": a partition of floats or "
+			    "of vectors does not run here", I->text);
+		for (l = 0; l < V.lanes; l++) {
+			uint64_t bits = 0;
+			if (!(mask >> l & 1))
+				continue;
+			for (s = 0; s < V.lanes; s++)
+				if ((mask >> s & 1) && val(vid, s).b[0] ==
+				    val(vid, l).b[0])
+					bits |= 1ULL << s;
+			r[l].b[0] = bits & 0xffffffffu;
 		}
 	} else if (O("QuadSwap") || O("QuadBroadcast")) {
 		/* a quad: lanes in fours, bit 0 the column, bit 1 the row; a
@@ -415,11 +468,19 @@ exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc)
 		}
 	} else if (gop) {
 		/* sums, products, min, max, and, or, xor over the lanes */
-		int at, ncm, cl = 0;
+		int at, ncm, cl = 0, part = 0;
 		vid = opid(I, 3);
 		at = type_of(vid);
 		ncm = ncomp(at);
-		if (!strcmp(gop, "ClusteredReduce")) {
+		if (!strcmp(gop, "PartitionedReduceNV")) {
+			if (strcmp(o, "IAdd"))
+				die("unsupported instruction \"%s\": of the partitioned "
+				    "operations only the sum runs here", I->text);
+			if (I->nop < 5)
+				die("unsupported instruction \"%s\": a partitioned "
+				    "operation takes a ballot", I->text);
+			part = 1;
+		} else if (!strcmp(gop, "ClusteredReduce")) {
 			if (I->nop < 5)
 				die("unsupported instruction \"%s\": a clustered "
 				    "reduce takes a cluster size", I->text);
@@ -430,15 +491,29 @@ exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc)
 		} else if (strcmp(gop, "Reduce") && strcmp(gop, "InclusiveScan") &&
 		    strcmp(gop, "ExclusiveScan"))
 			die("unsupported instruction \"%s\": the group operations "
-			    "are Reduce, InclusiveScan, ExclusiveScan and "
-			    "ClusteredReduce", I->text);
+			    "are Reduce, InclusiveScan, ExclusiveScan, ClusteredReduce "
+			    "and PartitionedReduceNV", I->text);
 		if (O("FAdd") || O("FMul"))
 			SGX.fsum = 1;
 		for (l = 0; l < V.lanes; l++) {
 			int lo = 0, hi = V.lanes - 1, j;
+			uint64_t pm = ~0ULL;
 			if (!(mask >> l & 1))
 				continue;
-			if (cl)
+			if (part) {
+				/* a partition of the active lanes: each one's own bit,
+				 * and every lane of its part with the same ballot;
+				 * anything else is undefined */
+				pm = val(opid(I, 4), l).b[0] & mask;
+				for (j = 0; j < V.lanes; j++)
+					if ((pm >> j & 1) && (val(opid(I, 4), j).b[0] & mask) !=
+					    pm)
+						break;
+				if (!(pm >> l & 1) || j < V.lanes) {
+					sg_lane_ok(-1, mask, I);
+					continue;
+				}
+			} else if (cl)
 				lo = l / cl * cl, hi = lo + cl - 1;
 			else if (!strcmp(gop, "InclusiveScan"))
 				hi = l;
@@ -447,7 +522,7 @@ exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc)
 			for (c = 0; c < ncm; c++) {
 				uint64_t acc = sg_identity(o, scalar_of(at));
 				for (j = lo; j <= hi && j < V.lanes; j++)
-					if (mask >> j & 1)
+					if ((mask >> j & 1) && (pm >> j & 1))
 						acc = sg_combine(o, scalar_of(at), acc,
 						    val(vid, j).b[c]);
 				r[l].b[c] = acc;
@@ -492,6 +567,18 @@ exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc)
 	return 1;
 }
 
+/* a barrier of Subgroup execution scope ran: 1 when the model prices it
+ * sg_barrier, 0 when it is priced as a workgroup one (said in a note) */
+static int
+sg_barrier_priced(void)
+{
+	SGX.used = 1;
+	if (cclass_available(model_active(), C_SG_BARRIER))
+		return 1;
+	SGX.sgbar = 1;
+	return 0;
+}
+
 /* exec's notes on the subgroup instructions it ran */
 static void
 sgx_notes(void)
@@ -511,6 +598,11 @@ sgx_notes(void)
 		    "or not in the subgroup (first: %s): undefined, read as 0 "
 		    "here\n", SGX.undef, SGX.undef == 1 ? "" : "s",
 		    SGX.undef_ins);
+	if (SGX.sgbar)
+		printf("  note: a barrier of Subgroup execution scope is priced as "
+		    "a workgroup one (barrier, %g): %s lists no sg_barrier\n",
+		    (double)model_active()->c[C_BARRIER],
+		    sym_str(model_active()->name));
 	if (SGX.fsum)
 		printf("  note: a float sum or product over the lanes ran in lane "
 		    "order; an implementation may group it otherwise, and the "

@@ -2691,6 +2691,7 @@ static int exec_idot(const struct sins *I, uint32_t mask, int rt);
 static int exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc);
 static void sgx_reset(void);
 static void sgx_notes(void);
+static int sg_barrier_priced(void);
 
 static void
 exec_one(const struct sins *I, uint32_t mask)
@@ -2958,9 +2959,17 @@ exec_one(const struct sins *I, uint32_t mask)
 	}
 	if (!strcmp(I->op, "OpControlBarrier") ||
 	    !strcmp(I->op, "OpMemoryBarrier")) {
-		emit(I, I_BARRIER, C_BARRIER, I->op[2] == 'C' ?
-		    model_active()->c[C_BARRIER] : model_active()->c[C_BARRIER] / 2,
-		    mask);
+		/* a control barrier of Subgroup execution scope (3) waits for
+		 * one subgroup only: sg_barrier, where the model lists it */
+		int es = I->op[2] == 'C' && I->nop > 0 ? opid(I, 0) : -1;
+		if (es >= 0 && V.id[es].kind == K_CONST && V.id[es].c[0] == 3 &&
+		    sg_barrier_priced())
+			emit(I, I_BARRIER, C_SG_BARRIER,
+			    model_active()->c[C_SG_BARRIER], mask);
+		else
+			emit(I, I_BARRIER, C_BARRIER, I->op[2] == 'C' ?
+			    model_active()->c[C_BARRIER] :
+			    model_active()->c[C_BARRIER] / 2, mask);
 		return;
 	}
 	if (!strncmp(I->op, "OpAtomic", 8)) {

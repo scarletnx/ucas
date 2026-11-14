@@ -145,10 +145,15 @@ enum {
 	 * sum of v over lanes 0..l; dfdx, dfdy, fwidth (v, l): the
 	 * difference of v across lane l's quad pair along x or y, and
 	 * |dfdx| + |dfdy|; min, max, and, or, xor: the reduction over the
-	 * lanes (see sg.c for the exact semantics)
+	 * lanes; a clustered sum, one operation a cluster size (v, l): the
+	 * sum over l's cluster; partition (k, l): the ballot of the lanes
+	 * whose k is l's; partitioned add (v, m): the sum over the lanes of
+	 * m, a partition's ballot (see sg.c for the exact semantics)
 	 */
 	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN, O_SGDDX,
 	O_SGDDY, O_SGFWIDTH, O_SGMIN, O_SGMAX, O_SGAND, O_SGOR, O_SGXOR,
+	O_SGCADD2, O_SGCADD4, O_SGCADD8, O_SGCADD16, O_SGCADD32, O_SGPART,
+	O_SGPADD,
 	/*
 	 * inst.c: single instructions that targets have, each defined by an
 	 * expression over the operations above (bit fields, bit reversal,
@@ -236,7 +241,9 @@ enum {
 #define O_DOT_LAST O_SUDOT8X4S
 #define IS_DOT(op) ((op) >= O_DOT_FIRST && (op) <= O_DOT_LAST)
 #define O_SG_FIRST O_SGBALLOT
-#define O_SG_LAST O_SGXOR
+#define O_SG_LAST O_SGPADD
+#define IS_SGCADD(op) ((op) >= O_SGCADD2 && (op) <= O_SGCADD32)
+#define SGCADD_N(op) (2 << ((op) - O_SGCADD2))	/* its cluster's lanes */
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
 #define O_ASTC_FIRST O_ASTC_PART
 #define O_ASTC_LAST O_ASTC_F16
@@ -501,6 +508,11 @@ enum {
 	/* the reductions over the lanes other than the sum (sg.c: REDUX on
 	 * sm80, emulated before it), absent unless listed */
 	C_SG_MIN, C_SG_MAX, C_SG_AND, C_SG_OR, C_SG_XOR,
+	/* a clustered sum, one class a cluster size; the partition of the
+	 * lanes by a value (MATCH), the sum within a partition, a subgroup's
+	 * execution barrier (sg.c), absent unless listed */
+	C_SG_CLUSTER2, C_SG_CLUSTER4, C_SG_CLUSTER8, C_SG_CLUSTER16,
+	C_SG_CLUSTER32, C_SG_PART, C_SG_PADD, C_SG_BARRIER,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT

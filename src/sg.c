@@ -23,6 +23,17 @@
  *                      lanes, integers (min and max by v's signedness):
  *                      OpGroupNonUniform[SU]Min, [SU]Max, Bitwise*,
  *                      Reduce
+ *   sg_clustered_add(v, n)
+ *                      in lane l, the sum of v over l's cluster, the n
+ *                      lanes l & ~(n - 1) ... (n 2, 4 ... 32 below W, an
+ *                      operation each): OpGroupNonUniformIAdd
+ *                      ClusteredReduce
+ *   sg_partition(k)    in lane l, the ballot of the lanes whose k is l's
+ *                      (integers): OpGroupNonUniformPartitionNV
+ *   sg_partitioned_add(v, m)
+ *                      the sum of v over the lanes of m, a ballot that
+ *                      sg_partition made (only one that is a partition
+ *                      has a value on the card): PartitionedReduceNV
  *   sg_dfdx(v), sg_dfdy(v), sg_fwidth(v)
  *                      of a float: the lanes in fours are quads, lane
  *                      bit 0 the column and bit 1 the row (Vulkan's
@@ -108,6 +119,13 @@ sg_class(int op)
 		return C_SG_OR;
 	case O_SGXOR:
 		return C_SG_XOR;
+	case O_SGCADD2: case O_SGCADD4: case O_SGCADD8: case O_SGCADD16:
+	case O_SGCADD32:
+		return C_SG_CLUSTER2 + (op - O_SGCADD2);
+	case O_SGPART:
+		return C_SG_PART;
+	case O_SGPADD:
+		return C_SG_PADD;
 	}
 	return C_SG_SCAN;
 }
@@ -199,7 +217,7 @@ static ty_t
 sg_type(int op, nid a, int W)
 {
 	switch (op) {
-	case O_SGBALLOT:
+	case O_SGBALLOT: case O_SGPART:
 		return TY(K_UINT, W > 32 ? 64 : 32);
 	case O_SGANY: case O_SGALL:
 		return TY_BOOL;
@@ -314,6 +332,42 @@ sg_expand(int op, nid a, nid b, nid c)
 			    mk_const_i(TY_LIT, l), b), in_lane(a, l),
 			    mk_const_i(t, 0)));
 		break;
+	case O_SGCADD2: case O_SGCADD4: case O_SGCADD8: case O_SGCADD16:
+	case O_SGCADD32: {
+		/* each cluster's sum, read at b's cluster */
+		int n = SGCADD_N(op), k = 0, c;
+		while ((1 << k) < n)
+			k++;
+		for (c = 0; c < W / n; c++) {
+			e[c] = in_lane(a, c * n);
+			for (l = 1; l < n; l++)
+				e[c] = mk_bin(O_ADD, e[c], in_lane(a, c * n + l));
+		}
+		r = mk_index(mk_table(e, (uint32_t)(W / n)), mk_bin(O_SHR,
+		    mk_cast(TY(K_UINT, 32), b), mk_const_i(TY(K_UINT, 32), k)));
+		break;
+	}
+	case O_SGPART: {
+		nid vb;
+		for (l = 0; l < W; l++)
+			e[l] = in_lane(a, l);
+		vb = mk_index(mk_table(e, (uint32_t)W), b);
+		r = mk_const_i(t, 0);
+		for (l = 0; l < W; l++)
+			r = mk_bin(O_OR, r, mk_sel(mk_bin(O_EQ, e[l], vb),
+			    mk_const_i(t, (int64_t)(1ULL << l)), mk_const_i(t, 0)));
+		break;
+	}
+	case O_SGPADD: {
+		ty_t bt = TY(K_UINT, W > 32 ? 64 : 32);
+		nid m = mk_cast(bt, b);
+		r = mk_const_i(t, 0);
+		for (l = 0; l < W; l++)
+			r = mk_bin(O_ADD, r, mk_sel(mk_bin(O_NE, mk_bin(O_AND,
+			    m, mk_const_i(bt, (int64_t)(1ULL << l))),
+			    mk_const_i(bt, 0)), in_lane(a, l), mk_const_i(t, 0)));
+		break;
+	}
 	case O_SGDDX: case O_SGDDY: case O_SGFWIDTH: {
 		ty_t u = TY(K_UINT, 32);
 		nid tab, i = mk_cast(u, b), d[2];
@@ -359,6 +413,25 @@ mk_sg(int op, nid a, nid b, nid c)
 		if (N.ty[a] == TY_BOOL || TYK(N.ty[a]) == K_LIT)
 			a = mk_cast(TY(K_UINT, 32), a);
 		break;
+	case O_SGCADD2: case O_SGCADD4: case O_SGCADD8: case O_SGCADD16:
+	case O_SGCADD32: case O_SGPADD:
+		if (TY_FP(N.ty[a]))
+			fail("%s of floats: the order of the additions is the "
+			    "implementation's, so the sum has no exact value; "
+			    "integers only", nm);
+		if (N.ty[a] == TY_BOOL || TYK(N.ty[a]) == K_LIT)
+			a = mk_cast(TY(K_UINT, 32), a);
+		if (IS_SGCADD(op) && SGCADD_N(op) >= W)
+			fail("%s: a cluster of %d lanes in a subgroup of %d", nm,
+			    SGCADD_N(op), W);
+		break;
+	case O_SGPART:
+		if (TY_FP(N.ty[a]))
+			fail("%s takes integers: of floats a NaN is a part of its own "
+			    "(equal to nothing), which is not written here yet", nm);
+		if (N.ty[a] == TY_BOOL || TYK(N.ty[a]) == K_LIT)
+			a = mk_cast(TY(K_UINT, 32), a);
+		break;
 	case O_SGMIN: case O_SGMAX: case O_SGAND: case O_SGOR: case O_SGXOR:
 		if (TY_FP(N.ty[a]))
 			fail("%s takes integers: a float %s over the lanes is not "
@@ -381,8 +454,11 @@ mk_sg(int op, nid a, nid b, nid c)
 		fail("%s: a lane's index is an integer", nm);
 	if (N.op[a] == O_UNDEF || (ar == 3 && N.op[b] == O_UNDEF))
 		return mk_undef(t);
-	/* nothing but the lane in it: the same value whatever the inputs */
-	if (!node_slots(a) && !(N.fl[a] & (NF_LANEREAD | NF_LANES)) && (ar == 2 ||
+	/* nothing but the lane in it: the same value whatever the inputs (a
+	 * partition for a lane not known stays itself: sg_partitioned_add
+	 * takes no other mask) */
+	if ((op != O_SGPART || is_const(b)) && !node_slots(a) &&
+	    !(N.fl[a] & (NF_LANEREAD | NF_LANES)) && (ar == 2 ||
 	    (!node_slots(b) && !(N.fl[b] & (NF_LANE | NF_LANEREAD | NF_LANES)))))
 		return sg_expand(op, (N.fl[a] & NF_SG) ? sg_lower_once(a) : a,
 		    ar == 3 && (N.fl[b] & NF_SG) ? sg_lower_once(b) : b, w);
@@ -957,7 +1033,7 @@ gather(nid e, int kind, nid *out, int n, int max, uint8_t *seen)
 		out[n++] = e;
 	if (kind == 2 && N.op[e] == O_SGSHUF)
 		out[n++] = e;
-	if (kind == 3 && N.op[e] >= O_SGMIN && N.op[e] <= O_SGXOR)
+	if (kind == 3 && N.op[e] >= O_SGMIN && N.op[e] <= O_SGCADD32)
 		out[n++] = e;
 	if (kind == 2 && N.op[e] == O_LOOP) {
 		/* the shuffles of a loop over the lanes are in its body */
@@ -3963,13 +4039,13 @@ derivs(struct sgf *g, nid cur, float *cost)
 
 /*
  * The reduction op of v by a butterfly: s = v; then for d = 1, 2, 4 ...
- * below W, s = s OP (s in lane xor d).  After the step for d a lane holds
+ * below n, s = s OP (s in lane xor d).  After the step for d a lane holds
  * OP over the 2d lanes that agree with it in the bits from d up, so every
- * lane ends with all W.  v is the value per lane, l the lane the result is
- * for.
+ * lane ends with all n of its cluster (n = W: the subgroup).  v is the
+ * value per lane, l the lane the result is for.
  */
 static nid
-bfly(int op, nid v, nid l, int W)
+bfly(int op, nid v, nid l, int W, int n)
 {
 	nid w = mk_const_i(TY_LIT, W), L = sg_lane(), sb = v, sl;
 	nid map[SG_LANE_SLOT + 1];
@@ -3979,7 +4055,7 @@ bfly(int op, nid v, nid l, int W)
 	memset(map, 0, sizeof map);
 	map[SG_LANE_SLOT] = l = mk_cast(u, l);
 	sl = subst(v, map, SG_LANE_SLOT + 1);
-	for (d = 1; d < W; d *= 2) {
+	for (d = 1; d < n; d *= 2) {
 		nid k = mk_const_i(u, d);
 		nid nl = mk_bin(bop, sl, mk_sg(O_SGSHUF, sb, mk_bin(O_XOR, l, k), w));
 		sb = mk_bin(bop, sb, mk_sg(O_SGSHUF, sb, mk_bin(O_XOR, L, k), w));
@@ -4003,17 +4079,19 @@ op_leaves(nid e, int bop, int *cnt, int W)
 
 /*
  * The butterfly is the reduction whatever v is: with a free word v_j in
- * each lane, lane l's result must be OP over v_0 ... v_(W-1), each once
- * (OP associates and commutes).  W a power of two, so lane xor d stays in
- * the subgroup.  Checked once per operation and W.
+ * each lane, lane l's result must be OP over the words of l's cluster of
+ * n lanes (all W for a reduction), each once (OP associates and
+ * commutes).  W a power of two, so lane xor d stays in the subgroup.
+ * Checked once per operation and W.
  */
 static int
 bfly_proved(int op, int W)
 {
-	static int8_t known[O_SGXOR - O_SGMIN + 1][SG_MAXW + 1];
+	static int8_t known[O_SGCADD32 - O_SGMIN + 1][SG_MAXW + 1];
 	int8_t *kn = &known[op - O_SGMIN][W];
+	int n = IS_SGCADD(op) ? SGCADD_N(op) : W;
 	nid e[SG_MAXW], v;
-	int l, j, ok = (W & (W - 1)) == 0;
+	int l, j, ok = (W & (W - 1)) == 0 && n <= W;
 
 	if (*kn)
 		return *kn > 0;
@@ -4023,26 +4101,27 @@ bfly_proved(int op, int W)
 	for (l = 0; l < W && ok; l++) {
 		int cnt[SG_MAXW] = {0};
 		nid r = sg_lower_once(bfly(op, v, mk_const_i(TY(K_UINT, 32), l),
-		    W));
+		    W, n));
 		ok = op_leaves(r, sg_combine_op(op), cnt, W);
 		for (j = 0; j < W && ok; j++)
-			ok = cnt[j] == 1;
+			ok = cnt[j] == (j / n == l / n);
 	}
 	*kn = ok ? 1 : -1;
 	return ok;
 }
 
 /*
- * sg_min, sg_max, sg_and, sg_or, sg_xor: of a value that is 0 or 1 in
- * every lane, a vote (min and and: in every lane; max and or: in some) or
- * the parity of the ballot (xor); of any value, the butterfly of shuffles
- * by xor, where the model prices those lower.
+ * sg_min, sg_max, sg_and, sg_or, sg_xor, sg_clustered_add: of a value that
+ * is 0 or 1 in every lane, a vote (min and and: in every lane; max and or:
+ * in some), the parity of the ballot (xor) or the count of the ballot's
+ * bits of the cluster; of any value, the butterfly of shuffles by xor,
+ * where the model prices those lower.
  */
 static nid
 reductions(struct sgf *g, nid cur, float *cost)
 {
 	static const char *const nm[] = {"minimum", "maximum", "and", "or",
-	    "xor"};
+	    "xor", "sum", "sum", "sum", "sum", "sum"};
 	nid lp = lane_param(g->f);
 	int iter;
 
@@ -4059,20 +4138,30 @@ reductions(struct sgf *g, nid cur, float *cost)
 			    hi <= 1;
 			for (o = 0; o < 2; o++) {
 				float c;
-				if (o == 0 && !bits)
+				if (o == 0 && (!bits || (IS_SGCADD(op) && !lp)))
 					continue;
 				if (o == 1 && !bfly_proved(op, W))
 					continue;
-				if (o == 0 && op == O_SGXOR)
+				if (o == 0 && IS_SGCADD(op)) {
+					/* the cluster's bits of the ballot, counted */
+					ty_t bt = TY(K_UINT, W > 32 ? 64 : 32);
+					nid at = mk_cast(bt, N.b[x]);
+					to = mk_un(O_POPCNT, mk_bin(O_AND, mk_bin(O_SHR,
+					    ballot_of(v, W), mk_bin(O_AND, at, mk_const_i(bt,
+					    ~(int64_t)(SGCADD_N(op) - 1)))), mk_const_i(bt,
+					    (int64_t)((1ULL << SGCADD_N(op)) - 1))));
+				} else if (o == 0 && op == O_SGXOR)
 					to = mk_bin(O_AND, mk_un(O_POPCNT, ballot_of(v, W)),
 					    mk_const_i(TY_LIT, 1));
 				else if (o == 0)
 					to = mk_sg(op == O_SGMAX || op == O_SGOR ? O_SGANY :
 					    O_SGALL, mk_bin(O_NE, v, mk_const_i(TY_LIT, 0)),
 					    mk_const_i(TY_LIT, W), 0);
+				else if (IS_SGCADD(op))
+					to = bfly(op, v, N.b[x], W, SGCADD_N(op));
 				else
 					to = bfly(op, v, lp ? lp : mk_const_i(TY(K_UINT, 32),
-					    0), W);
+					    0), W, W);
 				cand = sg_replaced(cur, x, mk_cast(N.ty[x], to));
 				if (!cand)
 					continue;
@@ -4095,7 +4184,14 @@ reductions(struct sgf *g, nid cur, float *cost)
 		}
 		if (!best)
 			break;
-		if (bo == 0)
+		if (bo == 0 && IS_SGCADD(N.op[bn]))
+			sb_printf(&g->why, "%s: %s is 0 or 1 in every lane (its range, "
+			    "by intervals), so its sum over the lane's cluster of %d is "
+			    "the number of those lanes where it is not 0: the ballot's "
+			    "bits from the cluster's first lane, lane & ~%d\n",
+			    node_str(bn), node_str(N.a[bn]), SGCADD_N(N.op[bn]),
+			    SGCADD_N(N.op[bn]) - 1);
+		else if (bo == 0)
 			sb_printf(&g->why, "%s: %s is 0 or 1 in every lane (its range, "
 			    "by intervals), so its %s over the lanes is %s\n",
 			    node_str(bn), node_str(N.a[bn]),
@@ -4104,17 +4200,24 @@ reductions(struct sgf *g, nid cur, float *cost)
 			    "the ballot's bit count" : N.op[bn] == O_SGMAX ||
 			    N.op[bn] == O_SGOR ? "whether it is not 0 in some lane: "
 			    "sg_any" : "whether it is not 0 in every lane: sg_all");
-		else
-			sb_printf(&g->why, "%s: a butterfly of %d shuffles by lane xor "
-			    "1, 2, 4 ... and %ss: after the step for d a lane holds "
+		else {
+			int n = IS_SGCADD(N.op[bn]) ? SGCADD_N(N.op[bn]) :
+			    sg_width(bn), st = 0;
+			while ((1 << st) < n)
+				st++;
+			sb_printf(&g->why, "%s: a butterfly of %d shuffle%s by lane xor "
+			    "%s and %ss: after the step for d a lane holds "
 			    "the %s of the 2d lanes that agree with it from bit d up; "
 			    "proved for any value per lane (with a free word in each "
-			    "lane, every lane's result is the %s of all W words, each "
-			    "once)\n", node_str(bn), sg_width(bn) <= 2 ? 1 :
-			    sg_width(bn) <= 4 ? 2 : sg_width(bn) <= 8 ? 3 :
-			    sg_width(bn) <= 16 ? 4 : sg_width(bn) <= 32 ? 5 : 6,
+			    "lane, every lane's result is the %s of the %d words of "
+			    "its %s, each once)\n", node_str(bn), st, st == 1 ? "" :
+			    "s", st == 1 ? "1" : st == 2 ? "1, 2" : st == 3 ?
+			    "1, 2, 4" : st == 4 ? "1, 2, 4, 8" : st == 5 ?
+			    "1, 2, 4 ... 16" : "1, 2, 4 ... 32",
 			    opinfo[sg_combine_op(N.op[bn])].name,
-			    nm[N.op[bn] - O_SGMIN], nm[N.op[bn] - O_SGMIN]);
+			    nm[N.op[bn] - O_SGMIN], nm[N.op[bn] - O_SGMIN], n,
+			    IS_SGCADD(N.op[bn]) ? "cluster" : "subgroup");
+		}
 		cur = best;
 		*cost = bc;
 	}

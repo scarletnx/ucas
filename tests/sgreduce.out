@@ -48,7 +48,7 @@ cost of mn under gt1030: inf (3 operations, shared subterms counted once)
 find mn: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
   cost 22  min(min(min(t xor 37lane, sg_shuffle(t1, lane xor 1)), sg_shuffle(t2, lane xor 2)), sg_shuffle(min(t2, sg_shuffle(t2, lane xor 2)), lane xor 4)) where t1 = t xor 37lane, t2 = min(t1, sg_shuffle(t1, lane xor 1))
-           sg_min(t xor 37lane): a butterfly of 3 shuffles by lane xor 1, 2, 4 ... and mins: after the step for d a lane holds the minimum of the 2d lanes that agree with it from bit d up; proved for any value per lane (with a free word in each lane, every lane's result is the minimum of all W words, each once)
+           sg_min(t xor 37lane): a butterfly of 3 shuffles by lane xor 1, 2, 4 and mins: after the step for d a lane holds the minimum of the 2d lanes that agree with it from bit d up; proved for any value per lane (with a free word in each lane, every lane's result is the minimum of the 8 words of its subgroup, each once)
            holds in a full subgroup (all 8 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
            checked by SAT
   nothing new up to cost 3 (term bank full)

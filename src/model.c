@@ -50,6 +50,8 @@ const char *const cclass_name[C_NCLASS] = {
 	"tex_packed", "tex_cube", "tex_3d", "tex_compare",
 	"iadd64", "imul64", "shift64",
 	"sg_min", "sg_max", "sg_and", "sg_or", "sg_xor",
+	"sg_cluster2", "sg_cluster4", "sg_cluster8", "sg_cluster16",
+	"sg_cluster32", "sg_partition", "sg_partadd", "sg_barrier",
 };
 
 /*
@@ -577,7 +579,8 @@ depends_nonuniform(const struct func *f, nid n, uint8_t *seen,
 		 * the worst) */
 		return (N.fl[N.a[n]] & NF_LANEREAD) != 0;
 	case O_SGSHUF: case O_SGSCAN: case O_SGDDX: case O_SGDDY:
-	case O_SGFWIDTH:
+	case O_SGFWIDTH: case O_SGCADD2: case O_SGCADD4: case O_SGCADD8:
+	case O_SGCADD16: case O_SGCADD32: case O_SGPART: case O_SGPADD:
 		return 1;
 	}
 	return depends_nonuniform(f, N.a[n], seen, vslots) ||
