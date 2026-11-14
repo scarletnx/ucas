@@ -1116,8 +1116,9 @@ find_float(struct func *f, int want)
 /* ---- peephole: operations of the function itself that never bite ---- */
 
 #define PEEP_ROUNDS 16
-#define PEEP_PROOFS 40      /* equivalence proofs per find */
-#define PEEP_SECONDS 8.0    /* and CPU time for them */
+#define PEEP_PROOFS 40      /* equivalence proofs per find: the peephole's
+			     * only budget, so its answer is the same on
+			     * every machine */
 #define PEEP_SHOWN 6        /* single drops listed */
 
 struct pcand {
@@ -1462,8 +1463,6 @@ peephole(const struct func *f)
 	int nsteps = 0, more = 0, nderived = 0, loose = 0;
 	const char *last = "exhaustive";
 
-	clock_t t0 = clock();
-
 	if (!TY_ISINT(N.ty[f->body]))
 		return;
 	if (fquiet) {
@@ -1486,8 +1485,6 @@ peephole(const struct func *f)
 		struct eqproof pr;
 		if (c[i].cost >= base || !quick_refines(f, c[i].e))
 			continue;
-		if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
-			break;
 		proofs++;
 		sb_clear(&w);
 		if (equiv_decide(f, f->body, c[i].e, &w, &pr))
@@ -1531,8 +1528,6 @@ peephole(const struct func *f)
 			 */
 			if (loose && !c[i].derived)
 				continue;
-			if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
-				break;
 			proofs++;
 			if (derived_check(f, c[i].e, c[i].derived && c[i].nosat,
 			    NULL, &pr) || (pr.how == EQ_SAMPLED && !c[i].derived))

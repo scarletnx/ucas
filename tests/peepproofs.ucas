@@ -1,0 +1,7 @@
+# find's peephole stops by its count of proofs (40), not by CPU time, so
+# its answer is the same on every machine (#553): the five remainders here
+# take five rounds of the fixpoint, each rewrite checked on all 3.2 million
+# points, about 12 s of CPU in all, past the 8 s the fixpoint had before
+use gt1030
+h(a: u32 in 0..19, b: u32 in 0..19, c: u32 in 0..19, d: u32 in 0..19, e: u32 in 0..19) = (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11
+find h 1
