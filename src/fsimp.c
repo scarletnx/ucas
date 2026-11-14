@@ -3379,7 +3379,7 @@ tab_pick(const struct fxg *g, struct fxrw *r)
 	struct tabform fm[4], z;
 	int f, k, i, nf = 0, have = 0;
 
-	c8 = model_lists(m, C_TEX_SAMPLE) ? m->c[C_TEX_SAMPLE] + 2 *
+	c8 = model_lists(m, tex8_class(m)) ? m->c[tex8_class(m)] + 2 *
 	    fx_price(FX_FMA) : INFINITY;
 	for (k = 0; k < 3; k++) {
 		fm[nf].fmt = FXT_R8;
@@ -3535,7 +3535,7 @@ an_table(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 	for (i = 0; i <= node; i++)
 		if (dead[i])
 			cf += fx_price(g->n[i].op);
-	c8 = model_lists(m, C_TEX_SAMPLE) ? m->c[C_TEX_SAMPLE] +
+	c8 = model_lists(m, tex8_class(m)) ? m->c[tex8_class(m)] +
 	    2 * fx_price(FX_FMA) : INFINITY;
 	c32 = model_lists(m, C_TEX_SAMPLE_F32) ? m->c[C_TEX_SAMPLE_F32] +
 	    fx_price(FX_FMA) : INFINITY;

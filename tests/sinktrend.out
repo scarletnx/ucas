@@ -60,7 +60,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %92 = OpFAdd %float %88 %91
-      a function of c on [0, 1] as a table read, cost 24.625 (-6.375)
+      a function of c on [0, 1] as a table read, cost 18 (-13)
         as fma(textureLod(T, fma(c, 1024.0, 0.5), 0.0).r, 0.267099977, fma(0.730679929, c, 0.255568355))
         T: a texture R8_UNORM, 1025 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
         f less the trend R(x) = 0.255568355 + 0.730679929 x (f32 coefficients, fitted by least squares to f at the knots, its constant taking f - R's least value there): a table of 1025 texels at x_j = 0 + j h, h = 0.0009765625, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, R(x)) turns back, R by Horner in f32, read with linear filtering at texel coordinate fma(x, 1024, 0.5) (texel j's centre at j + 1/2):
@@ -135,7 +135,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %92 = OpFAdd %float %88 %91
-      a function of c on [0, 1] as a table read, cost 25.625 (-5.375)
+      a function of c on [0, 1] as a table read, cost 19 (-12)
         as fma(textureLod(T, fma(c, 2048.0, 0.5), 0.0).r, 0.0481084287, fma(fma(-1.06172204, c, 1.79236877), c, 0.228578329))
         T: a texture R8_UNORM, 2049 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
         f less the trend R(x) = 0.228578329 + 1.79236877 x + -1.06172204 x^2 (f32 coefficients, fitted by least squares to f at the knots, its constant taking f - R's least value there): a table of 2049 texels at x_j = 0 + j h, h = 0.00048828125, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, R(x)) turns back, R by Horner in f32, read with linear filtering at texel coordinate fma(x, 2048, 0.5) (texel j's centre at j + 1/2):
@@ -210,7 +210,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %92 = OpFAdd %float %88 %91
-      a function of c on [0, 1] as a table read, cost 23.625 (-7.375)
+      a function of c on [0, 1] as a table read, cost 17 (-14)
         no table of up to 2049 texels is within the 0.000244 its value may move: 2049 texels R8 less a parabola come to about 0.000413 (sampled)
   not applied:
     %90 = OpExtInst %float %2 Sqrt %59   (sqrt as x * inversesqrt(x))

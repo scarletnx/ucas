@@ -59,7 +59,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 3 functions
           one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
           setup (the descriptor, the upload) is not in the model: not measured
       proof: equal, by the derivation it relies on (texalu), over the values its leaves take where it runs
-      cost under cal: 35.5 -> 33.625 each time it runs
+      cost under cal: 35.5 -> 27 each time it runs
       relies on: y in 0..1; x in 0..1 where line 7 runs; holds where x in [0, 1], y in [0, 1] (proved ranges): every texel read is inside the table; a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255);   the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move;   the filter is within 2 ulp of that sum (the model's tex_within): 0.000243; the texels as f32: 3.03e-05; in all 0.000395; the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor); checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 4 points: equal
   (nofile: simplified.spvasm, 4804 bytes, checksum a8ba1bb8)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
