@@ -634,11 +634,13 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		if (lo == 0 && hi >= 1 && hi < SG_MAXW)
 			W = (int)hi + 1;
 	}
-	if (!W)
-		W = (int)model_active()->par[MP_WARP];
-	/* a fusion's pattern matches any size (fuse.c); 32 to build it */
+	/* a fusion's pattern matches any size (fuse.c): 32 to build it,
+	 * without the active model, which the prelude's own models are
+	 * parsed before there is */
 	if (p->fusepat && (W < 2 || W > SG_MAXW))
 		W = 32;
+	if (!W && model_active())
+		W = (int)model_active()->par[MP_WARP];
 	if (W < 2 || W > SG_MAXW)
 		fail("%s needs the subgroup's size: give the function a "
 		    "parameter lane: u32 in 0..N-1, or use a model that states "
