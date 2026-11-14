@@ -110,14 +110,52 @@ fusewidth.ucas:61:65: error: a fusion is a source modifier (in) or a result modi
 cost model: xmad
 > spvsimplify nofile float nofunctions
 simplify: 88 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under xmad (each instruction once): 18 -> 18 (+0.0%)
+  integer arithmetic cost under xmad (each instruction once): 16 -> 16 (+0.0%)
   fused by the model in the result (one instruction for several):
     xmad             2 x 1     = 2  (a*b + c; saves 6)
+    mul16            1 x 1     = 1  (a*b; saves 2)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: no float arithmetic reaches a store, a return, a conversion to an integer or a compare with a constant
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
+> d1(x: u32, y: u32, z: u32) = ((x * y) & 0xffff) + z
+> d2(x: u32, y: u32, z: u32) = (x * y + z) & 0xffff
+> d3(x: u32, y: u32, z: u32) = ((x * y) >> 16) + z
+> d4(x: u32, y: u32) = (x * y) << 16
+> cost d1
+cost of d1 under xmad: 3 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  logic            1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    mul16            1 x 1     = 1  (a*b; saves 2)
+> cost d2
+cost of d2 under xmad: 2 (3 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    xmad             1 x 1     = 1  (a*b + c; saves 3)
+> cost d3
+cost of d3 under xmad: 5 (3 operations, shared subterms counted once)
+  imul             1 x 3     = 3
+  fused by the model (one instruction for several operations):
+    shr_add          1 x 2     = 2  ((a >> k) + b; saves 1)
+> cost d4
+cost of d4 under xmad: 3 (2 operations, shared subterms counted once)
+  shift            1 x 2     = 2
+  fused by the model (one instruction for several operations):
+    mul16            1 x 1     = 1  (a*b; saves 2)
+> f1(x: u32, y: u32) = (x * y) << 16
+> g1(x: u32, y: u32) = ((x & 0xffff) * (y & 0xffff)) << 16
+> equiv f1 g1
+f1 and g1 are equal on the domain of f1 (proved by SAT: 5977 AIG nodes, 0 conflicts)
+> f2(x: u32, y: u32, z: u32) = (x * y + z) & 0xffff
+> g2(x: u32, y: u32, z: u32) = ((x & 0xffff) * (y & 0xffff) + z) & 0xffff
+> equiv f2 g2
+f2 and g2 are equal on the domain of f2 (proved by SAT: 6436 AIG nodes, 0 conflicts)
+> f3(x: u32, y: u32) = (x * y) >> 16
+> g3(x: u32, y: u32) = ((x & 0xffff) * (y & 0xffff)) >> 16
+> equiv f3 g3
+f3 and g3 differ at 65524 points of the sample, e.g. x=200494509, y=40788086: 31132 vs 7492
 > model xmadh : xmad {
     fuse xmadlo(a: int, b: int, c: int) = (a & 65535) * (b & 65535) + c : mul16
     fuse xmadhi(a: int, b: int, c: int) = (a >> 16) * (b >> 16) + c : mul16 }

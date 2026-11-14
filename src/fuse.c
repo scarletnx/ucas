@@ -264,6 +264,7 @@ fg_free(struct fgraph *g)
 	free(g->lo);
 	free(g->hi);
 	free(g->ranged);
+	free(g->dem);
 	memset(g, 0, sizeof *g);
 }
 
@@ -347,6 +348,25 @@ match_amount(const struct fgraph *g, const struct fusion *f, nid P,
 	return 0;
 }
 
+/* a pattern whose result's low bits depend on its inputs' low bits
+ * alone: adds, subtracts, multiplies, the bitwise operations and left
+ * shifts by a constant */
+static int
+pat_lowclosed(nid P)
+{
+	switch (N.op[P]) {
+	case O_VAR: case O_CONST:
+		return 1;
+	case O_ADD: case O_SUB: case O_MUL: case O_AND: case O_OR: case O_XOR:
+		return pat_lowclosed(N.a[P]) && pat_lowclosed(N.b[P]);
+	case O_NEG: case O_NOT:
+		return pat_lowclosed(N.a[P]);
+	case O_SHL:
+		return N.op[N.b[P]] == O_CONST && pat_lowclosed(N.a[P]);
+	}
+	return 0;
+}
+
 static int
 fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
     int root, struct mst *s)
@@ -363,8 +383,14 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 				return 0;
 			if (f->pbits[sl]) {
 				int64_t top = 1LL << (f->pbits[sl] - f->psgn[sl]);
-				if (!g->ranged || !g->ranged[i] || g->hi[i] >= top ||
-				    g->lo[i] < (f->psgn[sl] ? -top : 0))
+				/* proved inside the width, or, for uN, only the low N
+				 * bits of the fusion's result are read and its pattern
+				 * keeps low bits to low bits: the instruction reading
+				 * the input's low N bits gives those bits */
+				if ((!g->ranged || !g->ranged[i] || g->hi[i] >= top ||
+				    g->lo[i] < (f->psgn[sl] ? -top : 0)) && (f->psgn[sl] ||
+				    !g->dem || g->dem[root] >> f->pbits[sl] ||
+				    !pat_lowclosed(f->pat)))
 					return 0;
 			}
 			break;
@@ -1145,6 +1171,112 @@ fg_ranges(struct fgraph *G, const int64_t *tlo, const int64_t *thi)
 		}
 }
 
+/* the bits up to the highest of d */
+static uint64_t
+lowmask(uint64_t d)
+{
+	int b = 63;
+
+	if (!d)
+		return 0;
+	while (!(d >> b & 1))
+		b--;
+	return b == 63 ? ~0ULL : (2ULL << b) - 1;
+}
+
+/*
+ * Demanded bits (#45): which bits of each integer node anything reads,
+ * from the results (a pinned node, or one nothing in the graph reads:
+ * every bit of its width) back through the operations, the operands
+ * after their users (users have higher indices among the operations):
+ * an and with a constant reads that constant's bits, a left shift by c
+ * the result's bits moved down, a right shift by c the bits moved up (and
+ * the sign where the shift may copy it), an add, subtract or multiply
+ * every bit up to the highest read; anything else every bit.  width[i]
+ * is a node's bits, 0 for what is not an integer.
+ */
+void
+fg_demanded(struct fgraph *G, const int *width)
+{
+	int i, k, n = G->n ? G->n : 1;
+	uint64_t *full = xcalloc((size_t)n, sizeof *full);
+
+	G->dem = xcalloc((size_t)n, sizeof *G->dem);
+	for (i = 0; i < G->n; i++) {
+		int w = width[i];
+		full[i] = w <= 0 ? 0 : w >= 64 ? ~0ULL : (1ULL << w) - 1;
+		if (G->pinned[i] || G->uses[i] == 0 || G->op[i] == O_NONE)
+			G->dem[i] = full[i];
+	}
+	/* an operation priced as it is reads all of its operands */
+	for (i = 0; i < G->n; i++)
+		if (G->op[i] == O_NONE && !G->isk[i])
+			for (k = 0; k < 3; k++)
+				if (G->arg[i][k] >= 0)
+					G->dem[G->arg[i][k]] = full[G->arg[i][k]];
+	for (i = G->n - 1; i >= 0; i--) {
+		int a = G->arg[i][0], b = G->arg[i][1], c = G->arg[i][2];
+		uint64_t D = G->dem[i] & full[i], m;
+		int sh;
+		if (G->isk[i] || G->op[i] == O_NONE || !full[i])
+			continue;
+		switch (G->op[i]) {
+		case O_ADD: case O_SUB: case O_MUL: case O_NEG:
+			m = lowmask(D);
+			if (a >= 0) G->dem[a] |= m;
+			if (b >= 0) G->dem[b] |= m;
+			break;
+		case O_AND:
+			if (b >= 0 && G->isk[b])
+				G->dem[a] |= D & (uint64_t)G->kv[b];
+			else if (a >= 0 && G->isk[a])
+				G->dem[b] |= D & (uint64_t)G->kv[a];
+			else {
+				if (a >= 0) G->dem[a] |= D;
+				if (b >= 0) G->dem[b] |= D;
+			}
+			break;
+		case O_OR:
+			if (b >= 0 && G->isk[b])
+				G->dem[a] |= D & ~(uint64_t)G->kv[b];
+			else if (a >= 0 && G->isk[a])
+				G->dem[b] |= D & ~(uint64_t)G->kv[a];
+			else {
+				if (a >= 0) G->dem[a] |= D;
+				if (b >= 0) G->dem[b] |= D;
+			}
+			break;
+		case O_XOR: case O_NOT:
+			if (a >= 0) G->dem[a] |= D;
+			if (b >= 0) G->dem[b] |= D;
+			break;
+		case O_SHL:
+			sh = b >= 0 && G->isk[b] && G->kv[b] >= 0 && G->kv[b] <
+			    width[i] ? (int)G->kv[b] : -1;
+			if (a >= 0)
+				G->dem[a] |= sh >= 0 ? D >> sh : lowmask(D);
+			if (b >= 0)
+				G->dem[b] = full[b];
+			break;
+		case O_SHR:
+			sh = b >= 0 && G->isk[b] && G->kv[b] > 0 && G->kv[b] <
+			    width[i] ? (int)G->kv[b] : -1;
+			if (a >= 0)
+				G->dem[a] |= sh < 0 ? full[a] : ((D << sh) & full[a]) |
+				    (D >> (width[i] - sh) ? 1ULL << (width[a] - 1) : 0);
+			if (b >= 0)
+				G->dem[b] = full[b];
+			break;
+		default:
+			for (k = 0; k < 3; k++)
+				if (G->arg[i][k] >= 0)
+					G->dem[G->arg[i][k]] = full[G->arg[i][k]];
+		}
+		(void)c;
+	}
+	free(full);
+}
+
 /* the cover of the nodes v[0..cnt) (ascending nids: operands first) */
 static float
 cover_list(const struct model *m, const nid *v, int cnt, const nid *pins,
@@ -1212,8 +1344,15 @@ cover_list(const struct model *m, const nid *v, int cnt, const nid *pins,
 		if (e >= 0)
 			G->pinned[e] = 1;
 	}
-	if (wants_ranges(m))
+	if (wants_ranges(m)) {
+		int *w = xcalloc((size_t)(cnt ? cnt : 1), sizeof *w);
 		cover_ranges(G, v, cnt);
+		for (i = 0; i < cnt; i++)
+			w[i] = TY_SIZED(N.ty[v[i]]) && !TY_FP(N.ty[v[i]]) &&
+			    N.ty[v[i]] != TY_BOOL ? TYW(N.ty[v[i]]) : 0;
+		fg_demanded(G, w);
+		free(w);
+	}
 	return fg_cover(m, G);
 }
 

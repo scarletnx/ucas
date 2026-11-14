@@ -64,8 +64,8 @@ model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
 # product of two values masked to 16 bits or shifted down by 16 is one
 # XMAD under xmad; the mask and the shift stay (the input's width is
 # what is proved, not that the instruction reads a half).  A product of
-# full words whose low half alone is kept is not narrowed: no width is
-# proved for its operands
+# full words whose low half alone is read (demanded bits) is a 16 x 16
+# multiply too: its low 16 bits are those of the inputs' low halves
 use xmad
 simplify nofile nofunctions
 ```glsl
@@ -80,6 +80,27 @@ void main() {
     b.d[i + 320u] = (x >> 16) * (y >> 16) + z;
 }
 ```
+# demanded bits in cost and find: what reads only the low 16 bits of a
+# product (a mask, a shift left by 16, the whole result masked) takes
+# the narrow multiply; a shift right by 16 reads the high half: an IMUL
+d1(x: u32, y: u32, z: u32) = ((x * y) & 0xffff) + z
+d2(x: u32, y: u32, z: u32) = (x * y + z) & 0xffff
+d3(x: u32, y: u32, z: u32) = ((x * y) >> 16) + z
+d4(x: u32, y: u32) = (x * y) << 16
+cost d1
+cost d2
+cost d3
+cost d4
+# the low halves are what those read, proved; the high half is not
+f1(x: u32, y: u32) = (x * y) << 16
+g1(x: u32, y: u32) = ((x & 0xffff) * (y & 0xffff)) << 16
+equiv f1 g1
+f2(x: u32, y: u32, z: u32) = (x * y + z) & 0xffff
+g2(x: u32, y: u32, z: u32) = ((x & 0xffff) * (y & 0xffff) + z) & 0xffff
+equiv f2 g2
+f3(x: u32, y: u32) = (x * y) >> 16
+g3(x: u32, y: u32) = ((x & 0xffff) * (y & 0xffff)) >> 16
+equiv f3 g3
 # a model whose XMAD reads the halves itself says so with patterns: the
 # masks and the shifts fold into it
 model xmadh : xmad {
