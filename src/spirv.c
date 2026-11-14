@@ -13987,6 +13987,7 @@ spv_cover(struct fuse_tally *t)
 	{
 		int64_t *tlo = xmalloc((size_t)(nins + nleaf + 1) * sizeof *tlo);
 		int64_t *thi = xmalloc((size_t)(nins + nleaf + 1) * sizeof *thi);
+		int *wd = xcalloc((size_t)(nins + nleaf + 1), sizeof *wd);
 		for (j = 0; j < nins + nleaf; j++) {
 			tlo[j] = 1;
 			thi[j] = 0;
@@ -14003,10 +14004,13 @@ spv_cover(struct fuse_tally *t)
 			sg = T(t)->sign;
 			tlo[gi[i]] = sg ? -(1LL << (w - 1)) : 0;
 			thi[gi[i]] = sg ? (1LL << (w - 1)) - 1 : (1LL << w) - 1;
+			wd[gi[i]] = w;
 		}
 		fg_ranges(&G, tlo, thi);
+		fg_demanded(&G, wd);	/* and which bits of each anything reads */
 		free(tlo);
 		free(thi);
+		free(wd);
 	}
 	/* what no result needs (a rewrite took its last use; dead code
 	 * removal drops it later) costs nothing */

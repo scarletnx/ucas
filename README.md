@@ -1788,9 +1788,25 @@ operations (a load is its whole type), so `(x & 0xffffu) * (y &
 there; the mask and the shift stay, as the width is what is proved, and
 a model whose multiply reads the halves itself says so with patterns,
 `fuse xmadlo(a: int, b: int, c: int) = (a & 65535) * (b & 65535) + c :
-mul16`, which absorb them.  A product of full words whose low half
-alone is kept, `(x * y) & 0xffffu`, is not narrowed: no width is proved
-for its operands (tests/fusewidth.ucas).
+mul16`, which absorb them.
+
+Demanded bits narrow what only a value's low bits reach.  Both covers
+(`cost` and `find`, and simplify's SPIR-V) find which bits of each
+integer anything reads, from the results (every bit of a value the
+graph gives out) back through the operations: an and with a constant
+reads that constant's bits, a left shift by c the result's bits moved
+down, a right shift by c the bits moved up (and the sign bit where the
+shift may copy it), an add, a subtract or a multiply every bit up to
+the highest read, anything else every bit.  An input `uN` of a fusion
+then also takes a value of any width where only the low N bits of the
+fusion's result are read and its pattern carries low bits to low bits
+(adds, subtracts, multiplies, the bitwise operations, left shifts by a
+constant): the instruction reads the input's low N bits (an XMAD's
+half), and those bits of the result are the same.  So `(x * y) &
+0xffffu`, `(x * y + z) & 0xffffu` and `(x * y) << 16` of full words take
+the 16 x 16 multiply, and `(x * y) >> 16`, which reads the high half,
+does not (tests/fusewidth.ucas).  A signed `sN` input is not taken this
+way.
 
 gt1030 lists neither: no test in the corpus measures a 16 x 16
 multiply-add (XMAD alone) against IMUL or a saturating result against

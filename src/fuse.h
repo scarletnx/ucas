@@ -86,6 +86,8 @@ struct fgraph {
 	uint32_t *id;		/* the caller's id of each node */
 	int64_t *lo, *hi;	/* an integer node's proved range, where */
 	uint8_t *ranged;	/* ranged[i]; NULL: no ranges at all */
+	uint64_t *dem;		/* the bits of each integer node that
+				 * anything reads (fg_demanded); NULL: all */
 	/* the cover */
 	float *eff;		/* each node's share: its fusion's price at the
 				 * root, 0 when absorbed, else its own cost */
@@ -99,6 +101,7 @@ void fg_init(struct fgraph *g, int n);
 void fg_free(struct fgraph *g);
 float fg_cover(const struct model *m, struct fgraph *g);
 void fg_ranges(struct fgraph *g, const int64_t *tlo, const int64_t *thi);
+void fg_demanded(struct fgraph *g, const int *width);
 /* what the cover fused: one line each ("imad 2 x 3 = 6, saves 2") */
 struct fuse_tally {
 	int n;
