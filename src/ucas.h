@@ -19,6 +19,17 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/* C99 has no math constants; define them once for every C library. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#ifndef M_E
+#define M_E 2.71828182845904523536
+#endif
+#ifndef M_LN2
+#define M_LN2 0.69314718055994530942
+#endif
+
 #define MAXP 8           /* parameters per function */
 #define CH 256           /* points per evaluation chunk */
 #define NOTOK UINT32_MAX

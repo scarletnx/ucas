@@ -1,4 +1,5 @@
-# ucas - BSD make (FreeBSD make or bmake)
+# ucas - BSD make (FreeBSD make or bmake).  CMakeLists.txt globs src/*.c;
+# keep the two source sets in agreement.
 
 PROG=	ucas
 SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
