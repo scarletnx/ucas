@@ -107,7 +107,9 @@ Done: cost models for skl skx glc rpl zen4 x86-64-v2/v3/v4 (typed from
 memory, about 10 rows measured; README "x86-64" says which), `mca`,
 the intrinsics catalogue (2585, lane semantics including loads, stores
 and gathers) and `x86check` (host: all agree; AVX-512 checked against
-clang's definitions and cross-checked, 201 not validated), x86 gate
+clang's definitions and cross-checked; the 201 that left unvalidated
+checked against the SDM's Operation pseudocode, `x86check sdm`, all
+agree after two catalogue fixes), x86 gate
 bases (`avx512`: vpternlog as a lut gate) and BMI/pdep/pext in `find`,
 and the vectoriser (`src/cfx86.c`, proof kind LANES; its loops are
 proposed by default, applied where `bench` measures them faster than

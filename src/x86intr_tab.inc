@@ -266,7 +266,7 @@ static const struct fam fams[] = {
 	    "xor(j, 0, n-1, bit(a, j) && popcnt(a & ((u64(1) << j) - 1)) == i "
 	    "? b[j] : 0)", C(VCOMPRESS), 0, "vl vl avx512f", 0, 0, 0},
 	{"mask_compress_%s", "epi32 epi64", "v:* = v:* k v:*",
-	    "popcnt(b) <= i ? a : xor(j, 0, n-1, bit(b, j) && "
+	    "popcnt(b & ((u64(1) << n) - 1)) <= i ? a : xor(j, 0, n-1, bit(b, j) && "
 	    "popcnt(b & ((u64(1) << j) - 1)) == i ? c[j] : 0)",
 	    C(VCOMPRESS), 0, "vl vl avx512f", 0, 0, 0},
 	{"maskz_expand_%s", "epi32 epi64", "v:* = k v:*",
@@ -2136,7 +2136,7 @@ ck_cross(const uint8_t *idst, const char *filter, int fk)
 	printf("    %d mask/maskz forms whose base ran or is proved above: "
 	    "sel(k bit i, base, src) by construction; the operand order of each "
 	    "mask kind is checked by the tests that ran\n", nmask);
-	printf("    %d without a run-validated narrower form (not validated):%s%s\n",
+	printf("    %d without a run-validated narrower form (not validated here; x86check sdm checks them against the SDM):%s%s\n",
 	    nnone, sb_str(&none), nnone > 40 ? " ..." : "");
 	rep_int("avx512_not_run", nnot);
 	rep_int("avx512_cross_proved", nproved);
@@ -2213,9 +2213,82 @@ same_val(ty_t t, int64_t vi, double vr, uint8_t fl, uint64_t cbits, int fa,
 	}
 }
 
-void
-cmd_x86check(const char *filter, int npts, int avx512)
+/*
+ * x86check's sdm mode: the tests' inputs go to tools/sdm/sdmvec.py, which
+ * runs them through the Operation pseudocode of Intel's SDM, Vol. 2, for
+ * the instruction each intrinsic compiles to, and writes the results in the
+ * test program's layout.  A test it cannot run (no instruction mapped, a
+ * page it cannot read) comes back as "skip REASON".
+ */
+static int
+sdm_run(const char *dir, struct ck_test *ct, int nt, int npts,
+    struct sbuf *why)
 {
+	const char *pages = getenv("UCAS_SDM");
+	const char *tool = getenv("UCAS_SDM_TOOL");
+	char path[256], cmd[1024], line[512];
+	struct sbuf out = {0};
+	FILE *f;
+	int t, k, nskip = 0;
+
+	if (!pages || !*pages) {
+		printf("x86check sdm: set UCAS_SDM to the directory of SDM pages "
+		    "tools/sdm/extract.py writes (make sdm SDM_PDF=...)\n");
+		return -1;
+	}
+	if (!tool || !*tool)
+		tool = "tools/sdm/sdmvec.py";
+	snprintf(path, sizeof path, "%s/manifest", dir);
+	if (!(f = fopen(path, "w")))
+		fail("x86check: cannot write %s", path);
+	fprintf(f, "%d %d %d %d\n", CK_PT, npts, CK_OUT, CK_OPB);
+	for (t = 0; t < nt; t++) {
+		int id = ct[t].id;
+		fprintf(f, "%s %d", I.name[id], ct[t].imm);
+		for (k = 0; k < I.nop[id]; k++) {
+			int e = I.oe[id][k];
+			switch (I.ok[id][k]) {
+			case OK_V: fprintf(f, " V%d:%s", I.obits[id][k], ename[e]); break;
+			case OK_K: fprintf(f, " K%d", I.obits[id][k]); break;
+			case OK_I: fprintf(f, " I"); break;
+			case OK_P: fprintf(f, " P:%s", ename[e]); break;
+			default: fprintf(f, " S%d:%s", ebits[e], ename[e]);
+			}
+		}
+		fprintf(f, "\n");
+	}
+	fclose(f);
+	snprintf(cmd, sizeof cmd, "python3 -I %s %s %s/manifest %s/in.bin "
+	    "%s/out.bin %s/status 2>&1", tool, pages, dir, dir, dir, dir);
+	if (run_sh(cmd, &out) != 0) {
+		printf("x86check sdm: %s failed: %.800s\n", tool, sb_str(&out));
+		free(out.p);
+		return -1;
+	}
+	free(out.p);
+	snprintf(path, sizeof path, "%s/status", dir);
+	if (!(f = fopen(path, "r")))
+		fail("x86check sdm: no status");
+	for (t = 0; t < nt && fgets(line, sizeof line, f); t++) {
+		line[strcspn(line, "\n")] = 0;
+		if (strncmp(line, "ok", 2)) {
+			ct[t].dropped = 2;
+			nskip++;
+			if (t == 0 || ct[t - 1].id != ct[t].id)
+				sb_printf(why, "    %s: %s\n", I.name[ct[t].id],
+				    line + 5);
+		}
+	}
+	fclose(f);
+	return nskip;
+}
+
+void
+cmd_x86check(const char *filter, int npts, int mode)
+{
+	int avx512 = mode == 1, sdm = mode == 2;
+	struct sbuf sdmwhy = {0};
+	int nsdmskip = 0;
 	xfeat host = host_feats(), allow;
 	struct ck_test *ct = NULL;
 	int nt = 0, capt = 0, round, t, k, fk = filter ? xfeat_find(filter) : -1;
@@ -2238,7 +2311,7 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		npts = 1;
 	if (npts > CH)
 		npts = CH;
-	allow = avx512 ? ~0ULL : host;
+	allow = avx512 || sdm ? ~0ULL : host;
 	if (!mkdtemp(dir))
 		fail("x86check: no temporary directory");
 	/* the tests: each intrinsic, each immediate */
@@ -2284,7 +2357,7 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		return;
 	}
 	/* write, compile; tests cc rejects are dropped and it compiles again */
-	for (round = 0; round < 10; round++) {
+	for (round = 0; round < 10 && !sdm; round++) {
 		int ok;
 		sb_clear(&src);
 		sb_puts(&src, "#include <immintrin.h>\n#include <x86intrin.h>\n"
@@ -2415,7 +2488,10 @@ cmd_x86check(const char *filter, int npts, int avx512)
 	}
 	snprintf(cmd, sizeof cmd, "cd %s && ./t in.bin out.bin 2>&1", dir);
 	sb_clear(&out);
-	if (run_sh(cmd, &out) != 0) {
+	if (sdm) {
+		if ((nsdmskip = sdm_run(dir, ct, nt, npts, &sdmwhy)) < 0)
+			goto done;
+	} else if (run_sh(cmd, &out) != 0) {
 		printf("x86check: the test program failed: %.500s\n", sb_str(&out));
 		goto done;
 	}
@@ -2446,6 +2522,8 @@ cmd_x86check(const char *filter, int npts, int avx512)
 			continue;
 		}
 		if (ct[t].dropped == 2) {
+			if (sdm)
+				continue;
 			nnorun++;
 			idst[ct[t].id] |= 4;
 			continue;
@@ -2536,6 +2614,14 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		    "points, %ld lanes compared: %d agree, %d differ\n",
 		    filter ? " " : "", filter ? filter : "", nint, nok + nbad, npts,
 		    cmp_lanes, nok, nbad);
+		if (sdm) {
+			printf("  against the Operation pseudocode of Intel's SDM, "
+			    "Vol. 2 (tools/sdm/sdmvec.py, pages in $UCAS_SDM), not "
+			    "against hardware or the compiler\n");
+			if (nsdmskip)
+				printf("  %d tests not run by the SDM reader:\n%s",
+				    nsdmskip, sb_str(&sdmwhy));
+		}
 		if (avx512)
 			printf("  AVX-512: compiled with every feature, the IR's "
 			    "target features replaced by the host's (AVX2), run here; "
@@ -2580,11 +2666,16 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		rep_int("not_runnable", nnorun);
 		if (avx512 && nnorun)
 			ck_cross(idst, filter, fk);
-		rep_check("cc", cmp_lanes, 0, nbad == 0 && !nrej, "lane semantics against "
-		    "the C compiler's intrinsics on this host");
+		if (sdm) {
+			rep_int("sdm_not_run", nsdmskip);
+			rep_check("sdm", cmp_lanes, 0, nbad == 0, "lane semantics "
+			    "against the SDM's Operation pseudocode");
+		} else
+			rep_check("cc", cmp_lanes, 0, nbad == 0 && !nrej, "lane "
+			    "semantics against the C compiler's intrinsics on this host");
 	}
 done:
-	snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
+	snprintf(cmd, sizeof cmd, getenv("UCAS_KEEP") ? "true %s" : "rm -rf %s", dir);
 	run_sh(cmd, NULL);
 	free(src.p);
 	free(out.p);
@@ -2592,6 +2683,7 @@ done:
 	free(res);
 	free(ct);
 	free(idst);
+	free(sdmwhy.p);
 }
 
 /* names cc rejects outright (for the catalogue's own consistency) */

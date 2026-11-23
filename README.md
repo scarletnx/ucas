@@ -8197,7 +8197,7 @@ random and edge points.  What is validated where:
 | AVX-512, most | `x86check avx512`: compiled for every feature, clang's header definitions lowered to generic vector IR and run as AVX2 code here | 1468 intrinsics agree with **clang's definitions**, not with AVX-512 hardware |
 | AVX-512 that call an `llvm.x86.avx512.*` builtin | proved equal, half by half, to the run-validated narrower form of the same name | 42 proved (equal DAGs), 2 only sampled |
 | their mask/maskz forms | composed from a validated base | 268 |
-| the rest | | **201 not validated** (compress/expand, permutexvar, 16-bit and 64-bit variable shifts, 512-bit gathers, ...) |
+| the rest: 201 (compress/expand, permutexvar, 16-bit and 64-bit variable shifts, 512-bit gathers, GFNI, VPCLMULQDQ, rcp14/rsqrt14, narrowing vpmov, ...) | `x86check sdm`: run through the Operation pseudocode of Intel's SDM, Vol. 2 | all 201 agree (290 intrinsics checked this way in all), after two catalogue fixes it found |
 
 No AVX-512 hardware or emulator is available: this host is an i5-9400,
 QEMU 11.1's TCG has no AVX-512, and Intel SDE is not installed.  Before
@@ -8209,6 +8209,42 @@ TwoSum, then to float; the derivation is in the comment), and so does
 correctly rounded (`x86check avx512` found
 `fma(-0x1.5af1d78b58c4p+66, -0x1.b428a02b5f643p-121, -1)`, and 2213 of
 10^8 hard cases differ from `vfmadd`).
+
+**Against Intel's SDM** (`x86check [FILTER] sdm`; `make sdm`, then
+`make sdmcheck`).  The manual's own pseudocode is the oracle where no
+hardware is: `tools/sdm/extract.py` (from ~/vibe86, which compiles the
+SDM's base-ISA pages into an x86 core the same way) pulls the
+instruction pages out of *Intel 64 and IA-32 Architectures Software
+Developer's Manual, Vol. 2* (order no. 325383-093US) with pdftotext, and
+`tools/sdm/sdmvec.py` interprets the Operation section of the instruction
+each intrinsic compiles to: `FOR j := 0 TO KL-1`, bit fields, `.byte[k]`
+views, the helpers a page defines (`PCLMUL128`, `affine_byte`), masking
+prose (`*no writemask*`, `*merging-masking*`, `remains unchanged`), and
+`MEM[...]` over the gather's operand bytes.  `x86check` hands it the same
+inputs it gives the compiled test program, reads the results in the same
+layout and compares them the same way; a test it cannot map or read is
+listed as not run.  This follows Reid, "Trustworthy Specifications of ARM
+v8-A and v8-M System Level Architecture", FMCAD 2016
+(doi:10.1109/FMCAD.2016.7886675): the vendor's pseudocode read as an
+executable specification.  The manual is not in the repository; the
+check is not part of `make test`.
+
+It found two errors in the catalogue, both in forms no host test could
+run: `_mm_mask_compress_epi32`/`epi64` (128 and 256 bits) counted the
+compressed lanes with `popcount` of the whole 8-bit mask instead of its
+low KL bits, and the mask forms of the narrowing conversions
+(`_mm_mask_cvtepi32_epi8`, `cvtsepi*`, `cvtusepi*`, `cvtpd_ps`, ...)
+kept the merge source in the result lanes past the source's lanes, which
+the instruction zeroes (`DEST[MAXVL-1:VL/4] := 0`).  Where the text
+cannot be read as written, the reader says how it takes it
+(`sdmvec.py --errata`, numbered on from ~/vibe86's E-1..E-18), e.g.
+E-25: the EVEX `VPSRAVW/D/Q` read a 4-6 bit `COUNT` and then test
+`IF COUNT < 16/32/64`, which cannot fail, where the VEX form and the
+hardware use the whole element; E-20: `VPSRAVD/Q`'s zeroing-masking
+clears `DEST[31:0]` (lane 0) for every masked-off lane j; E-26:
+`VGF2P8AFFINEINVQB`'s inner loop is printed outside the loop whose `j`
+it reads.  A reading of the manual is not hardware either: the SDM's
+`APPROXIMATE(1.0/SQRT(x))` is checked within the documented 2^-14.
 
 **Gate bases and find.**  `basis avx512` has vpternlog as a one-step
 gate of 3 inputs (Bases above; basis.md has the LOP3 analysis this

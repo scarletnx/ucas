@@ -178,6 +178,21 @@ test: ${PROG}
 	@cd ${.CURDIR} && ${MAKE} mcp-test
 	@cd ${.CURDIR} && ${MAKE} libc-test
 
+# The intrinsics catalogue against Intel's SDM, Vol. 2 (order no. 325383):
+# `make sdm` extracts the instruction pages from the PDF (pdftotext, from
+# poppler) into work/sdm; `make sdmcheck` runs `x86check sdm`, which runs
+# the tests through the pages' Operation pseudocode (tools/sdm/sdmvec.py).
+# Neither is part of `make test`: the manual is not in the repository.
+SDM_PDF?=	${HOME}/vibe86/build/sdm/325383-093US.pdf
+SDM_DIR?=	${.CURDIR}/work/sdm
+sdm:
+	python3 -I ${.CURDIR}/tools/sdm/extract.py ${SDM_PDF} ${SDM_DIR}
+	python3 -I ${.CURDIR}/tools/sdm/sdmvec.py --parse ${SDM_DIR}
+
+sdmcheck: ${PROG}
+	cd ${.CURDIR} && UCAS_SDM=${SDM_DIR} ${.OBJDIR}/${PROG} -e \
+	    'x86check n 16 sdm'
+
 # A C library declares more names than C99's under its widest feature
 # macros and under C23, a compiler's default (glibc: fdiv, fadd, iszero):
 # every source compiles there too.

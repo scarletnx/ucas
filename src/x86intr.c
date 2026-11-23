@@ -1203,6 +1203,12 @@ xi_lane(int id, int lane, int64_t imm, xi_lane_fn fn, void *ctx)
 				rm.map[k] = k + 1;
 		}
 		base = xi_lane(b, lane, imm, remap_fn, &rm);
+		/* a narrowing form's lanes past its source's ("i < na ?
+		 * a : 0": vpmov*, cvtpd_ps) are zeroed whatever the mask
+		 * (SDM: DEST[MAXVL-1:VL/4] := 0; found by x86check sdm) */
+		if (I.sem[b] && !strncmp(I.sem[b], "i < na ?", 8) &&
+		    lane >= lanes_of(I.obits[b][0], I.oe[b][0]))
+			return mk_cast(N.ty[base], K(0));
 		kb = fn(ctx, kop, 0);
 		if (I.mmode[id] == MM_KMASK)
 			return mk_bin(O_AND, base, mk_cast(N.ty[base], kb));

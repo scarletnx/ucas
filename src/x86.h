@@ -131,7 +131,7 @@ uint32_t xi_count(void);
 int xi_find(const char *name);		/* -1 */
 void cmd_intrinsic(const char *name, int ua);
 void cmd_intrinsics(const char *filter, int ua);
-void cmd_x86check(const char *filter, int npts, int avx512);
+void cmd_x86check(const char *filter, int npts, int mode); /* 0 host, 1 avx512, 2 sdm */
 /*
  * One lane of an intrinsic's result as a node: ops[k](lane) gives the
  * k-th operand's lane (or the scalar), imm the immediate.

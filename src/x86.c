@@ -115,13 +115,15 @@ x86_command(struct P *p)
 					fail("x86check: n COUNT");
 			} else if (cmdp_kw(p, "avx512"))
 				avx512 = 1;
+			else if (cmdp_kw(p, "sdm"))
+				avx512 = 2;
 			else if (!have && cmdp_word(p, flt, sizeof flt))
 				have = 1;
 			else
 				break;
 		}
 		if (!cmdp_eos(p))
-			fail("x86check [FILTER] [n POINTS] [avx512]");
+			fail("x86check [FILTER] [n POINTS] [avx512 | sdm]");
 		cmd_x86check(have ? flt : NULL, (int)npts, avx512);
 		return 1;
 	}
