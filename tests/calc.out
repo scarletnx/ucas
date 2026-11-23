@@ -326,7 +326,6 @@ range of collatz -> int:
   fits in u7
   over all 200 points of the domain
 > equiv f sum(i, 0, n, i^3)
-  note: n is a bound of sum: taken as int in 0..100
 f and sum(i, 0, n, i^3) are equal on the domain of f (exhaustive)
 > g(x: real in 0..2) = sum(k, 0, 10, x^k/2^k)
 > range g

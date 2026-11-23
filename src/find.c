@@ -44,6 +44,7 @@ struct match {
 	const char *why;
 };
 
+static int icost(nid e);
 static struct {
 	int active;
 	struct func f;
@@ -1041,8 +1042,9 @@ forms(const int64_t *xs)
 				    r == 1 ? x : mk_bin(O_POW, x, mk_const_i(TY_LIT, r)));
 				e = e ? mk_bin(O_ADD, e, term) : term;
 			}
-			add_match(M_FORM, k * (op_cost(O_MUL) + op_cost(O_ADD)), e,
-			    "polynomial (Horner)");
+			/* priced as built (missing terms cost nothing), as
+			 * every other form is (#492) */
+			add_match(M_FORM, icost(e), e, "polynomial (Horner)");
 			break;
 		}
 	}

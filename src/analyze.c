@@ -2232,6 +2232,10 @@ cmd_crit(struct func *f)
 
 /* ---- equivalence, error, fit ---- */
 
+/* set by cmd_equiv: an anonymous G's free variables are F's parameters,
+ * in F's types, not converted to the types G's text inferred (#490) */
+static int rebind_ftypes;
+
 static void
 rebind_map(const struct func *f, const struct func *g, nid *map)
 {
@@ -2241,8 +2245,9 @@ rebind_map(const struct func *f, const struct func *g, nid *map)
 		fail("%s has %d parameters, %s has %d", fname(g), g->np,
 		    fname(f), f->np);
 	for (j = 0; j < g->np; j++)
-		map[j] = mk_cast(g->p[j].ty, mk_var((uint32_t)j, f->p[j].name,
-		    f->p[j].ty));
+		map[j] = rebind_ftypes && g->anon ? mk_var((uint32_t)j,
+		    f->p[j].name, f->p[j].ty) : mk_cast(g->p[j].ty,
+		    mk_var((uint32_t)j, f->p[j].name, f->p[j].ty));
 }
 
 static nid
@@ -2804,13 +2809,20 @@ cmd_equiv(struct func *f, struct func *g, int ftz, int nanbits)
 	struct sbuf w = {0}, how = {0};
 	struct eqproof pr;
 	int m, j, flt, rflt;
-	nid gb = rebind(f, g), gw = 0;
+	nid gb, gw = 0;
 
+	/* `equiv F EXPR` checks EXPR as F's computation: its free
+	 * variables are F's parameters in F's types, as find computed the
+	 * forms it prints (#490); an expression with no free variable is
+	 * the constant function on F's domain (#489) */
+	rebind_ftypes = 1;
+	gb = rebind(f, g);
+	rebind_ftypes = 0;
 	equiv_want_cert = 1;
-	if (g->np != f->np)
+	if (g->np != f->np && !(g->anon && g->np == 0))
 		fail("%s and %s take different numbers of parameters", fname(f),
 		    fname(g));
-	for (j = 0; j < f->np; j++)
+	for (j = 0; j < g->np; j++)
 		if (f->p[j].lanes != g->p[j].lanes)
 			fail("parameter %d has a value in each lane (lanes) in one "
 			    "of %s and %s and not in the other", j + 1, fname(f),

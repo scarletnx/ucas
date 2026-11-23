@@ -2291,6 +2291,14 @@ parse_rule(struct P *p)
 	cmd_rule(&tmp, l, r);
 }
 
+/*
+ * Set while `equiv F EXPR` parses EXPR: the anonymous function starts with
+ * F's parameters, so its free variables are F's by name and in F's types
+ * (#490: find's forms are computed in those types), and an expression
+ * without them is a function of F's parameters all the same (#489).
+ */
+static const struct func *cmd_like;
+
 /* a function argument to a command: a name, or an anonymous expression */
 static struct func *
 cmd_func(struct P *p)
@@ -2300,6 +2308,9 @@ cmd_func(struct P *p)
 	struct func *f, tmp;
 	uint32_t at = p->i;
 	int why;
+	const struct func *like = cmd_like;
+
+	cmd_like = NULL;	/* this argument only, whatever happens */
 
 	if (pk(p) == T_ID && (f = func_find(tsym(p, at))) != NULL &&
 	    (at + 1 >= p->t->n || p->t->kind[at + 1] == T_NL ||
@@ -2345,6 +2356,14 @@ cmd_func(struct P *p)
 	memset(&tmp, 0, sizeof tmp);
 	tmp.name = anon;
 	tmp.anon = 1;
+	if (like) {
+		int j;
+		tmp.np = like->np;
+		for (j = 0; j < like->np; j++) {
+			tmp.p[j].name = like->p[j].name;
+			tmp.p[j].ty = like->p[j].ty;
+		}
+	}
 	p->fn = &tmp;
 	p->sgmask = 0;
 	p->sgops = 0;
@@ -2373,10 +2392,21 @@ cmd_func(struct P *p)
  * check belongs here, not in cmd_func itself.
  */
 static struct func *
-cmd_named_func(struct P *p)
+cmd_named_func(struct P *p, const struct func *f)
 {
 	uint32_t at = p->i;
+	int j;
 
+	/* one of F's parameters (`equiv f x`): the anonymous identity */
+	if (f && pk(p) == T_ID)
+		for (j = 0; j < f->np; j++)
+			if (f->p[j].name == tsym(p, at)) {
+				struct func *g;
+				cmd_like = f;
+				g = cmd_func(p);
+				cmd_like = NULL;
+				return g;
+			}
 	if (pk(p) == T_ID && func_find(tsym(p, at)) == NULL &&
 	    builtin(p, at) == NULL &&
 	    (at + 1 >= p->t->n || p->t->kind[at + 1] == T_NL ||
@@ -2384,7 +2414,13 @@ cmd_named_func(struct P *p)
 	    word_in(p, at + 1, stopwords) || p->t->kind[at + 1] == T_ID ||
 	    p->t->kind[at + 1] == T_NUM))
 		fail("undefined function %s", sym_str(tsym(p, at)));
-	return cmd_func(p);
+	{
+		struct func *g;
+		cmd_like = f;
+		g = cmd_func(p);
+		cmd_like = NULL;
+		return g;
+	}
 }
 
 /* ---- prelude: bases and the cost model ---- */
@@ -4205,7 +4241,7 @@ statement(struct P *p)
 			if (!strcmp(cmd, "equiv") || !strcmp(cmd, "show") ||
 			    !strcmp(cmd, "table") || !strcmp(cmd, "range") ||
 			    !strcmp(cmd, "wrap") || !strcmp(cmd, "domain"))
-				f = cmd_named_func(p);
+				f = cmd_named_func(p, NULL);
 			else
 				f = cmd_func(p);
 			if (!strcmp(cmd, "show")) {
@@ -4256,7 +4292,7 @@ statement(struct P *p)
 				int metric = 0, ftz = -1, nanbits = -1;
 				accept(p, T_TILDE);
 				accept_kw(p, "to");
-				g = !strcmp(cmd, "equiv") ? cmd_named_func(p) :
+				g = !strcmp(cmd, "equiv") ? cmd_named_func(p, f) :
 				    cmd_func(p);
 				while (!strcmp(cmd, "equiv")) {
 					if (accept_kw(p, "ftz"))
