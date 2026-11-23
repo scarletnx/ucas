@@ -23,6 +23,16 @@
  * Everywhere else a plain dlsym(RTLD_NEXT, ...) is enough: those libcs'
  * dlsym() does not allocate and therefore cannot recurse into a wrapper.
  */
+/* a sanitizer brings its own allocator: no interposing under it */
+#if defined(__SANITIZE_ADDRESS__)
+#define UCAS_NO_INTERPOSE 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(memory_sanitizer)
+#define UCAS_NO_INTERPOSE 1
+#endif
+#endif
+
+#ifndef UCAS_NO_INTERPOSE
 #if defined(__GLIBC__)
 extern void *__libc_malloc(size_t);
 extern void *__libc_calloc(size_t, size_t);
@@ -134,6 +144,7 @@ strdup(const char *s)
 		oom();
 	return p;
 }
+#endif /* UCAS_NO_INTERPOSE */
 
 void *
 xmalloc(size_t n)

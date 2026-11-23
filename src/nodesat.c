@@ -300,7 +300,13 @@ static uint32_t
 blast1(struct nctx *c, nid n)
 {
 	int op = N.op[n], w = bw(N.ty[n]);
-	ty_t t = N.ty[n], ta = N.a[n] ? N.ty[N.a[n]] : 0;
+	/* N.a is an operand only for some operations (a table's is an index
+	 * into N.lst, #582): its type is read only where the test below
+	 * looks at it, and those operations' first operand is a node */
+	int areads = (opinfo[op].fl & OF_CMP) || op == O_CAST ||
+	    op == O_ASUINT || op == O_ASINT || op == O_LNOT || op == O_LAND ||
+	    op == O_LOR;
+	ty_t t = N.ty[n], ta = areads && N.a[n] ? N.ty[N.a[n]] : 0;
 	struct word r, x, y, z;
 	lit d = L_TRUE;
 	uint32_t a = 0, b = 0, k, res;
