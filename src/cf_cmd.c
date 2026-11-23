@@ -559,6 +559,7 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 	char *w, *save = NULL;
 
 	file[0] = 0;
+	cf_sched_cost = 0;	/* per command: the option mca */
 	for (w = strtok_r(s, " \t", &save); w; w = strtok_r(NULL, " \t", &save)) {
 		if (!strcmp(w, "target") || !strcmp(w, "for") || !strcmp(w, "on")) {
 			const struct cf_target *t;
@@ -614,6 +615,10 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 			o->vecstub = 1;
 		else if (!strcmp(w, "vectorize") || !strcmp(w, "vectorise"))
 			o->vectorize = 1;
+		else if (!strcmp(w, "reassoc"))
+			o->reassoc = 1;
+		else if (!strcmp(w, "mca"))
+			cf_sched_cost = 1;
 		else if (!strcmp(w, "approx"))
 			o->approx = 1;
 		else if (!strcmp(w, "error")) {

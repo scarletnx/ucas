@@ -122,6 +122,7 @@ void mca_run(const struct mblock *b, int ua, struct mres *r);
 void mca_print(const struct mblock *b, int ua, const struct mres *r,
     const char *title);
 void cmd_mca(struct func *f, int ua);
+double x86_dag_cost(int ua, nid root);	/* cfront's cost hook */
 int x86_lower(struct func *f, int ua, struct mblock *outer,
     struct mblock *loop, double *trips);
 

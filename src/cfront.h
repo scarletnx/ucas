@@ -72,6 +72,9 @@ const char *cf_feat_name(int feat);
  */
 typedef double (*cf_cost_fn)(const struct cf_target *t, nid root);
 void cf_set_cost_hook(cf_cost_fn f);
+/* the option mca: the x86 hook prices with the scheduler (x86_dag_cost)
+ * instead of the per-op table */
+extern int cf_sched_cost;
 double cf_cost(const struct cf_target *t, nid root);
 double cf_cost_default(const struct cf_target *t, nid root);
 
@@ -152,6 +155,8 @@ struct cf_mem {
 	nid value;		/* stores: the value stored */
 	int epoch;		/* stores before this access in the body:
 				 * the order of loads and stores */
+	nid guard;		/* added: stores: done only when guard holds
+				 * (`if (c) a[i] = v;`), 0 always */
 };
 struct cf_loop {
 	const char *func;	/* the enclosing function */
@@ -180,6 +185,8 @@ struct cf_loop {
 	int idecl;		/* the for statement declares the index */
 	const char *init_text;	/* the for statement's first clause */
 	ty_t leafty[NSLOT];	/* the leaves' types */
+	int reassoc;		/* option reassoc: float reductions may be
+				 * reassociated (the rounding changes) */
 };
 
 /*
@@ -462,6 +469,8 @@ struct cf_memref {
 	int epoch;		/* stores before it in the iteration */
 	int slot;		/* loads: the leaf */
 	nid value;		/* stores: the value stored */
+	nid guard;		/* added: a store done only when guard holds
+				 * (0: always; only cf_extract_loop asks) */
 };
 #define CF_MAXSET 16
 #define CF_MAXX 4
@@ -542,6 +551,7 @@ struct cf_opts {
 	 * vveto (slower or not clearly faster; their cycles per element,
 	 * original and vectorised) */
 	int vectorize;
+	int reassoc;		/* float reductions reassociated (opt-in) */
 	int nvveto;
 	char vveto[16][64];
 	double vveto_c[16][2];

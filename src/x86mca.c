@@ -429,6 +429,8 @@ struct low {
 	int nested;
 	struct low *outer;	/* where hoisted nodes go */
 	int32_t *flag;		/* compare nodes: the cmp (flags) */
+	nid *touched;		/* x86_dag_cost: the memo entries to reset */
+	uint32_t ntouched, ctouched;
 };
 
 #define PH_STATE (-100)	/* placeholder: state k is PH_STATE - k */
@@ -447,6 +449,11 @@ emit(struct low *L, int cls, nid n, int32_t d0, int32_t d1, int32_t d2)
 	char txt[48];
 	struct sbuf b = {0};
 
+	if (L->touched) {
+		/* x86_dag_cost prints nothing: no text */
+		mblock_add(L->b, cls, VW_X, "", d0, d1, d2);
+		return (int32_t)(L->b->n - 1);
+	}
 	print_node(&b, n, NULL);
 	cap_text(&b, 0, 30);
 	snprintf(txt, sizeof txt, "%-9s %s", xc_name[cls], sb_str(&b));
@@ -630,7 +637,98 @@ lower(struct low *L, nid n)
 	v = lower1(L, n);
 	L->key[n] = n;
 	L->val[n] = v;
+	if (L->touched) {
+		if (L->ntouched == L->ctouched) {
+			L->ctouched = L->ctouched ? L->ctouched * 2 : 256;
+			L->touched = xrealloc(L->touched, L->ctouched *
+			    sizeof *L->touched);
+		}
+		L->touched[L->ntouched++] = n;
+	}
 	return v;
+}
+
+/*
+ * cfront's cost hook (cf_set_cost_hook, cfx86.c): the cycles one
+ * evaluation of root costs on a µarch when evaluations repeat
+ * independently (a value computed per element or per call): the nodes
+ * lowered to instruction classes (one shared subterm once), then the
+ * larger of the bounds mca reports for such a loop, in closed form
+ * rather than simulated (the synthesis prices thousands of candidates):
+ * the busiest port (the water-filling `mca` prints), the front end
+ * (uops / dispatch width), and the critical path divided by how many
+ * evaluations the scheduler and reorder buffer hold at once.  Memoised
+ * per (root, µarch): node ids are hash-consed, so a root id is one DAG.
+ */
+double
+x86_dag_cost(int ua, nid root)
+{
+	static struct low L;
+	static uint32_t cap;
+	static struct { nid n; int ua; double c; } *memo;
+	static uint32_t nmemo;
+	struct mblock b = {0};
+	struct mres r;
+	uint32_t h, k;
+	double c;
+
+	if (!memo) {
+		nmemo = 1u << 14;
+		memo = xcalloc(nmemo, sizeof *memo);
+	}
+	h = (root * 2654435761u ^ (uint32_t)ua) & (nmemo - 1);
+	if (memo[h].n == root && memo[h].ua == ua && root)
+		return memo[h].c;
+	if (N.n + 64 > cap) {
+		cap = (N.n + 64) * 2;
+		L.key = xrealloc(L.key, cap * sizeof *L.key);
+		L.val = xrealloc(L.val, cap * sizeof *L.val);
+		L.flag = xrealloc(L.flag, cap * sizeof *L.flag);
+		memset(L.key, 0, cap * sizeof *L.key);
+		memset(L.flag, 0xff, cap * sizeof *L.flag);
+		L.lim = cap;
+	}
+	if (!L.touched) {
+		L.ctouched = 256;
+		L.touched = xmalloc(L.ctouched * sizeof *L.touched);
+	}
+	L.ua = ua;
+	L.b = &b;
+	L.islot = -1;
+	L.ntouched = 0;
+	lower(&L, root);
+	for (k = 0; k < L.ntouched; k++) {
+		L.key[L.touched[k]] = 0;
+		L.flag[L.touched[k]] = -1;
+	}
+	c = 0;
+	if (b.n) {
+		const struct uarch *u = &uarchs[ua];
+		double pr[MAXPORT], uops = 0, lat, ov, win;
+		int p;
+		pressure(&b, ua, pr);
+		for (p = 0; p < MAXPORT; p++)
+			if (pr[p] > c)
+				c = pr[p];
+		for (k = 0; k < b.n; k++)
+			if (b.in[k].cls != XC_NONE)
+				uops += cost_of(ua, &b.in[k])->uops;
+		if (uops / u->width > c)
+			c = uops / u->width;
+		lat = latency_bound(&b, ua);
+		win = u->sched < u->rob ? u->sched : u->rob;
+		ov = uops > 0 ? win / uops : 1;
+		if (ov < 1)
+			ov = 1;
+		if (lat / ov > c)
+			c = lat / ov;
+	}
+	(void)r;
+	free(b.in);
+	memo[h].n = root;
+	memo[h].ua = ua;
+	memo[h].c = c;
+	return c;
 }
 
 /* mark the nodes of a loop body that do not read the loop's slots */

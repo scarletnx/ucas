@@ -35,7 +35,7 @@ c optimize: 22 functions, 10 rewrites proved (0 exhaustive, 4 by SAT, 2 by induc
   dsq (line 25): no cheaper form: lowered: 2 inputs, cost 7.0
   cancel_q (line 28): no cheaper form: lowered: 1 inputs, cost 17.2
   riemann (line 51): not lowered: a loop that may run more than 66 times
-  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding)
+  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding; the option reassoc allows it)
   shl3_bytes (line 78): not lowered: line 78: the function does not return an integer or a float
   rotr2_bytes (line 84): not lowered: line 84: the function does not return an integer or a float
   rev_bytes (line 90): not lowered: line 90: the function does not return an integer or a float

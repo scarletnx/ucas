@@ -7794,7 +7794,7 @@ c optimize: 4 functions, 4 rewrites proved (1 exhaustive, 2 by SAT, 1 by algebra
 
 | command | |
 |---|---|
-| `c optimize FILE\|block [target T] [budget S] [assume NAME LO HI] [wrapv] [check] [bench] [vectorize] [nofile] [timed] [trace] [vecstub] [keep]` | rewrite; `FILE.opt.c` is written unless `nofile` (or a block) |
+| `c optimize FILE\|block [target T] [budget S] [assume NAME LO HI] [wrapv] [check] [bench] [vectorize] [reassoc] [mca] [nofile] [timed] [trace] [vecstub] [keep]` | rewrite; `FILE.opt.c` is written unless `nofile` (or a block) |
 | `c lower FILE\|block [wrapv]` | each function as one ucas value of its parameters, with C's UB as a domain; for the others, each counted loop's IR |
 | `c targets` | the targets and their instruction-set features |
 
@@ -7808,7 +7808,14 @@ wraps: no UB is exploited); `check` (compile both versions with the host
 cc and compare them on edge and random inputs, inputs on which the
 original has UB skipped by UBSan); `bench` (also time both with rdtsc);
 `timed` (print the seconds); `trace` (every candidate and why it was not
-taken); `vecstub` (the stub vectoriser, below); `keep` (keep `check`'s
+taken); `vecstub` (the stub vectoriser, below); `reassoc` (the
+vectoriser may reassociate float sums: the rounding changes, and the
+rewrite says so); `mca` (price candidates with the scheduler, `mca`'s
+estimate of one evaluation repeated independently on the target's
+µarch: the busiest port, the front end, the critical path over the
+evaluations in flight, in closed form; not the default, because the
+generators' candidates, the synthesis and the bridge's intrinsics,
+still carry costs on the per-op table's scale); `keep` (keep `check`'s
 build directory); `engines all|none|find,gates,...` (which of ucas's
 engines generate candidates, below; all by default), `ebudget S` (their
 CPU seconds in total; default `budget`), `steps N` (sketches the
@@ -8197,7 +8204,7 @@ random and edge points.  What is validated where:
 | AVX-512, most | `x86check avx512`: compiled for every feature, clang's header definitions lowered to generic vector IR and run as AVX2 code here | 1468 intrinsics agree with **clang's definitions**, not with AVX-512 hardware |
 | AVX-512 that call an `llvm.x86.avx512.*` builtin | proved equal, half by half, to the run-validated narrower form of the same name | 42 proved (equal DAGs), 2 only sampled |
 | their mask/maskz forms | composed from a validated base | 268 |
-| the rest: 201 (compress/expand, permutexvar, 16-bit and 64-bit variable shifts, 512-bit gathers, GFNI, VPCLMULQDQ, rcp14/rsqrt14, narrowing vpmov, ...) | `x86check sdm`: run through the Operation pseudocode of Intel's SDM, Vol. 2 | all 201 agree (290 intrinsics checked this way in all), after two catalogue fixes it found |
+| the rest: 201 (compress/expand, permutexvar, 16-bit and 64-bit variable shifts, 512-bit gathers, GFNI, VPCLMULQDQ, rcp14/rsqrt14, narrowing vpmov, ...) | `x86check sdm`: run through the Operation pseudocode of Intel's SDM, Vol. 2 | all 201 agree (299 intrinsics, 892 tests with their immediates, checked this way in all), after two catalogue fixes it found |
 
 No AVX-512 hardware or emulator is available: this host is an i5-9400,
 QEMU 11.1's TCG has no AVX-512, and Intel SDE is not installed.  Before
@@ -8290,7 +8297,12 @@ guessing clang's would not be honest.
   loads and stores at `i + c`; element-wise values of integer or
   float/double type; integer reductions `acc = acc op g` (`+ - ^ | &`,
   min, max, and the `?:` forms of min and max); AVX2/AVX-512 gathers
-  `t[e(i)]` of 32-bit elements.
+  `t[e(i)]` of 32-bit elements, and strided loads `a[s*i + c]` of
+  32-bit elements from an array the loop only reads, as gathers whose
+  index vector is computed; stores under a condition,
+  `if (c) a[i] = v;`, of 32- and 64-bit integers, as masked stores
+  (`vpmaskmovd`/`q`, at 128 or 256 bits); and, with the option
+  `reassoc`, float sums `acc = acc + g` (below).
 - *How*: one intrinsic per node, in lanes of W bits, the narrowest W
   for which every lane is proved (bytes computed in 16-bit lanes when
   the C int arithmetic needs more than 8 bits), loads widened with
@@ -8298,7 +8310,11 @@ guessing clang's would not be honest.
   min/max, a clamp of `a + b`, `a - b` or `2a` to the 8/16-bit range a
   saturating add or subtract (padds, paddus, psubs, psubus),
   `(a + b + 1) >> 1` pavg, multiplies by 2^k±1 shifts and
-  adds.  The vector width is the target's widest (512 with AVX-512F,
+  adds; a store of a clamp to its own type's range
+  (`(int8_t)(v < -128 ? -128 : v > 127 ? 127 : v)`, `[0, 255]`, the
+  16-bit ones) is the saturating narrowing of the unclamped value:
+  `packs`/`packus` (at 512 bits `vpmovs*`), the clamp's min and max
+  gone.  The vector width is the target's widest (512 with AVX-512F,
   and BW for 8/16-bit lanes; 256 with AVX2; 128 otherwise); the code is
   guarded by the features' macros, unrolled by 4, and followed by the
   scalar loop (rebuilt from the IR) for the remainder and for builds
@@ -8311,7 +8327,10 @@ guessing clang's would not be honest.
   reduction operand is proved equal to the scalar value at iteration
   `i + j`: equal DAGs, exhaustively, or by SAT.  A gather's index lanes
   are proved equal to the scalar index; a min or max read off a `?:` is
-  proved to be one.  Integer reductions are reassociated, which is exact
+  proved to be one.  A masked store's mask lane j is proved set exactly
+  when the condition holds at `i + j`, and its value lane equal to the
+  scalar value where it does (elsewhere the lane is not written: the
+  scalar loop computes nothing there, and neither does the store).  Integer reductions are reassociated, which is exact
   mod 2^n (signed sums are computed unsigned; where C's sum is defined it
   is that sum).
 - *Memory*: arrays are disjoint by `restrict` or by being distinct
@@ -8320,10 +8339,18 @@ guessing clang's would not be honest.
   later iteration's load, a load after a store to its array, two stores
   to one array, strided loads, and gathers from an array that may
   overlap a written one are refused.
-- *Refused, with the reason in the report*: float reductions
-  (reassociation changes the rounding; there is no opt-in), conditional
-  loads and stores (not in the IR), loop-carried dependences, strided
-  access.
+- *Float sums* (option `reassoc`): VL partial sums, each lane the sum
+  of its iterations in order (`-0.0`, the identity of IEEE addition, to
+  start), then the lanes added to the variable in order.  Every lane of
+  the summand is proved as usual, but the order of the additions is
+  not C's, so the result can differ in rounding: the rewrite's proof
+  kind is *tested*, it says so, and without `reassoc` the loop is
+  refused with that reason.
+- *Refused, with the reason in the report*: float reductions without
+  `reassoc`, loads under a condition (not in the IR: a vector load
+  would read what the scalar loop does not), stores under a condition
+  of 8- or 16-bit or float elements, strided loads of other than 32-bit
+  elements or from a written array, loop-carried dependences.
 
 `check` compared every vectorised function with the original on 20000
 calls each (tests/cfront/mem.c, vec.c) at x86-64-v3 and x86-64-v2;

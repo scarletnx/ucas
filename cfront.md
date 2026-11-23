@@ -119,12 +119,19 @@ in a loop the vectoriser can prove is proposed, not applied by default
 (`invert_low`'s table: 0.80 vs clang's 0.05 cycles/element), measured
 by `bench`.  The vectorisability test is the vectoriser's own: a loop
 it cannot prove (strided, conditional stores) keeps the table rewrite,
-though clang might still vectorise it.  Not done: the
-scheduler as cfront's cost hook (`cf_set_cost_hook` is not set; the
-default per-op table still prices scalar code), candidate generators
-(`cf_add_cand_hook`), strided loads, conditional loads and stores
-(masked forms), float reductions (refused; no opt-in), saturating
-idioms (paddsw, packs), SLP of straight-line code.
+though clang might still vectorise it.  Added since (branch `x86-finish`): strided loads as gathers, stores
+under a condition as masked stores (`cf_mem.guard`, filled by
+`cf_extract_loop` only), float sums with the option `reassoc` (proof
+kind TESTED: the order of the additions changes), saturating narrowing
+stores (packs/packus, vpmovs*), and the scheduler as the cost hook
+(`x86_dag_cost`, option `mca`: not the default while the generators'
+candidates carry costs on the per-op table's scale; with it, cfront
+drops rewrites that save nothing on the µarch, such as `x*3/2` into
+`x + (x>>1)` where `*3` is one lea, but also ones the synthesis priced
+on the other scale).  Not done: candidate generators (`cf_add_cand_hook`), loads under a
+condition (masked loads: the lowering refuses them), 8/16-bit and float
+masked stores (AVX-512 mask registers: comparisons at 512 bits are not
+translated), SLP of straight-line code.
 
 ## Status (the bridge)
 

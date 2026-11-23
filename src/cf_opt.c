@@ -159,6 +159,7 @@ cf_feat_name(int f)
 /* ---- hooks ---- */
 
 static cf_cost_fn cost_hook;
+int cf_sched_cost;
 static cf_cand_fn cand_hooks[8];
 static int ncand_hooks;
 static cf_value_fn value_hooks[8];
@@ -2216,7 +2217,9 @@ visit_expr(uint32_t fn, uint32_t n, struct cf_emit *em)
 		int ns;
 		nid best;
 		uint32_t from, to;
-		if (cf_cost(R.o->t, v.e) <= 1.5 || !cf_span(u, n, &from, &to))
+		/* too small to bother: a size test, on the per-op table
+		 * whatever prices the candidates */
+		if (cf_cost_default(R.o->t, v.e) <= 1.5 || !cf_span(u, n, &from, &to))
 			return;
 		apply_assumptions(&v);
 		apply_callsites(&v, 0);
@@ -2324,11 +2327,15 @@ cf_loop_print(const struct cf_loop *l, struct sbuf *b)
 		    "stores)\n", l->base[l->load[k].base], shared_str(l->load[k].index,
 		    200), l->load[k].slot, ty_str(l->load[k].ety), l->load[k].esize,
 		    l->load[k].epoch);
-	for (k = 0; k < l->nstore; k++)
-		sb_printf(b, "  store %s[%s] = %s (%s, after %d stores)\n",
+	for (k = 0; k < l->nstore; k++) {
+		sb_printf(b, "  store %s[%s] = %s (%s, after %d stores)",
 		    l->base[l->store[k].base], shared_str(l->store[k].index, 200),
 		    shared_str(l->store[k].value, 400), ty_str(l->store[k].ety),
 		    l->store[k].epoch);
+		if (l->store[k].guard)
+			sb_printf(b, " when %s", shared_str(l->store[k].guard, 200));
+		sb_puts(b, "\n");
+	}
 	for (k = 0; k < l->nred; k++)
 		sb_printf(b, "  reduction %s = %s (leaf %d)\n", l->rname[k],
 		    shared_str(l->rnext[k], 400), l->rslot[k]);
@@ -2400,6 +2407,14 @@ cf_vec_stub(const struct cf_loop *l, const struct cf_target *t,
 			    K_UINT ? CT_ULONG : CT_LONG), &ix) &&
 			    emit_over(&em, l->nleaf, text, l->leafty, l->store[k].value,
 			    ct_of_ty(l->store[k].ety), &v);
+			if (ok && l->store[k].guard) {
+				/* the value is computed only when the store is done */
+				struct sbuf g = {0};
+				ok = emit_over(&em, l->nleaf, text, l->leafty,
+				    l->store[k].guard, ct_basic(CT_INT), &g);
+				sb_printf(&out->text, "\t\tif (%s)\n\t", g.p ? g.p : "0");
+				free(g.p);
+			}
 			sb_printf(&out->text, "\t\t(%s)[%s] = %s;\n",
 			    l->base[l->store[k].base], ix.p ? ix.p : "0", v.p ? v.p : "0");
 			c += cf_cost(t, l->store[k].value);
@@ -2480,6 +2495,7 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 		return 0;
 	}
 	memset(&o, 0, sizeof o);
+	l.reassoc = R.o->reassoc;
 	r = f(&l, R.o->t, &o);
 	if (r && f != cf_vec_stub)
 		R.vecproved = n;
@@ -2576,7 +2592,10 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 		    o.proof == CF_PROOF_STRUCT ? "the loop as its IR states it, "
 		    "statement for statement" : o.proof == CF_PROOF_LANES ?
 		    "lane semantics of each intrinsic, per lane" :
-		    "the vectoriser's claim");
+		    o.proof == CF_PROOF_TESTED ? "lane semantics of each "
+		    "intrinsic, per lane; the float reduction reassociated "
+		    "(option reassoc): its rounding differs from C's order, "
+		    "not proved" : "the vectoriser's claim");
 		w->cost_before = o.cost_before;
 		w->cost_after = o.cost_after;
 		w->applied = 1;

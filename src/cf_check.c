@@ -15,8 +15,9 @@
  * or turned into domain conditions by cf_lower.c instead; UBSan cannot see
  * them, so they never reach this cross-check.
  *
- * Pointer parameters get 64-element buffers of random values (a `char *`
- * a NUL-terminated string); an integer parameter named n, len, count,
+ * Pointer parameters get buffers of random values (a `char *` a
+ * NUL-terminated string within the first 80), CK_BUF elements so that a
+ * loop reading s[4i + 3] stays inside them at length 64; an integer parameter named n, len, count,
  * size or num gets a length 0..64.  Functions with float, struct or
  * other parameters are not tested (and say so).
  *
@@ -37,6 +38,8 @@
 #include <unistd.h>
 
 #include "cfront.h"
+
+#define CK_BUF 272	/* elements per pointer: 4 * 64 + 16 */
 
 static int have_cc = -1;
 
@@ -352,7 +355,8 @@ harness(struct sbuf *b, const struct tfn *tf, int ntf, int bench,
 				struct sbuf d = {0};
 				if (e == NULL)
 					ct_str(&d, ct_unqual(et), "");
-				sb_printf(b, "\t\t%s b%d[2][80];\n", e ? e : d.p, j);
+				sb_printf(b, "\t\t%s b%d[2][%d];\n", e ? e : d.p, j,
+				    CK_BUF);
 				free(d.p);
 			}
 		}
@@ -385,6 +389,12 @@ harness(struct sbuf *b, const struct tfn *tf, int ntf, int bench,
 			case PK_STR: {
 				sb_printf(b, "\t\t\tfor (int q = 0; q < 80; q++) b%d[0][q] = "
 				    "b%d[1][q] = (%s)(rnd() >> (rnd() & 63));\n", j, j,
+				    t->kind[j] == PK_STR ? "char" : "unsigned char");
+				/* past 80: a strided reader's elements (s[4i + 3] at
+				 * length 64), filled without the random sequence so
+				 * the other inputs stay what they were */
+				sb_printf(b, "\t\t\tfor (int q = 80; q < %d; q++) b%d[0][q] = "
+				    "b%d[1][q] = (%s)(q * 2654435761u + i);\n", CK_BUF, j, j,
 				    t->kind[j] == PK_STR ? "char" : "unsigned char");
 				if (t->kind[j] == PK_STR)
 					sb_printf(b, "\t\t\t{ int z = (int)(rnd() %% 64); "

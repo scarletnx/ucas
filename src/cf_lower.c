@@ -595,6 +595,11 @@ iter_load(uint32_t n, nid g)
 	}
 }
 
+/* cf_extract_loop lets a store under a condition through, as a guarded
+ * store (the vectoriser's masked stores); every other caller of
+ * cf_lower_iter still refuses one */
+static int guarded_ok;
+
 /* mode 2: a store, recorded in order */
 static void
 iter_store(uint32_t lv, nid v)
@@ -605,7 +610,7 @@ iter_store(uint32_t lv, nid v)
 
 	if (L.depth)
 		lfail(lv, "a call that writes memory%s", "");
-	if (L.alive != T1)
+	if (L.alive != T1 && !guarded_ok)
 		lfail(lv, "a store under a condition%s", "");
 	if (!mem_addr(lv, &base, &ix))
 		lfail(lv, "a store through a computed pointer%s", "");
@@ -623,6 +628,7 @@ iter_store(uint32_t lv, nid v)
 	it->store[k].epoch = L.epoch;
 	it->store[k].slot = -1;
 	it->store[k].value = v;
+	it->store[k].guard = L.alive == T1 ? 0 : L.alive;
 	L.epoch++;
 }
 
@@ -2025,10 +2031,13 @@ cf_extract_loop(struct cf_unit *u, uint32_t fn, uint32_t lp,
 	it->nx = 2;
 	it->x[0] = lo;
 	it->x[1] = hi;
+	guarded_ok = 1;
 	if (!cf_lower_iter(u, fn, lp, 0, it)) {
+		guarded_ok = 0;
 		*why = it->v.why;
 		return 0;
 	}
+	guarded_ok = 0;
 	for (k = 0; k < it->nset; k++)
 		if (it->setsym[k] == isym) {
 			*why = "the body changes the index";
@@ -2093,6 +2102,7 @@ cf_extract_loop(struct cf_unit *u, uint32_t fn, uint32_t lp,
 			d->slot = -1;
 			d->value = m->value;
 			d->epoch = m->epoch;
+			d->guard = m->guard;
 		}
 	}
 	/* aliasing: base b overlaps no other base when b or every other

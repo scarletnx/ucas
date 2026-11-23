@@ -100,7 +100,7 @@ c optimize: 22 functions, 8 rewrites proved (1 exhaustive, 4 by SAT, 1 by algebr
   dsq (line 25): no cheaper form: lowered: 2 inputs, cost 7.0
   cancel_q (line 28): no cheaper form: lowered: 1 inputs, cost 15.2
   riemann (line 51): not lowered: a loop that may run more than 66 times
-  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding)
+  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding; the option reassoc allows it)
   rev_each (line 62): no cheaper form: lowered: 1 inputs, cost 15.0
   pop_each (line 69): no cheaper form: lowered: 1 inputs, cost 10.0
   shl3_bytes (line 78): not lowered: line 78: the function does not return an integer or a float

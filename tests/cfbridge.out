@@ -81,7 +81,7 @@ c optimize: 22 functions, 19 rewrites proved (4 exhaustive, 8 by SAT, 5 by algeb
       		const double cf_m1 = (double)(n) - 1.0, cf_m0 = (double)(0) - 1.0;
       		s += 0.0 + (1.0 * (double)(h) * (double)(h) * (double)(h)) * ((0.0 + (1.0 / 6.0) * cf_m1 + (1.0 / 2.0) * cf_m1 * cf_m1 + (1.0 / 3.0) * cf_m1 * cf_m1 * cf_m1) - (0.0 + (1.0 / 6.0) * cf_m0 + (1.0 / 2.0) * cf_m0 * cf_m0 + (1.0 / 3.0) * cf_m0 * cf_m0 * cf_m0));
       	}
-  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding)
+  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding; the option reassoc allows it)
   pop_each (line 69): no cheaper form: lowered: 1 inputs, cost 10.0
   shl3_bytes (line 78): not lowered: line 78: the function does not return an integer or a float
   shl3_bytes (line 80): proposed, not applied: 256-bit vectors, 32 lanes of 8 bits (avx avx2); 32 lanes proved (0 equal DAGs, 0 exhaustive, 32 SAT); synthesised and_si128; slli_epi16 3 (of t) (CEGIS: 80 of 80421 sketches, 84 SAT calls, 29 counterexamples); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies

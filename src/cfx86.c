@@ -85,6 +85,7 @@ static struct {
 	char why[160];
 	int ntmp;
 	nid ivar;		/* the index at the block start */
+	int fred;		/* a float reduction (option reassoc) */
 } X;
 
 static void
@@ -612,24 +613,40 @@ vload(int k)
 	return r;
 }
 
-/* the lanes of v narrowed to E bits (truncation), in a register whose
- * first VL lanes are the elements; *bytes: what to store */
+/*
+ * The lanes of v narrowed to E bits, in a register whose first VL lanes
+ * are the elements.  sat 0: truncation; 1: signed saturation (the lanes
+ * clamped to [-2^(E-1), 2^(E-1) - 1]); 2: unsigned saturation of signed
+ * lanes (clamped to [0, 2^E - 1]): packs/packus, vpmovs*.
+ */
+static int vnarrow_sat(int v, int E, int sat);
+
 static int
 vnarrow(int v, int E)
+{
+	return vnarrow_sat(v, E, 0);
+}
+
+static int
+vnarrow_sat(int v, int E, int sat)
 {
 	int r = v, m;
 
 	if (X.W == E)
-		return v;
+		return sat ? -1 : v;
 	if (X.VB == 512) {
 		char nm[64];
 		int args[1];
-		snprintf(nm, sizeof nm, "_mm512_cvtepi%d_epi%d", X.W, E);
+		if (sat == 2)
+			return -1;	/* vpmovus* reads its lanes unsigned */
+		snprintf(nm, sizeof nm, "_mm512_cvt%sepi%d_epi%d", sat ? "s" : "",
+		    X.W, E);
 		args[0] = v;
 		return vop(nm, 'i', args, NULL, NULL, 0);
 	}
-	/* SSE / AVX2: mask, then pack pairs of 128-bit halves */
-	if (X.v[v].zb && X.v[v].zb <= E)
+	/* SSE / AVX2: mask, then pack pairs of 128-bit halves; saturating:
+	 * no mask, and packs (packus for the last unsigned step) */
+	if (sat || (X.v[v].zb && X.v[v].zb <= E))
 		r = v;
 	else {
 		if ((m = vconst(E == 8 ? 0xff : E == 16 ? 0xffff : 0xffffffffLL)) < 0)
@@ -659,7 +676,12 @@ vnarrow(int v, int E)
 		while (w > E) {
 			int vb = X.VB;
 			X.VB = 128;
-			snprintf(nm, sizeof nm, "_mm_packus_epi%d", w);
+			/* signed saturation keeps a signed clamp; the last step
+			 * of an unsigned one is packus (signed in, unsigned out):
+			 * clamping to the wider signed range first changes
+			 * nothing */
+			snprintf(nm, sizeof nm, "_mm_pack%s_epi%d", sat == 1 ||
+			    (sat == 2 && w / 2 > E) ? "s" : "us", w);
 			args[0] = lo;
 			args[1] = hi;
 			r = vop(nm, 'i', args, NULL, NULL, 0);
@@ -1240,7 +1262,10 @@ tr(nid n)
 		    sym_cstr(X.l->leaf[slot]), X.l->leafty[slot]),
 		    X.l->leaf[slot]));
 	}
-	r = X.flt ? tr_flt(n) : tr_int(n);
+	/* float code may compute integers too: a strided load's index
+	 * (gathered in lanes of the float width) */
+	r = X.flt && (TY_FP(N.ty[n]) || TYW(N.ty[n]) != X.W) ? tr_flt(n) :
+	    tr_int(n);
 	return memo_put(n, r);
 }
 
@@ -1552,6 +1577,8 @@ pick_uarch(const struct cf_target *t)
 
 struct vplan {
 	int st[CF_MAXMEM];	/* each store's final vector */
+	int gm[CF_MAXMEM];	/* a guarded store's mask vector (W-bit lanes,
+				 * all ones where the store is done) */
 	int rv[MAXST];		/* each reduction's g vector */
 	int rop[MAXST];
 	struct lproof lp;
@@ -1633,6 +1660,63 @@ vsynth(nid value, double bound)
 }
 
 /* one attempt at vector bits VB and lane bits W */
+/*
+ * A store of a clamp to its own range, (int8_t)(x < -128 ? -128 : x > 127 ?
+ * 127 : x) and the like (min/max or ?: in either order): x, and the
+ * saturation the narrowing does (1 signed, 2 unsigned); 0 none.
+ */
+static nid
+sat_store(nid e, int E, int *sat)
+{
+	int64_t lo = 0, hi = 0, smin = -(1LL << (E - 1)), smax = (1LL << (E - 1)) - 1,
+	    umax = (1LL << E) - 1;
+	int seen = 0;
+
+	*sat = 0;
+	while (N.op[e] == O_CAST && TY_ISINT(N.ty[e]))
+		e = N.a[e];
+	for (;;) {
+		nid x, y, k, o;
+		int op = N.op[e];
+		if (op == O_MIN || op == O_MAX) {
+			x = N.a[e], y = N.b[e];
+		} else if (op == O_SEL) {
+			x = N.b[e], y = N.c[e];
+		} else
+			break;
+		while (N.op[x] == O_CAST && TY_ISINT(N.ty[x]))
+			x = N.a[x];
+		while (N.op[y] == O_CAST && TY_ISINT(N.ty[y]))
+			y = N.a[y];
+		if (N.op[x] == O_CONST)
+			k = x, o = op == O_SEL ? N.c[e] : y;
+		else if (N.op[y] == O_CONST)
+			k = y, o = op == O_SEL ? N.b[e] : x;
+		else
+			break;
+		if (N.ki[k] == smin || N.ki[k] == 0)
+			lo = N.ki[k], seen |= 1;
+		else if (N.ki[k] == smax || N.ki[k] == umax)
+			hi = N.ki[k], seen |= 2;
+		else
+			return 0;
+		e = o;
+		while (N.op[e] == O_CAST && TY_ISINT(N.ty[e]))
+			e = N.a[e];
+	}
+	/* which constant is the low end is a guess; the lane proof checks
+	 * that the narrowing computes the clamp */
+	if (seen != 3)
+		return 0;
+	if (lo == smin && hi == smax)
+		*sat = 1;
+	else if (lo == 0 && hi == umax)
+		*sat = 2;
+	else
+		return 0;
+	return e;
+}
+
 static int
 attempt(int VB, int W, struct vplan *pl)
 {
@@ -1687,10 +1771,80 @@ attempt(int VB, int W, struct vplan *pl)
 				v2 = vsynth(l->store[k].value, ctr);
 				v = v2 >= 0 ? v2 : tr(l->store[k].value);
 			}
-		} else
+		} else {
+			/* a clamp to the stored type's range: a saturating
+			 * narrowing of the unclamped value, if it proves */
+			int sat = 0;
+			nid x = !X.flt && !l->store[k].guard && E < W ?
+			    sat_store(l->store[k].value, E, &sat) : 0;
+			v = -1;
+			if (x && TY_ISINT(N.ty[x]) && TYW(N.ty[x]) <= 32) {
+				int nv = X.nv, nm = X.nmemo, v1, v2, ldv0[CF_MAXMEM];
+				size_t bn = X.body.n;
+				double c0 = X.cost;
+				xfeat nd = X.need;
+				struct lproof tmp;
+				memset(&tmp, 0, sizeof tmp);
+				memcpy(ldv0, X.ldv, sizeof ldv0);
+				if ((v1 = tr(x)) >= 0 && (v2 = vnarrow_sat(v1, E, sat)) >= 0 &&
+				    prove_lanes(v2, l->store[k].value, l->store[k].ety,
+				    &tmp)) {
+					pl->st[k] = v2;
+					continue;
+				}
+				X.nv = nv;
+				X.nmemo = nm;
+				X.body.n = bn;
+				if (X.body.p)
+					X.body.p[bn] = 0;
+				X.cost = c0;
+				X.need = nd;
+				memcpy(X.ldv, ldv0, sizeof ldv0);
+				X.why[0] = 0;
+			}
 			v = tr(l->store[k].value);
+		}
 		if (v < 0)
 			return 0;
+		if (l->store[k].guard) {
+			/* a masked store: the value in lanes of the element's
+			 * width, the mask the guard's compare */
+			int gmv;
+			if (X.W != E || X.VB == 512) {
+				why("a masked store other than in lanes of its element "
+				    "at 128 or 256 bits", NULL);
+				return 0;
+			}
+			{
+				/* C's int(c) != 0 around the compare */
+				nid g = l->store[k].guard;
+				while (N.op[g] == O_NE && N.op[N.b[g]] == O_CONST &&
+				    N.ki[N.b[g]] == 0 && N.op[N.a[g]] == O_CAST &&
+				    (opinfo[N.op[N.a[N.a[g]]]].fl & OF_CMP))
+					g = N.a[N.a[g]];
+				if ((gmv = tr(g)) < 0)
+					return 0;
+				/* a compare's lanes are all ones or zero already
+				 * (`x != 0` comes back as cmpeq xor ones) */
+				if (opinfo[N.op[g]].fl & OF_CMP)
+					X.v[gmv].kind = 'm';
+			}
+			if (X.v[gmv].kind != 'm') {
+				/* a value as the condition: lanes != 0 */
+				int z = vconst(0), ones = vconst(-1), e;
+				char sfx[16];
+				snprintf(sfx, sizeof sfx, "epi%d", X.W);
+				if (z < 0 || ones < 0 ||
+				    (e = vop2("cmpeq", sfx, 'm', gmv, z)) < 0 ||
+				    (gmv = vbit(2, e, ones)) < 0) {
+					why("a store guard that is not a comparison", NULL);
+					return 0;
+				}
+			}
+			pl->gm[k] = gmv;
+			pl->st[k] = v;
+			continue;
+		}
 		if (!X.flt && (v = vnarrow(v, E)) < 0)
 			return 0;
 		pl->st[k] = v;
@@ -1718,10 +1872,30 @@ attempt(int VB, int W, struct vplan *pl)
 					return 0;
 			}
 		}
-	for (k = 0; k < l->nstore; k++)
-		if (!prove_lanes(pl->st[k], l->store[k].value, l->store[k].ety,
-		    &pl->lp))
-			return 0;
+	for (k = 0; k < l->nstore; k++) {
+		const struct cf_mem *m = &l->store[k];
+		int j;
+		if (!m->guard) {
+			if (!prove_lanes(pl->st[k], m->value, m->ety, &pl->lp))
+				return 0;
+			continue;
+		}
+		/* lane j's mask is set iff the guard holds at i + j, and
+		 * where it holds the lane is the stored value */
+		for (j = 0; j < X.VL; j++) {
+			ty_t ut = TY(K_UINT, TYW(m->ety)), st = TY(K_SINT, X.W);
+			nid g = mk_cast(TY_BOOL, scalar_at(m->guard, j));
+			nid mk = mk_bin(O_LT, mk_cast(st, vlane(pl->gm[k], j, X.W)),
+			    mk_const_i(st, 0));
+			nid a = mk_sel(g, mk_cast(ut, scalar_at(m->value, j)),
+			    mk_const_i(ut, 0));
+			nid b = mk_sel(g, mk_cast(ut, vlane(pl->st[k], j, TYW(m->ety))),
+			    mk_const_i(ut, 0));
+			if (!prove_eq(g, mk, &pl->lp) || !prove_eq(a, b, &pl->lp))
+				return 0;
+			pl->lp.lanes++;
+		}
+	}
 	for (k = 0; k < l->nred; k++) {
 		nid g = 0, acc, step;
 		ty_t rt = N.ty[l->rnext[k]];
@@ -1802,6 +1976,10 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 	for (k = 0; k < l->nstore; k++) {
 		if (!affine(l->store[k].index, &off))
 			REFUSE("a store at an index other than i + c");
+		if (l->store[k].guard && (l->store[k].esize < 4 ||
+		    TYK(l->store[k].ety) == K_FLOAT))
+			REFUSE("a store under a condition of other than 32- or "
+			    "64-bit integers (masked stores: vpmaskmovd/q)");
 		if (written[l->store[k].base]++)
 			REFUSE("two stores to one array");
 	}
@@ -1810,12 +1988,14 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		if (!affine(l->load[k].index, &off)) {
 			/* a gather: its array read only and not overlapping a
 			 * written one (no run-time test: its range is unknown) */
+			/* or a strided load s*i + c: a gather whose index
+			 * vector is computed (its lanes are proved like any
+			 * gather's) */
 			int b = l->load[k].base, w2;
-			if (!uses_load(l->load[k].index))
-				REFUSE("a load at an index other than i + c (strided: "
-				    "not implemented)");
 			if (!l->readonly[b])
-				REFUSE("a gather from an array the loop writes");
+				REFUSE(uses_load(l->load[k].index) ? "a gather from an "
+				    "array the loop writes" : "a strided load from an "
+				    "array the loop writes");
 			for (w2 = 0; w2 < l->nbase; w2++)
 				if (w2 != b && !l->readonly[w2] && !l->noalias[b] &&
 				    !l->noalias[w2])
@@ -1847,7 +2027,7 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 				if (j != k && !l->noalias[k] && !l->noalias[j])
 					needcheck = 1;
 		}
-	/* reductions: integer acc = acc op g */
+	/* reductions: integer acc = acc op g; float sums with reassoc */
 	X.flt = 0;
 	for (k = 0; k < l->nload; k++)
 		if (TYK(l->load[k].ety) == K_FLOAT)
@@ -1855,14 +2035,30 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 	for (k = 0; k < l->nstore; k++)
 		if (TYK(l->store[k].ety) == K_FLOAT)
 			X.flt = l->store[k].esize * 8;
+	X.fred = 0;
 	for (k = 0; k < l->nred; k++) {
 		nid g;
 		ty_t rt = N.ty[l->rnext[k]];
 		if (l->rslot[k] < 0)
 			REFUSE("a variable the loop sets without reading it");
+		if (TYK(rt) == K_FLOAT) {
+			/* opt-in: the partial sums of each lane, then the lanes,
+			 * is another order of the same additions */
+			if (!l->reassoc)
+				REFUSE("a float reduction (reassociating it changes the "
+				    "rounding; the option reassoc allows it)");
+			if (red_split(l->rnext[k], l->rslot[k], &g) != O_ADD ||
+			    node_uses(g, l->rslot[k]) || N.ty[g] != rt)
+				REFUSE("a float reduction other than acc = acc + g");
+			if (X.flt && X.flt != TYW(rt))
+				REFUSE("a float reduction of another width than the "
+				    "loads");
+			X.flt = TYW(rt);
+			X.fred = 1;
+			continue;
+		}
 		if (!TY_ISINT(rt) || TYK(rt) == K_BOOL)
-			REFUSE("a float reduction (reassociating it changes the "
-			    "rounding)");
+			REFUSE("a reduction of this type");
 		if (!red_split(l->rnext[k], l->rslot[k], &g) ||
 		    node_uses(g, l->rslot[k]))
 			REFUSE("a reduction that is not acc op g (op + - ^ | & min "
@@ -1870,8 +2066,8 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		if (TYW(rt) > Wmin)
 			Wmin = TYW(rt);
 	}
-	if (X.flt && l->nred)
-		REFUSE("a reduction in float code");
+	if (X.flt && l->nred && !X.fred)
+		REFUSE("an integer reduction in float code");
 	for (k = 0; k < l->nload; k++)
 		if (l->load[k].esize * 8 > Wmin)
 			Wmin = l->load[k].esize * 8;
@@ -1971,7 +2167,11 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		int bytes = X.VL * m->esize, v = pl.st[k];
 		const char *st;
 		affine(m->index, &off);
-		if (X.flt)
+		if (m->guard)
+			st = bytes == 32 ? (m->esize == 4 ? "_mm256_maskstore_epi32" :
+			    "_mm256_maskstore_epi64") : (m->esize == 4 ?
+			    "_mm_maskstore_epi32" : "_mm_maskstore_epi64");
+		else if (X.flt)
 			st = X.flt == 32 ? (X.VB == 512 ? "_mm512_storeu_ps" :
 			    X.VB == 256 ? "_mm256_storeu_ps" : "_mm_storeu_ps") :
 			    (X.VB == 512 ? "_mm512_storeu_pd" : X.VB == 256 ?
@@ -1987,6 +2187,15 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 				price(id);
 			}
 		}
+		if (m->guard) {
+			int id = xi_find(st);
+			if (id < 0 || !t_has_all(xi_feat(id))) {
+				free(ro.text.p);
+				REFUSE("no masked store for this target");
+			}
+			sb_printf(&X.body, "\t\t%s((void *)(%s), %s, %s);\n", st,
+			    base_text(m->base, off), X.v[pl.gm[k]].nm, X.v[v].nm);
+		} else
 		sb_printf(&X.body, "\t\t%s((void *)(%s), %s);\n", st,
 		    base_text(m->base, off), X.v[v].nm);
 	}
@@ -2000,7 +2209,10 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		case O_AND: opn = "and"; break;
 		default: opn = pl.rop[k] == O_MIN ? "min" : "max";
 		}
-		if (pl.rop[k] == O_MIN || pl.rop[k] == O_MAX)
+		if (TYK(N.ty[l->rnext[k]]) == K_FLOAT)
+			snprintf(rop_name[k], sizeof rop_name[k], "%s_add_%s", pfx(),
+			    X.flt == 32 ? "ps" : "pd");
+		else if (pl.rop[k] == O_MIN || pl.rop[k] == O_MAX)
 			snprintf(rop_name[k], sizeof rop_name[k], "%s_%s_ep%c%d", pfx(),
 			    opn, TYK(N.ty[l->rnext[k]]) == K_UINT ? 'u' : 'i', X.W);
 		else if (pl.rop[k] == O_ADD || pl.rop[k] == O_SUB)
@@ -2044,6 +2256,12 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 	U = 4;	/* unrolled: independent accumulators and fewer loop branches */
 	for (k = 0; k < l->nred; k++)
 		for (u = 0; u < U; u++)
+			if (TYK(N.ty[l->rnext[k]]) == K_FLOAT)
+				/* -0.0, the identity of IEEE addition */
+				sb_printf(&out->text, "\t%s cf_acc%d_%d = %s_set1_%s(%s);\n",
+				    vtype('f', X.flt), k, u, pfx(), X.flt == 32 ? "ps" :
+				    "pd", X.flt == 32 ? "-0.0f" : "-0.0");
+			else
 			sb_printf(&out->text, "\t%s cf_acc%d_%d = %s_set1_epi%d%s((%s)"
 			    "%s);\n", vtype('i', X.W), k, u, pfx(), X.W, X.W == 64 &&
 			    X.VB < 512 ? "x" : "", ctype_of(TY(K_SINT, X.W)), red_ident(pl.rop[k],
@@ -2075,6 +2293,15 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		ty_t rt = N.ty[l->rnext[k]], lt = TY(TYK(rt) == K_UINT ? K_UINT :
 		    K_SINT, X.W);
 		const char *ct = ctype_of(rt), *ut = ctype_of(TY(K_UINT, TYW(rt)));
+		if (TYK(rt) == K_FLOAT) {
+			/* the lanes in order, after the variable's value */
+			sb_printf(&out->text, "\t{\n\t\t%s cf_part[%d];\n\t\t%s_storeu_%s("
+			    "cf_part, cf_acc%d_0);\n\t\tfor (int cf_j = 0; cf_j < %d; "
+			    "cf_j++)\n\t\t\t%s = %s + cf_part[cf_j];\n\t}\n", ct, X.VL,
+			    pfx(), X.flt == 32 ? "ps" : "pd", k, X.VL, l->rname[k],
+			    l->rname[k]);
+			continue;
+		}
 		sb_printf(&out->text, "\t{\n\t\t%s cf_part[%d];\n\t\t%s_storeu_%s("
 		    "(void *)cf_part, cf_acc%d_0);\n\t\tfor (int cf_j = 0; cf_j < %d; "
 		    "cf_j++)\n", ctype_of(lt), X.VL, pfx(), si(), k, X.VL);
@@ -2104,7 +2331,9 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		    "%d bits (%s)%s%s; %d lanes proved (%d equal DAGs, %d "
 		    "exhaustive, %d SAT)", X.VB, X.VL, X.W, f.p ? f.p : "",
 		    needcheck ? ", run-time overlap test" : "",
-		    l->nred ? ", reductions reassociated (exact mod 2^n)" : "",
+		    X.fred ? ", the float sum reassociated (option reassoc: "
+		    "the rounding differs from C's order)" : l->nred ?
+		    ", reductions reassociated (exact mod 2^n)" : "",
 		    pl.lp.lanes, pl.lp.dag, pl.lp.exh, pl.lp.sat);
 		if (synth_info_ok) {
 			size_t n = strlen(out->what);
@@ -2113,7 +2342,7 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		}
 		free(f.p);
 	}
-	out->proof = CF_PROOF_LANES;
+	out->proof = X.fred ? CF_PROOF_TESTED : CF_PROOF_LANES;
 	out->cost_before = cb;
 	out->cost_after = X.cost / X.VL;
 	free(X.body.p);
@@ -2123,9 +2352,26 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 	return 1;
 }
 
+/*
+ * cfront's cost hook: the scheduler's estimate on the target's µarch,
+ * with the option mca (cf_sched_cost).  Not the default: the generators'
+ * candidates (the synthesis, the bridge's intrinsics) carry costs on the
+ * per-op table's scale, and comparing them with the scheduler's price of
+ * the value as written rejects rewrites that pay.
+ */
+static double
+mca_cost(const struct cf_target *t, nid root)
+{
+	if (!cf_sched_cost)
+		return cf_cost_default(t, root);
+	return x86_dag_cost(pick_uarch(t), root);
+}
+
 void
 cfx86_init(void)
 {
 	x86_intr_init();
 	cf_set_vectoriser(vec_loop);
+	/* the scheduler prices cfront's candidates (x86_dag_cost) */
+	cf_set_cost_hook(mca_cost);
 }

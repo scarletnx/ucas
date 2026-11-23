@@ -71,7 +71,12 @@
       reduction s = s + u32(i32(a[i]) & 0xff) (leaf 3)
       leaves: 0 i: i32, 1 n: i32, 2 a[i]: u8, 3 s: u32
   copy_odd: not lowered: line 71: the function does not return an integer or a float
-    loop (line 73): no IR: line 75: a store under a condition
+    loop (line 73): for i = 0 while i < n step 1 (index i32, slot 0)
+      array s: read only, may alias
+      array d: written, may alias
+      load  s[i64(i)] -> leaf 2 (i32, 4 bytes, after 0 stores)
+      store d[i64(i)] = s[i] (i32, after 0 stores) when s[i] & 1 != 0
+      leaves: 0 i: i32, 1 n: i32, 2 s[i]: i32
 > c optimize cfront/k1.c nofile budget 120
 c optimize: 4 functions, 4 rewrites proved (1 exhaustive, 2 by SAT, 1 by algebra) for x86-64-v3
   estimated cost of the rewritten values on x86-64-v3: 170.8 -> 40.2 cycles
@@ -941,7 +946,7 @@ c optimize: 9 functions, 5 rewrites proved (1 exhaustive, 2 by SAT, 2 structural
   skip (line 39): not lowered: line 39: the function does not return an integer or a float
   len32 (line 47): not lowered: line 47: a parameter that is not an integer or a float (s)
   rgb2gray (line 55): not lowered: line 55: the function does not return an integer or a float
-  rgb2gray (line 57): not vectorised: a load at an index other than i + c (strided: not implemented)
+  rgb2gray (line 57): not vectorised: a gather other than 32-bit elements in 256/512-bit vectors
   sum8 (line 63): not lowered: line 63: a parameter that is not an integer or a float (a)
   sum8 (line 66): proposed, not applied: 256-bit vectors, 8 lanes of 32 bits (sse2 avx2), reductions reassociated (exact mod 2^n); 8 lanes proved (0 equal DAGs, 8 exhaustive, 0 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
     code (not applied):
@@ -1005,6 +1010,79 @@ c optimize: 9 functions, 5 rewrites proved (1 exhaustive, 2 by SAT, 2 structural
       	}
       }
   copy_odd (line 71): not lowered: line 71: the function does not return an integer or a float
+  copy_odd (line 73): proposed, not applied: 256-bit vectors, 8 lanes of 32 bits (avx avx2), run-time overlap test; 8 lanes proved (8 equal DAGs, 0 exhaustive, 8 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
+    code (not applied):
+      {
+      	int i = 0;
+      #if defined(__AVX__) && defined(__AVX2__)
+      	if (((unsigned long)(const void *)(d) + (unsigned long)(n + 0) * sizeof *(d) <= (unsigned long)(const void *)(s) + (unsigned long)(i + 0) * sizeof *(s) || (unsigned long)(const void *)(s) + (unsigned long)(n + 0) * sizeof *(s) <= (unsigned long)(const void *)(d) + (unsigned long)(i + 0) * sizeof *(d))) {
+      	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+      	    {
+      		const int32_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1 = _mm256_set1_epi32((int32_t)(1LL));
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, cf_v1);
+      		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(0LL));
+      		__m256i cf_v4 = _mm256_cmpeq_epi32(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-1LL));
+      		__m256i cf_v6 = _mm256_xor_si256(cf_v4, cf_v5);
+      		_mm256_maskstore_epi32((void *)((d) + cf_i), cf_v6, cf_v0);
+      	    }
+      	    {
+      		const int32_t cf_i = i + 8;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1 = _mm256_set1_epi32((int32_t)(1LL));
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, cf_v1);
+      		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(0LL));
+      		__m256i cf_v4 = _mm256_cmpeq_epi32(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-1LL));
+      		__m256i cf_v6 = _mm256_xor_si256(cf_v4, cf_v5);
+      		_mm256_maskstore_epi32((void *)((d) + cf_i), cf_v6, cf_v0);
+      	    }
+      	    {
+      		const int32_t cf_i = i + 16;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1 = _mm256_set1_epi32((int32_t)(1LL));
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, cf_v1);
+      		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(0LL));
+      		__m256i cf_v4 = _mm256_cmpeq_epi32(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-1LL));
+      		__m256i cf_v6 = _mm256_xor_si256(cf_v4, cf_v5);
+      		_mm256_maskstore_epi32((void *)((d) + cf_i), cf_v6, cf_v0);
+      	    }
+      	    {
+      		const int32_t cf_i = i + 24;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1 = _mm256_set1_epi32((int32_t)(1LL));
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, cf_v1);
+      		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(0LL));
+      		__m256i cf_v4 = _mm256_cmpeq_epi32(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-1LL));
+      		__m256i cf_v6 = _mm256_xor_si256(cf_v4, cf_v5);
+      		_mm256_maskstore_epi32((void *)((d) + cf_i), cf_v6, cf_v0);
+      	    }
+      	}
+      	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 8; i += 8) {
+      	    {
+      		const int32_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1 = _mm256_set1_epi32((int32_t)(1LL));
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, cf_v1);
+      		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(0LL));
+      		__m256i cf_v4 = _mm256_cmpeq_epi32(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-1LL));
+      		__m256i cf_v6 = _mm256_xor_si256(cf_v4, cf_v5);
+      		_mm256_maskstore_epi32((void *)((d) + cf_i), cf_v6, cf_v0);
+      	    }
+      	}
+      	}
+      #endif
+      	for (; i < (n); i += 1) {
+      		const int32_t cf_ld0 = (s)[(long)((int64_t)((i)))];
+      		if ((int)((int32_t)(((int32_t)((uint32_t)((cf_ld0)) & (uint32_t)(((int32_t)1))))) != (int32_t)(((int32_t)0))))
+      			(d)[(long)((int64_t)((i)))] = (int)(cf_ld0);
+      	}
+      }
 optimised C:
   /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
   #include <string.h>
@@ -1084,7 +1162,7 @@ optimised C:
   	}
   }
 > c optimize cfront/mem.c nofile vecstub
-c optimize: 9 functions, 7 rewrites proved (0 exhaustive, 0 by SAT, 7 structural) for x86-64-v3
+c optimize: 9 functions, 8 rewrites proved (0 exhaustive, 0 by SAT, 8 structural) for x86-64-v3
   estimated cost of the rewritten values on x86-64-v3: 39.0 -> 39.0 cycles
   brighten (line 8): stub vectoriser: the loop rebuilt from its IR (1 loads, 1 stores, 0 reductions)
     proof: structural (the loop as its IR states it, statement for statement); cost 9.8 -> 9.8
@@ -1102,6 +1180,8 @@ c optimize: 9 functions, 7 rewrites proved (0 exhaustive, 0 by SAT, 7 structural
     proof: structural (the loop as its IR states it, statement for statement); cost 13.0 -> 13.0
   sum8 (line 66): stub vectoriser: the loop rebuilt from its IR (1 loads, 0 stores, 1 reductions)
     proof: structural (the loop as its IR states it, statement for statement); cost 2.5 -> 2.5
+  copy_odd (line 73): stub vectoriser: the loop rebuilt from its IR (1 loads, 1 stores, 0 reductions)
+    proof: structural (the loop as its IR states it, statement for statement); cost 0.0 -> 0.0
   brighten (line 6): not lowered: line 6: the function does not return an integer or a float
   invert_low (line 15): not lowered: line 15: the function does not return an integer or a float
   split (line 22): not lowered: line 22: the function does not return an integer or a float
@@ -1111,7 +1191,6 @@ c optimize: 9 functions, 7 rewrites proved (0 exhaustive, 0 by SAT, 7 structural
   rgb2gray (line 55): not lowered: line 55: the function does not return an integer or a float
   sum8 (line 63): not lowered: line 63: a parameter that is not an integer or a float (a)
   copy_odd (line 71): not lowered: line 71: the function does not return an integer or a float
-  copy_odd (line 73): not vectorised: line 75: a store under a condition
 optimised C:
   /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
   #include <string.h>
@@ -1192,9 +1271,10 @@ optimised C:
   
   void copy_odd(int *d, const int *s, int n)
   {
-  	for (int i = 0; i < n; i++) {
-  		if (s[i] & 1)
-  			d[i] = s[i];
+  	for (int i = 0; i < (n); i += 1) {
+  		const int32_t cf_ld0 = (s)[(long)((int64_t)((i)))];
+  		if ((int)((int32_t)(((int32_t)((uint32_t)((cf_ld0)) & (uint32_t)(((int32_t)1))))) != (int32_t)(((int32_t)0))))
+  			(d)[(long)((int64_t)((i)))] = (int)(cf_ld0);
   	}
   }
 > c lower cfront/vec.c
@@ -1893,7 +1973,7 @@ c optimize: 15 functions, 1 rewrite proved (1 exhaustive, 0 by SAT) for x86-64-v
   prefix (line 74): not lowered: line 74: the function does not return an integer or a float
   prefix (line 76): not vectorised: a store feeds a later iteration's load (a loop-carried dependence)
   fsum (line 80): not lowered: line 80: a parameter that is not an integer or a float (a)
-  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding)
+  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding; the option reassoc allows it)
   after (line 88): not lowered: line 88: the function does not return an integer or a float
   after (line 90): not vectorised: a load after a store to its array
   inplace2 (line 95): not lowered: line 95: the function does not return an integer or a float
@@ -2105,7 +2185,7 @@ c optimize: 15 functions, 10 rewrites proved (0 exhaustive, 0 by SAT, 10 by lane
   prefix (line 74): not lowered: line 74: the function does not return an integer or a float
   prefix (line 76): not vectorised: a store feeds a later iteration's load (a loop-carried dependence)
   fsum (line 80): not lowered: line 80: a parameter that is not an integer or a float (a)
-  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding)
+  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding; the option reassoc allows it)
   after (line 88): not lowered: line 88: the function does not return an integer or a float
   after (line 90): not vectorised: a load after a store to its array
   inplace2 (line 95): not lowered: line 95: the function does not return an integer or a float
@@ -2551,7 +2631,7 @@ c optimize: 15 functions, 11 rewrites proved (0 exhaustive, 0 by SAT, 11 by lane
   prefix (line 74): not lowered: line 74: the function does not return an integer or a float
   prefix (line 76): not vectorised: a store feeds a later iteration's load (a loop-carried dependence)
   fsum (line 80): not lowered: line 80: a parameter that is not an integer or a float (a)
-  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding)
+  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding; the option reassoc allows it)
   after (line 88): not lowered: line 88: the function does not return an integer or a float
   after (line 90): not vectorised: a load after a store to its array
   inplace2 (line 95): not lowered: line 95: the function does not return an integer or a float
