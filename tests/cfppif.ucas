@@ -1,0 +1,3 @@
+# cfront: the operators of a #if are evaluated.  The kernels are in
+# tests/cfront/ppif.c.
+c lower cfront/ppif.c

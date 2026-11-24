@@ -1066,6 +1066,7 @@ pp_ifexpr(struct ptok *t, uint32_t n, const struct ptok *at)
 	c.n = out.n;
 	c.i = 0;
 	c.err = 0;
+	c.skip = 0;
 	v = cx_cond(&c);
 	if (c.err || c.i != c.n)
 		pp_error(at, "#if: cannot evaluate the expression%s", "");
