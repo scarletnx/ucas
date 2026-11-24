@@ -110,6 +110,8 @@ struct cf_cand {
 	char cert_kind[32];
 	char cert[240];
 	int fixcost;	/* cost is the generator's (intrinsics in text) */
+	int table;	/* added: a table read: after the other forms of its
+			 * cost, as the model prices no cache footprint */
 };
 struct cf_cands {
 	struct cf_cand *c;

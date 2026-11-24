@@ -3189,7 +3189,7 @@ optimised C:
   }
 > c optimize nofile trace
   trace:   find: 2 forms
-  trace: sat round 0: 24 candidates, cost 5.2
+  trace: sat round 0: 25 candidates, cost 5.2
   trace:   a ?: that always takes its first arm (cost 0.0): differs on a sample
   trace:   the value is a constant (cost 0.0): differs on a sample
   trace:   the value is a (cost 0.0): differs on a sample
@@ -3206,7 +3206,7 @@ optimised C:
   trace:   popcount(a), 200 at 0 (cost 3.5): differs on a sample
   trace:   clz(a), 200 at 0 (cost 3.5): differs on a sample
   trace:   ctz(a), 200 at 0 (cost 3.5): differs on a sample
-  trace: sat round 1: 4 candidates, cost 3.5
+  trace: sat round 1: 5 candidates, cost 3.5
   trace:   a min (clamp) that never bites (cost 0.0): differs on a sample
   trace:   a min (clamp) that never bites (cost 1.5): differs on a sample
 c optimize: 1 function, 1 rewrite proved (1 exhaustive, 0 by SAT) for x86-64-v3
