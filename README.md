@@ -1971,8 +1971,11 @@ model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,
   load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,
   atomic_shared: 6.625, atomic_global: 50, store: 15,
   dot4x8: 1, dot4x8sat: 6.5
-  sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25,
-  sg_deriv: 3.25
+  sg_ballot: 1.5, sg_vote: 2, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25,
+  sg_min: 31.125, sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125,
+  sg_barrier: 1.375, sg_deriv: 3.25
+  bfe: 1.25, brev: 1.25, byteperm: 1, funnel: 8.125, sad4x8: 15.25, mulwide: 13
+  iadd64: 2, imul64: 15.5, shift64: 3
   sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a * b + c : imul
@@ -1992,9 +1995,10 @@ f64 division and sqrt are library calls, about 300 and 570).  load,
 store and atomic_global are cache-resident accesses; streams from DRAM
 cost 90 to 140.  DP4A is the dot4x8 class (see Dot products below), the
 subgroup operations the `sg_` classes (see Subgroups below).
-The report also has what the classes do not show: textures, the
-clustered and partitioned subgroup operations; the fusions it measured
-are in the model (below).  `cd
+The fusions it measured are in the model (below).  tests/gt1030/probe.py
+(2026-11-13, the same card) gave what the corpus has no test of or fits
+below zero: a nearest read, the catalogue's instructions, a ballot and a
+vote of a compare, the minimum over the lanes.  `cd
 tests/gt1030 && ./run.py` measures again (it needs the GPU).
 
 Integer division has a class for each kind: `idiv`/`idivk` unsigned
@@ -2019,7 +2023,8 @@ OpShift*.  A model that does not list one prices the operation as the
 32-bit class (`iadd`, `imul`, `shift`), as a 64-bit register does it
 on the x86 models; a 32-bit machine makes several instructions of it
 (the GT 1030 corpus: a u64 add 2.02, a multiply 15.52, a shift with an
-and 4.01).  A fusion is one 32-bit instruction, so an operation
+and 4.01; gt1030's classes are 2, 15.5 and 3, which sm75, sm86 and rdna2
+inherit).  A fusion is one 32-bit instruction, so an operation
 priced by one of the three is not fused; compares, logic, selects and
 divisions by other constants are priced as at 32 bits whatever the
 width (none is measured at 64).
@@ -2139,19 +2144,19 @@ change, not a fusion.  A pattern reads its inputs alone; anything else
 in it (the lane without a `lane` input) is refused.
 
 ```
-> model sgf : gt1030 {
-    fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle }
 > xr(x: u32 uniform, lane: u32 in 0..31) = sg_shuffle_xor(x + lane, 1)
-> cost xr model sgf                          (6 under gt1030: the xor apart)
-cost of xr under sgf: 5 (3 operations, shared subterms counted once)
+> cost xr                                     (6 with the xor apart)
+cost of xr under gt1030: 5 (3 operations, shared subterms counted once)
   iadd             1 x 1     = 1
   fused by the model (one instruction for several operations):
-    bfly             1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
+    shfl_xor         1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
 ```
 
 gt1030 has the fusions its corpus measured, each from a test that
 fails the per-class sum: `lop3` (lop3_select, 4 logic ops and an add,
-2.00; lop3_xor3 2.00), `imad` (imad and imul_const, 3.0: the add folds
+2.00; lop3_xor3 2.00), `shfl_xor` and `shfl_rot` (the probe's shuffle by
+xor and rotate, 4.01 each, the plain shuffle's 4.00), `ballot_bit`
+(sg_ballot 3.65), `imad` (imad and imul_const, 3.0: the add folds
 into the XMAD chain), `shl_add` and `shr_add` (shl_const_add,
 shr_const_add, imul_pow2, udiv_pow2: 2.0, a shift by a constant and an
 add cost one shift; the corpus cannot tell that from a constant shift
@@ -2193,7 +2198,7 @@ another use stays (tests/dppfuse.ucas):
 
 ```
 > xa(x: f32 uniform, y: f32, lane: u32 in 0..31) = sg_shuffle_xor(x * f32(lane), 1) + y
-> cost xa model rdna2                         (10 under gt1030)
+> cost xa model rdna2                         (9 under gt1030)
 cost of xa under rdna2: 3 (5 operations, shared subterms counted once)
   conv             1 x 1     = 1
   fadd             1 x 1     = 1
@@ -2386,7 +2391,7 @@ agree with probability the sum of P(t)^w), or counted over the aligned
 runs of the index `cost F consecutive i` names.  The cheaper way is
 marked, so the vote is offered where it is cheaper: clearing the low
 bit of 0..15 until none is left takes 0 to 4 trips, few enough that the
-keep-up's divergence costs more than a select a trip.
+keep-up's divergence costs more than a vote and a select a trip.
 
 ```
 > pc(c: u32 in 0..15) = { x = c; while x != 0 { x = x & (x - 1) }; x }
@@ -2394,13 +2399,13 @@ keep-up's divergence costs more than a select a trip.
   ...
     in a warp of 32 lanes (independent draws from the domain, all 16 points): it runs until its last lane leaves, 3.873 iterations on average, and its lanes leave at different counts with probability 1
       exit per lane: 0 + 3.873 x 10.625 + 1 x 14.375 diverge (the lanes that left keep up) = 55.5278
-      exit on a vote: 0 + 3.873 x (10.625 + 0 sg_vote + 1 x 1.625 select) = 47.4468  (while sg_any(x != 0), a select keeping x where it fails)
+      exit on a vote: 0 + 3.873 x (10.625 + 2 sg_vote + 1 x 1.625 select) = 55.1932  (while sg_any(x != 0), a select keeping x where it fails)
       -> exit on a vote
 ```
 
 `x = n; k = 0; while x > 1 { x = x / 2; k += 1 }` over 1..1000 runs 9
 trips in nearly every warp of independent lanes, and leaving per lane
-is cheaper (164 against 178.9).  A loop whose condition is uniform, a
+is cheaper (164 against 196.9).  A loop whose condition is uniform, a
 vote among them, says that its lanes leave together.
 
 ```
@@ -4109,13 +4114,16 @@ a `?:` on them is priced as a uniform branch, and the lanes of a loop
 that leaves on a vote leave together (see [Rewrites the prices make
 worthwhile](#rewrites-the-prices-make-worthwhile) for a loop priced
 both ways).  gt1030, measured
-(tests/gt1030, each step less its add): a shuffle 4.00 (by xor,
-broadcast, rotate and the quad swap 4.00 to 4.07 with their add, so
-those are priced one logic or add above their measurement), the sum
-32.63, the inclusive scan 60.24.  The ballot and the votes fit below
-zero (`ballot((a & 1) != 0) + b` is 3.65 where the and, the compare and
-the add alone are 4.375: the compare's bool is never made), so they are
-priced 0 and their compare as a compare, 0.7 above the measurement.
+(tests/gt1030, each step less its add): a shuffle 4.00, by xor, the
+rotate and the quad swap 4.00 to 4.01 (one SHFL each, which forms the
+index: the fusions `shfl_xor` and `shfl_rot` take the index operation
+off), the sum 32.63, the minimum 31.12, the inclusive scan 60.24, the
+clustered sum of 4 19.44, NV's partition 54.54 and the sum within one
+65.16, the subgroup barrier 1.34.  A ballot of a compare with its add is
+4.82, 1.5 above the compare and the add; of a bit, `ballot((a & 1) != 0)
++ b`, 3.65, which the fusion `ballot_bit` (2.625) takes: the compare's
+bool is never made.  A vote of a compare with its select is 6.01, 2
+above them.
 A fine derivative is priced as Liz set it (#204): `sg_deriv`, the
 quad's exchange (gt1030: 3.25; frag_dfdx measured 4.22, the exchange
 3.22 and the subtract's fadd), plus the subtract, plus the operand once
@@ -4140,7 +4148,7 @@ under; the whole is then checked against the function on its domain
 - A segmented scan of a value that is 0 or 1 in every lane counts the
   ballot's bits from the head's to the lane's, `popcount(sg_ballot(v
   != 0) & ((2 << lane) - 1) & (~0 << s))`: no scan and no shuffle
-  (82.625 -> 25.75 under gt1030, 8 lanes); of anything else it keeps
+  (81.875 -> 24.25 under gt1030, 8 lanes); of anything else it keeps
   its scan and shuffle, and the scan the forms below.
 - A scan of anything is a ladder of ceil(log2 W) shuffles and adds
   (Hillis and Steele): after the step for d a lane holds the sum of the
@@ -4155,8 +4163,9 @@ under; the whole is then checked against the function on its domain
   step for d a lane holds the result over the 2d lanes that agree with
   it from bit d up.  Proved for any value per lane: with a free word in
   each lane, every lane's result is the operation over all W words,
-  each once.  gt1030 lists none of the five classes, so find writes
-  them so (tests/sgreduce.ucas).
+  each once.  Of the five classes gt1030 lists sg_min alone (31.125,
+  above the butterfly's 25), so find writes them so
+  (tests/sgreduce.ucas).
 - A clustered sum is the same butterfly with d below the cluster's n,
   and of a value that is 0 or 1 in every lane the count of the ballot's
   n bits from the cluster's first lane (tests/sgcluster.ucas).
@@ -4187,8 +4196,8 @@ under; the whole is then checked against the function on its domain
   than the subgroup, the upper half of a Morton code's inverse): the
   table and `c + k lane` forms leave it any bit and mask the ballot.
   Under gt1030 a CRC-32 step over a byte written as a loop goes from
-  98 to 14.25, a Morton code of two u16 words from 27 to 12.375 and
-  its inverse from 13 to 9.375 (tests/sgslice.ucas).
+  98 to 13.5, a Morton code of two u16 words from 27 to 11.625 and
+  its inverse from 13 to 8.625 (tests/sgslice.ucas).
 - A map applied field by field to a shared word (an S-box on each
   nibble, a function of each byte): every bit of the result reads one
   field of the word, at most 8 bits wide.  Lane i works out bit i,
@@ -4204,9 +4213,9 @@ under; the whole is then checked against the function on its domain
   flipping each bit of the word at 48 values of it; the form built on
   it is offered only when it is proved equal to the function (every
   point, or SAT), so a wrong guess is dropped.  Eight nibbles through a
-  4-bit S-box go from 95 to 17.25 under gt1030 (78.875 with the table
-  as a register), the squares of four bytes from 32 to 18.25
-  and two S-boxes that alternate over the nibbles from 95 to 20.25
+  4-bit S-box go from 95 to 16.5 under gt1030 (78.875 with the table
+  as a register), the squares of four bytes from 32 to 17.5
+  and two S-boxes that alternate over the nibbles from 95 to 19.5
   (tests/sgfield.ucas).  Fields of different sizes, fields of two
   words and a word with a range are not taken.
 - A table read at the lane's index (the register above, a bit slice's
@@ -4215,7 +4224,7 @@ under; the whole is then checked against the function on its domain
   value (a table in one constant, read at `lane & (2^b - 1)` so that
   every lane shifts inside the word; a multiply and a shift), is that
   form: the lane's index costs no load.  The odd bits of a word into a
-  byte shift by `2 lane + 1` (8.375 under a model with 8 lanes, 13.25
+  byte shift by `2 lane + 1` (7.625 under a model with 8 lanes, 12.5
   with the table).  For a register the same form at each lookup's own
   index needs no shuffle at all; where that is cheaper the report says
   so with its price, and the register stays the load.
@@ -4258,8 +4267,8 @@ under; the whole is then checked against the function on its domain
   chain's limbs (its limb and carry checked by SAT over three free
   words, then induction over the lanes); and SAT proves the ballots the
   chain's carries over free words.  64 bits as a byte in each of 8 lanes
-  go from 1651 to 229.375 under a warp-8 gt1030, 512 bits as a u16 in
-  each of 32 lanes from 25225 to 811.375 under gt1030
+  go from 1651 to 232.375 under a warp-8 gt1030, 512 bits as a u16 in
+  each of 32 lanes from 26281 to 851.375 under gt1030
   (tests/sglanesmul.ucas).  The columns read by shuffles with the chain
   kept is offered when the carry-save form is not proved and it is
   cheaper (a chain whose carry keeps 7 bits for limbs of 8: 1651 ->
@@ -4274,8 +4283,8 @@ under; the whole is then checked against the function on its domain
   values sorted, at the domain's points (all of them when there are at
   most 1024, a sample otherwise), and written as `sg_sort`'s network,
   read in the lane itself or by one shuffle: a median of 4 nibbles
-  counted with ballots, 133.5 -> 43 under gt1030, of 32 lanes 1196 ->
-  172.  The network sorts every input: by the 0-1 principle it is
+  counted with ballots, 130.5 -> 42 under gt1030, of 32 lanes 1007 ->
+  166.  The network sorts every input: by the 0-1 principle it is
   enough that it sorts every input of 0s and 1s, and after the stage
   for k/2 the halves of a block of k lanes are sorted in opposite
   directions, so such a block is 0^a 1^b 0^c; the stage's merge is run
@@ -4286,7 +4295,7 @@ under; the whole is then checked against the function on its domain
 > f1(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 1)
 > find f1 1                                  (gt1030)
   subgroup forms under gt1030 (each derived, with what it holds under; cost 63.25 as written):
-  cost 13.375 u8(popcount(sg_ballot(x >> lane & 1 != 0) & (2 << lane) - 1))
+  cost 12.625 u8(popcount(sg_ballot(x >> lane & 1 != 0) & (2 << lane) - 1))
            sg_scan(x >> lane & 1): x >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so ...
            holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked on every point of the domain
@@ -4297,7 +4306,8 @@ under; the whole is then checked against the function on its domain
   cost 21.875 sg_shuffle(t1, i) + sg_shuffle(t1, j)*sg_shuffle(t1, k) where t1 = [3, 1, 4, 1, 5, 9, 2, 6, 0, ...][lane]
 > rev32(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); ... (d >> 16) | (d << 16) }
 > find rev32 1                               (29 as written: five swaps)
-  cost 6.375 sg_ballot(x >> 31 - lane & 1 != 0)
+  cost 5.625 sg_ballot(x >> 31 - lane & 1 != 0)
+  cost 1.25 brev(x)
 ```
 
 The table read once (6.875) is dearer as a register (10.875) and stays;
@@ -4345,7 +4355,7 @@ gets `OpCapability GroupNonUniformBallot` (and a uvec4 type) when it
 lacks them.  It is written when the model prices the compare, the
 ballot and the count below the sum (and the select that goes dead);
 under gt1030 a stream compaction's offset, `subgroupExclusiveAdd(x > 5u
-? 1u : 0u)`, goes from 62.875 to 7.  Otherwise each is listed with both
+? 1u : 0u)`, goes from 62.875 to 8.5.  Otherwise each is listed with both
 prices, or with the class the model lacks, and left
 (tests/subgroup_spv.ucas).
 
@@ -4374,8 +4384,8 @@ the two, and said where it is cheaper for some
 share p, with the shares where it is, an interval (a warp rarely split
 pays little as written; with nearly every lane on the dear arm there is
 nothing to pack), and the share where it saves most.  Under gt1030 an
-arm of 39 against one of 1: cheaper from 0.4% to 73% of the lanes (past
-that, both arms and a select, 41.6), at 3.2% 14.3 against 41.6
+arm of 39 against one of 1: cheaper from 0.5% to 70% of the lanes (past
+that, both arms and a select, 41.6), at 3.2% 15.8 against 41.6
 (tests/compact.ucas).
 
 Not there yet: a segmented scan under
@@ -4475,16 +4485,19 @@ mma m16n8k16: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k
   bound: |D - (A B + C)| <= gamma_6 (sum_k |A_ik B_kj| + |C_ij|), gamma_6 = 6 u / (1 - 6 u) = 3.576e-07, u = 2^-24
   ...
 > mma model rdna2
-   1. 121       output-stationary; A: 12 xor shuffles; B: 16 shuffles; 32 fdot2; k order by lane, depth 16
-   2. 137       A-stationary; B: 16 shuffles; partial sums: 12 xor shuffles; 32 fdot2, depth 6
+   1. 116.75    output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major); 32 fdot2, depth 16
+   2. 121       output-stationary; A: 12 xor shuffles; B: 16 shuffles; 32 fdot2; k order by lane, depth 16
 ```
 
 Under gt1030 an unpack (`conv`, 3) is dearer than a shuffle's share, so
 B's words are unpacked once in their own lanes and shuffled as f32;
 under sm86 (conversions at 16 a clock) more so (1.95x); under rdna2,
 with `fdot2`, nothing is unpacked and each lane sums its own elements,
-taking A's words from its quad by xor (the k order starting at the
-lane's own).  The output is a GLSL function, `void
+taking A's words from its quad by broadcast and B's through shared
+memory, two subgroup barriers at the 1.375 it inherits (at the 4.37
+tests/vangogh measured, A's words from its quad by xor, the k order
+starting at the lane's own, would be cheaper: 121 against 122.74).  The
+output is a GLSL function, `void
 mma_m16n8k16_f32(uint a[4], uint b[2], float c[4], out float d[4])` (f16
 C and D: `uint c[2]`, `out uint d[2]`), written to `NAME.glsl` with a
 header that says what it is and what was proved; it is for the
@@ -4510,7 +4523,7 @@ HMMAs one at a time, each the best alone:
 | model | chain 4 | tile 2 1 1 (B shared) | tile 2 2 1 | tile 2 1 2 |
 |---|---|---|---|---|
 | gt1030 | 1.24x | 1.34x | | 1.58x |
-| rdna2 | 1.15x | 1.47x | | |
+| rdna2 | 1.15x | 1.42x | | |
 | sm86 | | | 1.64x | |
 | mali_g715 | 1.10x | | 1.98x | |
 
@@ -4543,7 +4556,7 @@ accesses); the GLSL then declares its slots `uvec4`.  No model here has
 measured them, so the report says what they would change: "what if: were
 a 64- or 128-bit shared access priced as one 32-bit access": under
 mali_g715 2.03x (A from its quad in 128-bit loads, B in 64-bit ones),
-under rdna2 1.26x (B through shared memory instead of ds_bpermute),
+under rdna2 1.45x (B's 16 loads as 4 wide ones),
 under gt1030 nothing.  Those are the accesses to measure.
 
 **Numerics.**  On Ampere (sm_80/86) an f16 HMMA with an f32 accumulator
@@ -4630,7 +4643,7 @@ lperm: the lane map lane xor (lane & 1) << 1 over 32 lanes
   chosen under rdna2: 1 stage: lane xor 2 where lane & 1 is not 0 (sg_shuffle_xor), cost 5
   proved: the stages composed lane by lane give the map on every one of the 32 lanes (...)
 > lperm lane xor (lane & 1) << 1              (gt1030: no cheaper exchange by xor)
-  stages: 1 stage: lane xor 2 where lane & 1 is not 0 (sg_shuffle), cost 10 (not the cheapest)
+  stages: 1 stage: lane xor 2 where lane & 1 is not 0 (sg_shuffle), cost 9 (not the cheapest)
   one shuffle by the index: cost 8
   chosen under gt1030: one shuffle by an index (sg_shuffle), cost 8
 ```
@@ -4784,10 +4797,13 @@ them: its patterns read integers.
 max_min, min_add, max_add), `sad32`, `addsat` (both), and of floats
 `med3` (as for integers), `ldexp`, `frexp` (both), `cube` (the four),
 `trigpreop`.  A model that
-does not list one cannot use it, and no built-in model lists any: none
-is measured yet (the GT 1030 corpus has no test for them), so under
-gt1030, sm75, sm86 and rdna2 they are unavailable and nothing is
-rewritten into them.  `model mine : gt1030 { bfe: 1, funnel: 1 }` is
+does not list one cannot use it.  gt1030 lists six, from
+tests/gt1030/probe.py: `bfe` 1.25, `brev` 1.25 and `byteperm` 1, one
+instruction of its ISA each, and `funnel` 8.125, `sad4x8` 15.25 and
+`mulwide` 13, the time of the several instructions its driver makes of
+them.  sm75, sm86 and rdna2 take none of the six (another part's
+instructions are not those), so under them, and for the rest under any
+built-in model, nothing is rewritten into them.  `model mine : gt1030 { med3: 1 }` is
 how a measured price gets in.
 
 Where the definitions come from: `msad4x8`'s and the windows of the
@@ -5168,11 +5184,14 @@ and rounds within those two; a model that does not state them gets
 nothing that depends on them.
 
 gt1030 lists what the 2026-11-11 run measured: `tex_sample: 21.625`
-(x_tex_bilinear, rgba8, explicit LOD: 21.65 and 21.31),
-`tex_sample_f32: 54.75` (rgba32f: 54.80) and `subtexel: 8` (the
-driver's limit).  A nearest sampled read was not measured, and neither
-was the filter's exactness, so under gt1030 as it stands nothing below
-is offered: `texalu` says which number is missing.
+(x_tex_bilinear, rgba8, explicit LOD: 21.65 and 21.31) and
+`tex_sample_f32: 54.75` (rgba32f: 54.80), and from
+tests/gt1030/probe.py `tex_nearest: 21.625` (the same texture read
+NEAREST, 22.65 with its add beside the bilinear read's 22.42) and
+`subtexel: 8` (the card's subTexelPrecisionBits).  The filter's
+exactness is not known (the probe's run could not tell the weight
+grid), so under gt1030 as it stands no filtered read is offered:
+`texalu` says which number is missing.
 
 **The rewrites.**  `texalu F [tol E] [under M]` (and a section of
 `find`, for integer and float results alike, and the function level of
@@ -5352,7 +5371,8 @@ texalu f: reads through the texture unit under cal (cost 20.375 as written):
       the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum
 > texalu f                                  (gt1030)
 texalu f: the texture unit under gt1030 (cost 20.375 as written): nothing taken
-  gt1030 lists no tex_nearest: a nearest read with an address mode is not available
+  derived, but not cheaper under gt1030 (cost 25.625, as written 20.375):
+  [10, 20, 30, 40, 50, 60, 70][i % 7] is fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
 ```
 
 Under `cal`, `T[min(max(i, 0), 6)]` stays (8.875 against 9: "derived,
