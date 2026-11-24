@@ -1,7 +1,7 @@
 ---
 name: ucas
-version: 1.1.0
-description: Run ucas, the computer algebra system for programmers, through its MCP server when the client has it loaded and from the shell when it does not, to prove two integer formulas equal on their whole domain (enumerated or by SAT), find where an expression wraps or hits C undefined behaviour, get the exact range of a value, search cheaper equivalent forms, price an expression under a CPU or GPU cost model, rewrite C99 into proved faster C for an x86-64 target, and simplify a SPIR-V or GLSL shader with each rewrite proved. Use when a change rests on integer arithmetic that must be right for every input (an encoder, a decoder, a recompiler's lowering, a bit trick, a clamp), when a hot path needs its cost on a given core, or when a sampled test is all there is and a proof is wanted.
+version: 1.1.1
+description: Run ucas, the computer algebra system for programmers (MCP server or shell), to prove two integer formulas equal on their whole domain, find where an expression wraps or hits C undefined behaviour, get a value's exact range, find cheaper forms and their cost on a core, rewrite C into proved faster C for x86-64, and simplify a SPIR-V or GLSL shader. Use when a change rests on integer arithmetic that must be right for every input, a hot path needs its cost, or a sampled test is all there is.
 triggers:
   - ucas
   - prove it with ucas
