@@ -29,3 +29,33 @@ int32_t step_sat(uint8_t i, uint8_t code, int32_t p) {
     return p + d < 32767 ? p + d : 32767;
 }
 
+/* ch_index in [0, 88] (the table's bound), nibble in [0, 15] and
+ * ch_predictor in [0, 32767] (assumed by the test) */
+int16_t ima_steps_t(uint8_t ch_index, uint8_t nibble, int16_t ch_predictor) {
+    int32_t step = IMA_STEPS[ch_index], diff = step >> 3;
+    if (nibble & 1) diff += step >> 2;
+    if (nibble & 2) diff += step >> 1;
+    if (nibble & 4) diff += step;
+    int32_t predictor = ch_predictor;
+    if (nibble & 8)
+        predictor = predictor - diff > -0x7fff ? predictor - diff : -0x7fff;
+    else
+        predictor = predictor + diff < 0x7fff ? predictor + diff : 0x7fff;
+    return predictor;
+}
+
+/* x - d never above 300, x + d never below -100: one clamp of x +- d */
+int clamp2(_Bool neg, uint8_t x, uint8_t d) {
+    int r;
+    if (neg)
+        r = x - d > -100 ? x - d : -100;
+    else
+        r = x + d < 300 ? x + d : 300;
+    return r;
+}
+
+/* a < b and a >= b are both false when a or b is a NaN: the ?: on the second
+ * is not decided by the first */
+int nan_sel(float a, float b) {
+    return a < b ? (a >= b ? 1 : 2) : (a >= b ? 3 : 4);
+}
