@@ -1,7 +1,6 @@
 > use gt1030
 cost model: gt1030
-> h(x: u8, y: u8) = { s: u32 = 0; for k in 0..7 { s = s ^ ((u32(x) * u32(y) * 2654435761) >> k) }; s }
-  note: "^" between integers, next to bitwise operators: read as xor (bitwise exclusive or), not power (write xor or ** to say which)
+> h(x: u8, y: u8) = { s: u32 = 0; for k in 0..7 { s = s xor ((u32(x) * u32(y) * 2654435761) >> k) }; s }
 > find h 1
 find h: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   note: loop loop(k in 0..7; s = 0 then s xor 2654435761(u32(x)*u32(y)) >> k).s priced as 6 once and 8 iterations x 9.25 (listed under branch)
@@ -13,7 +12,7 @@ find h: 1024 points (sampled; matches verified on the whole domain), computing i
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
   note: loop loop(k in 0..7; s = 0 then s xor 2654435761(u32(x)*u32(y)) >> k).s priced as 6 once and 8 iterations x 9.25 (listed under branch)
-> g(x: u8) = { s: u32 = 0; for k in 0..7 { s = s + k * { t: u32 = 0; for i in 0..3 { t = t ^ (u32(x) << i) }; t } }; s }
+> g(x: u8) = { s: u32 = 0; for k in 0..7 { s = s + k * { t: u32 = 0; for i in 0..3 { t = t xor (u32(x) << i) }; t } }; s }
 > find g 1
 find g: 256 points, computing in u32, costs from gt1030
   note: loop loop(i in 0..3; t = 0 then t xor u32(x) << i).t priced as 4 iterations x 9.25 (listed under branch)

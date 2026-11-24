@@ -24,7 +24,7 @@ h = a*b + c
 show h
 parse (x +
 show f
-# ^ between integers next to bitwise operators reads as xor (asked in the bot)
+# ^ between integers is power, next to bitwise operators too (still asked; assume.caret=xor answers)
 f2(a: u8, b: u8) = (a ^ b) & 0x0f
 show f2
 g2(a: u8) = a ^ 2

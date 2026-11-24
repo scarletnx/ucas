@@ -108,7 +108,7 @@ range of sq32 -> i32:
 > sum3(r: i16 in -255..255, g: i16 in -255..255, b: i16 in -255..255) = i32(r)*i32(r) + i32(g)*i32(g) + i32(b)*i32(b)
 > range sum3
 range of sum3 -> i32:
-  33..192542
+  33..192542  (sampled min/max; not a sound bound)
   fits in u18
   sampled 65536 points (domain has 133432831 points); not exhaustive
   sound bound (intervals): -195075..195075

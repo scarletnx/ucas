@@ -78,7 +78,7 @@ g(r: f32 in 0..1) = tex_compare_le8([0.100000001, 0.200000003, 0.300000012, 0.40
 > equiv k1 k2
 k1 and k2 differ at 2429 points of the sample, e.g. v=9.05810644e-19, r=0.240924284: 0 vs 1
 > equiv k1 k3
-k1 and k3 are equal on the domain of k1 (sampled, not proved; no SAT proof: a filtered texture read)
+k1 and k3 are equal on the domain of k1 (proved by SAT: 750 AIG nodes, 0 conflicts)
 > cost k1
 cost of k1 under gt1030: inf (1 operations, shared subterms counted once)
   tex_compare      1 x inf   = inf

@@ -30,8 +30,8 @@ _() = undefined
 domain of qbi:
   i: u32, 0..4294967295
   lane: u32, 0..7
-  requires an arm of match/piecewise covers the input
-  requires 0 <= lane & 0xfffffffc | i < 8  (a lane of the subgroup)
+  requires (!(i < 4)) => an arm of match/piecewise covers the input
+  requires (i < 4) => 0 <= lane & 0xfffffffc | i < 8  (a lane of the subgroup)
   defined at 6 of 65536 points
   undefined e.g. at i=4294967295, lane=0; i=4294967294, lane=0; i=200494509, lane=6; i=3851444534, lane=4
   sampled 65536 points (domain has 34359738368 points); not exhaustive

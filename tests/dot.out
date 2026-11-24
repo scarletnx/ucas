@@ -38,7 +38,7 @@ range of sdot4x8(a, b) -> i32:
   over all 65536 points of the domain
 > range udot4x8(a: u32, b: u32)
 range of udot4x8(a, b) -> u32:
-  0..210325
+  0..210325  (sampled min/max; not a sound bound)
   fits in u18
   sampled 65536 points (domain has 2^64 or more points); not exhaustive
   sound bound (intervals): 0..260100
@@ -235,6 +235,7 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
   [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
 > find g 1
 find g: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sm86
+  word-level ring identity: no AIG built, no SAT search (3 parameter(s), polynomial normal form over Z agrees mod 2^32)
   cost 2   c + a*b                                  exact (proved by SAT)
   [searched every term up to cost 4: 10469 distinct columns; 'more' continues]
 > use zen4

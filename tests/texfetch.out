@@ -15,8 +15,8 @@ _() = undefined
 > domain ft
 domain of ft:
   i: u8, 0..9
-  no conditions: total on its parameter types
   defined at 7 of 10 points
+  no conditions: total on its parameter types
   defined for: 0..6
   undefined e.g. at i=7; i=8; i=9
   over all 10 points of the domain
