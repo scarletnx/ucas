@@ -1,0 +1,54 @@
+> bf(x: u32) = (x >> 5) & 0xff
+> wide(x: u64, y: u64) = x*y + (x << 3)
+> use gt1030
+cost model: gt1030
+> find bf 1
+find bf: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030 (each for the pattern it is; cost 3 as written):
+  cost 1.25 bfe(x, 5, 8)
+           x >> 5 & 0xff: bits 5..12 of x
+           checked by SAT
+  cost 3   x >> 5 & 0xf80000ff                      mask (proved by SAT)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> cost wide
+cost of wide under gt1030: 20.5 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
+  shift64          1 x 3     = 3
+> cost wide model sm75
+cost of wide under sm75: 20.5 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
+  shift64          1 x 3     = 3
+> cost wide model sm86
+cost of wide under sm86: 20.5 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
+  shift64          1 x 3     = 3
+> cost wide model ga104
+cost of wide under ga104: 20.5 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
+  shift64          1 x 3     = 3
+> cost wide model rdna2
+cost of wide under rdna2: 20.5 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
+  shift64          1 x 3     = 3
+> cost wide model vangogh
+cost of wide under vangogh: 20.5 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
+  shift64          1 x 3     = 3
+> use ga104
+cost model: ga104
+> find bf 1
+find bf: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from ga104
+  cost 5   x >> 5 & 0xf80000ff                      mask (proved by SAT)
+  [searched every term up to cost 5: 16384 distinct columns, bank full; 'more' continues]
+> use vangogh
+cost model: vangogh
+> find bf 1
+find bf: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vangogh
+  cost 2   x >> 5 & 0xf80000ff                      mask (proved by SAT)
+  [searched every term up to cost 2: 2071 distinct columns; 'more' continues]

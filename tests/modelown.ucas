@@ -1,0 +1,19 @@
+# The catalogue's classes are gt1030's own instructions and what its driver
+# makes of the ones it has not: sm75, sm86 and rdna2, and ga104 and vangogh
+# over them, do not take those prices (GA104's corpus run has the bfe step at
+# 6.77 where gt1030's is 2.20).  The 64-bit integer classes are emulation and
+# are carried over.
+bf(x: u32) = (x >> 5) & 0xff
+wide(x: u64, y: u64) = x*y + (x << 3)
+use gt1030
+find bf 1
+cost wide
+cost wide model sm75
+cost wide model sm86
+cost wide model ga104
+cost wide model rdna2
+cost wide model vangogh
+use ga104
+find bf 1
+use vangogh
+find bf 1

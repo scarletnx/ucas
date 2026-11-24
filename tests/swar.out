@@ -405,13 +405,6 @@ find mix: 1024 points (sampled; matches verified on the whole domain), computing
 cost model: sm75
 > find max8 1
 find max8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sm75
-  instructions under sm75 (each for the pattern it is; cost 21 as written):
-  cost 17  max(a & 0xff, b & 0xff) | max(byteperm(a, 0, 0x4441), byteperm(b, 0, 0x4441)) << 8 | max(byteperm(a, 0, 0x4442), byteperm(b, 0, 0x4442)) << 16 | max(a >> 0x18, b >> 0x18) << 24
-           a >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
-           b >> 8 & 0xff: bytes 1, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
-           a >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
-           b >> 0x10 & 0xff: bytes 2, 4, 4, 4 of 0:b (8 and up: a byte's sign), told at 48 random points
-           checked by SAT
   packed lanes under sm75 (every lane in one word-wide operation; cost 21 as written):
   cost 11  b xor (a xor b) & (t1 - (t1 >> 7) | t1) where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
            4 x 8-bit lanes, max(a, b) in each: chosen by whole lanes from the top bit a word-wide compare leaves

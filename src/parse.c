@@ -2601,13 +2601,25 @@ static const char prelude[] =
      * int:fp32 rate of 1:1).  cmp: the table's ratio plus the 0.375
      * gt1030 measured above its own (the comparison's bool result).
      */
-    /* (`folds none` in these three: the f16 round trip is a measurement
+    /*
+     * (`folds none` in these three: the f16 round trip is a measurement
      * of GP108's driver, where f16 has no arithmetic, and is not carried
-     * over to parts that were not measured) */
+     * over to parts that were not measured.  Nor are the catalogue's
+     * classes: sm_61's BFE, BREV and PRMT, and what its driver makes of
+     * the ones it has not, are not a later part's: GA104's run of the
+     * corpus (tests/ga104) has the bfe step at 6.77 in 78 B and the
+     * bitreverse one at 6.87, where gt1030's are 2.20 and 2.26.  The
+     * 64-bit integer classes are emulation, carried over as the division
+     * is: ga104 measured u64_add 1.74 and u64_mul 6.81, vangogh 2.00 and
+     * 16.97, gt1030 2.02 and 15.52, where a model without them charges
+     * one 32-bit add and multiply.)
+     */
     "model sm75 : gt1030 {\n"
     "  iadd: 1, logic: 1, shift: 1, imul: 1, cmp: 1.375, minmax: 1,\n"
     "  bitcnt: 4, conv: 4, fdiv: 3, fsqrt: 4, ftrans: 4, f64: 32,\n"
-    "  dot4x8: 1, dot4x8sat: 6.5\n"
+    "  dot4x8: 1, dot4x8sat: 6.5,\n"
+    "  bfe: none, brev: none, byteperm: none, funnel: none, sad4x8: none,\n"
+    "  mulwide: none\n"
     "  folds none\n"
     "}\n"
     /*
@@ -2619,7 +2631,9 @@ static const char prelude[] =
     "model sm86 : gt1030 {\n"
     "  iadd: 2, logic: 2, shift: 2, imul: 2, cmp: 2.75, minmax: 2,\n"
     "  bitcnt: 8, conv: 8, fdiv: 6, fsqrt: 8, ftrans: 8, f64: 64,\n"
-    "  dot4x8: 2, dot4x8sat: 13\n"
+    "  dot4x8: 2, dot4x8sat: 13,\n"
+    "  bfe: none, brev: none, byteperm: none, funnel: none, sad4x8: none,\n"
+    "  mulwide: none\n"
     "  folds none\n"
     "}\n"
     /*
@@ -2643,7 +2657,9 @@ static const char prelude[] =
     "  dot4x8: none, dot4x8sat: none,\n"
     "  udot4x8: 1, sdot4x8: 1, udot4x8sat: 1, sdot4x8sat: 1,\n"
     "  udot8x4: 1, sdot8x4: 1, udot8x4sat: 1, sdot8x4sat: 1,\n"
-    "  sg_shuffle_xor: 1, sg_quad: 1, fdot2: 1\n"
+    "  sg_shuffle_xor: 1, sg_quad: 1, fdot2: 1,\n"
+    "  bfe: none, brev: none, byteperm: none, funnel: none, sad4x8: none,\n"
+    "  mulwide: none\n"
     /*
      * ESTIMATES (from the RDNA2 ISA guide, not measured): DPP16 makes a
      * row's xor (row_xmask, k < 16) or a quad's permutation (quad_perm) a
