@@ -551,6 +551,17 @@ notes_drop(void)
 	sb_clear(&notes);
 }
 
+/*
+ * Whether an elapsed time is worth printing: shorter than half a second is
+ * noise, not news, and UCAS_NO_TIMES (set by `make test`) leaves times out
+ * so that outputs do not depend on the machine's load.
+ */
+int
+show_time(double el)
+{
+	return el >= 0.5 && getenv("UCAS_NO_TIMES") == NULL;
+}
+
 int
 ilog2u(uint64_t v)
 {

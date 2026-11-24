@@ -10473,7 +10473,7 @@ report(int rounds, double secs)
 		    "parser): %d functions; each one's domain inferred from every "
 		    "call (abstract interpretation from main, %d rounds", G.nf,
 		    rounds + 1);
-	if (secs >= 0.5)	/* shorter times are noise, not news */
+	if (show_time(secs))
 		printf(", %.1f s", secs);
 	printf(")\n");
 	if (dropped[0])

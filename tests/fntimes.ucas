@@ -1,0 +1,28 @@
+# UCAS_NO_TIMES (make test sets it): the function level says no time, however
+# long its analysis took.  Eight bools are 256 states, each taken through four
+# nested loops: over a second here, and nothing to find after it
+simplify functions nofile budget 60
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer S { uint s[]; };
+uint low(uint x) { return x & 15u; }
+void main() {
+    uint v = s[1], t = low(v);
+    bool b0 = (s[0] >> 0u & 1u) != 0u;
+    bool b1 = (s[0] >> 1u & 1u) != 0u;
+    bool b2 = (s[0] >> 2u & 1u) != 0u;
+    bool b3 = (s[0] >> 3u & 1u) != 0u;
+    bool b4 = (s[0] >> 4u & 1u) != 0u;
+    bool b5 = (s[0] >> 5u & 1u) != 0u;
+    bool b6 = (s[0] >> 6u & 1u) != 0u;
+    bool b7 = (s[0] >> 7u & 1u) != 0u;
+    for (uint i0 = 0u; i0 < (v & 7u); i0++)
+        for (uint i1 = 0u; i1 < (v & 7u); i1++)
+            for (uint i2 = 0u; i2 < (v & 7u); i2++)
+                for (uint i3 = 0u; i3 < (v & 7u); i3++)
+                    t += i0 ^ i1 ^ i2 ^ i3;
+    s[0] = t + (b0 ? 1u : 0u) + (b1 ? 2u : 0u) + (b2 ? 3u : 0u) + (b3 ? 4u : 0u) +
+        (b4 ? 5u : 0u) + (b5 ? 6u : 0u) + (b6 ? 7u : 0u) + (b7 ? 8u : 0u);
+}
+```
