@@ -1369,6 +1369,8 @@ decl(uint32_t n)
 
 	if (SU.kind[s] == CS_FUNC)
 		return;
+	if (SU.kind[s] == CS_ENUMC)
+		return;	/* a constexpr integer: its uses are its value */
 	if (SU.kind[s] == CS_GLOBAL) {
 		/* a static local: only a const table or constant is fine */
 		if ((CT.qual[ty] & CQ_CONST) || (CT.kind[ty] == CT_ARRAY &&

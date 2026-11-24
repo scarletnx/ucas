@@ -1,0 +1,42 @@
+> c lower cfront/c23.c
+  binary(x: u32) = x & 0xf0 | 0x10000
+  picked() = 12
+  grouped(x: i32) = x/1000000
+  wrap12(x: u12) = x + 1
+  widen(x: i7) = i32(x) - 100
+    defined where (no C UB): t1 >= -2147483648 && t1 <= 2147483647 where t1 = i64(i32(x)) - 100
+  bits(x: u8) = u32(u3(x))
+  is_even(x: u32) = (i32(x & 1 == 0) != 0 ? 1 : 0) != 0
+  is_null: not lowered: line 31: a parameter that is not an integer or a float (p)
+  high(c: u8) = i32(i32(c) == 255)
+  limited(x: u32) = x % 32
+  wide_align() = 16
+  typed(x: u32) = x + 3
+  attributed(unused: u32, x: u32) = x & 1 == 0 ? x + 1 : x
+  level_of(x: u8) = i32(i32(x) == 250) != 0 ? 7 : i32(i32(x) == 1) != 0 ? 3 : 0
+  level_size() = 1
+  zero(a: i32) = a
+    defined where (no C UB): i64(a) >= -2147483648 && i64(a) <= 2147483647
+  embedded(i: u32) = u32([117, 99, 97, 115, 0][u64(i & 3)])
+    defined where (no C UB): t1 >= 0 && t1 < 5 where t1 = u64(i & 3)
+  embed_empty() = 9
+> c lower nofile
+error: <block>:2:1: static_assert failed: "ints are 4 bytes"
+> c lower nofile
+error: <block>:1:28: _BitInt(65): a width from 1 to 64 is needed
+> c lower nofile
+error: <block>:1:18: _BitInt(1): a signed one needs 2 bits or more
+> c lower nofile
+error: <block>:1:34: a digit separator that is not between two digits
+> c lower nofile
+error: <block>:1:49: the enumerator's value 256 does not fit its underlying type
+> c lower nofile
+error: <block>:1:23: alignas(3): a power of two is needed
+> c lower nofile
+error: <block>:1:16: a constexpr object needs an initialiser
+> c lower nofile
+error: <block>:2:1: #embed "no_such_file.bin": cannot read it
+> c lower nofile
+error: <block>:2:1: #embed: unknown parameter 'gnu'
+> c lower nofile
+error: <block>:2:1: #elifdef without #if

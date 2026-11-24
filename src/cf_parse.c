@@ -156,6 +156,26 @@ ct_array(uint32_t base, int64_t n)
 	return i;
 }
 
+/*
+ * C23's _BitInt(n): n bits, stored as the System V ABI does, in the
+ * smallest of 1, 2, 4 and 8 bytes that holds them.  The padding bits
+ * take no part in a value here.
+ */
+uint32_t
+ct_bitint(int n, int uns)
+{
+	uint32_t i;
+	int kind = uns ? CT_UBITINT : CT_SBITINT;
+
+	for (i = 0; i < CT.n; i++)
+		if (CT.kind[i] == kind && CT.count[i] == n && CT.qual[i] == 0)
+			return i;
+	i = ct_new(kind);
+	CT.count[i] = n;
+	CT.size[i] = CT.align[i] = n <= 8 ? 1 : n <= 16 ? 2 : n <= 32 ? 4 : 8;
+	return i;
+}
+
 static uint32_t
 ct_field(uint32_t name, uint32_t ty, uint32_t off)
 {
@@ -178,7 +198,8 @@ ct_is_int(uint32_t t)
 {
 	int k = CT.kind[t];
 
-	return (k >= CT_BOOL && k <= CT_ULLONG) || k == CT_ENUM;
+	return (k >= CT_BOOL && k <= CT_ULLONG) || k == CT_ENUM ||
+	    k == CT_SBITINT || k == CT_UBITINT;
 }
 
 int
@@ -210,23 +231,55 @@ ct_is_signed(uint32_t t)
 	case CT_LLONG: case CT_FLOAT: case CT_DOUBLE: case CT_LDOUBLE:
 		return 1;
 	case CT_ENUM:
+		if (CT.base[ct_uq[t]] != NOTOK)
+			return ct_is_signed(CT.base[ct_uq[t]]);
 		return CT.count[ct_uq[t]] < 0;	/* count: -1 some negative */
+	case CT_SBITINT:
+		return 1;
 	}
 	return 0;
 }
 
+/* the width in bits of an integer type's values */
+static int
+ct_width(uint32_t t)
+{
+	t = ct_uq[t];
+	switch (CT.kind[t]) {
+	case CT_SBITINT: case CT_UBITINT:
+		return (int)CT.count[t];
+	case CT_ENUM:
+		return CT.base[t] != NOTOK ? ct_width(CT.base[t]) : 32;
+	case CT_BOOL:
+		return 1;
+	}
+	return (int)CT.size[t] * 8;
+}
+
+static int
+ct_is_bitint(uint32_t t)
+{
+	return CT.kind[t] == CT_SBITINT || CT.kind[t] == CT_UBITINT;
+}
+
+/*
+ * The conversion rank, for comparison only: by width, a standard type above
+ * a bit-precise one of the same width (C23 6.3.1.1), long long above long.
+ */
 int
 ct_rank(uint32_t t)
 {
+	t = ct_uq[t];
+	if (ct_is_bitint(t))
+		return 2 * ct_width(t);
 	switch (CT.kind[t]) {
 	case CT_BOOL: return 0;
-	case CT_CHAR: case CT_SCHAR: case CT_UCHAR: return 1;
-	case CT_SHORT: case CT_USHORT: return 2;
-	case CT_INT: case CT_UINT: case CT_ENUM: return 3;
-	case CT_LONG: case CT_ULONG: return 4;
-	case CT_LLONG: case CT_ULLONG: return 5;
+	case CT_LLONG: case CT_ULLONG: return 2 * 64 + 2;
+	case CT_ENUM:
+		if (CT.base[t] != NOTOK)
+			return ct_rank(CT.base[t]);
 	}
-	return 6;
+	return 2 * ct_width(t) + 1;
 }
 
 uint32_t
@@ -235,7 +288,11 @@ ct_promote(uint32_t t)
 	t = ct_uq[t];
 	if (!ct_is_int(t))
 		return t;
-	if (ct_rank(t) < 3)
+	if (CT.kind[t] == CT_ENUM && CT.base[t] != NOTOK)
+		t = ct_uq[CT.base[t]];	/* the fixed type, then as it is */
+	if (ct_is_bitint(t))
+		return t;	/* C23: never promoted */
+	if (CT.kind[t] != CT_ENUM && ct_width(t) < 32)
 		return ct_basic(CT_INT);
 	if (CT.kind[t] == CT_ENUM)
 		return ct_basic(ct_is_signed(t) ? CT_INT : CT_UINT);
@@ -273,11 +330,13 @@ ct_usual(uint32_t a, uint32_t b)
 		return b;
 	/* the signed type is wider: it holds every value of the other
 	 * (LP64: int < long) */
-	if (sa && CT.size[a] > CT.size[b])
+	if (sa && ct_width(a) > ct_width(b))
 		return a;
-	if (sb && CT.size[b] > CT.size[a])
+	if (sb && ct_width(b) > ct_width(a))
 		return b;
 	/* long vs unsigned long long ...: the unsigned of the signed one */
+	if (ct_is_bitint(sa ? a : b))
+		return ct_bitint(ct_width(sa ? a : b), 1);
 	return ct_basic(sa ? (CT.kind[a] == CT_LONG ? CT_ULONG : CT_ULLONG) :
 	    (CT.kind[b] == CT_LONG ? CT_ULONG : CT_ULLONG));
 }
@@ -296,7 +355,12 @@ ct_to_ucas(uint32_t t)
 	case CT_UINT: return TY(K_UINT, 32);
 	case CT_LONG: case CT_LLONG: return TY(K_SINT, 64);
 	case CT_ULONG: case CT_ULLONG: return TY(K_UINT, 64);
-	case CT_ENUM: return ct_is_signed(t) ? TY(K_SINT, 32) : TY(K_UINT, 32);
+	case CT_ENUM:
+		if (CT.base[t] != NOTOK)
+			return ct_to_ucas(CT.base[t]);
+		return ct_is_signed(t) ? TY(K_SINT, 32) : TY(K_UINT, 32);
+	case CT_SBITINT: return TY(K_SINT, CT.count[t]);
+	case CT_UBITINT: return TY(K_UINT, CT.count[t]);
 	/* IEEE binary32/64 (x86-64 SSE: FLT_EVAL_METHOD 0) */
 	case CT_FLOAT: return TY_F32;
 	case CT_DOUBLE: return TY_F64;
@@ -375,7 +439,10 @@ ct_str(struct sbuf *b, uint32_t t, const char *name)
 		break;
 	}
 	quals(b, CT.qual[t] & ~CQ_RESTRICT);
-	if (CT.kind[t] <= CT_LDOUBLE)
+	if (CT.kind[t] == CT_SBITINT || CT.kind[t] == CT_UBITINT)
+		sb_printf(b, "%s_BitInt(%lld)", CT.kind[t] == CT_UBITINT ?
+		    "unsigned " : "", (long long)CT.count[t]);
+	else if (CT.kind[t] <= CT_LDOUBLE)
 		sb_puts(b, basic_names[CT.kind[t]]);
 	else if (CT.kind[t] == CT_STRUCT || CT.kind[t] == CT_UNION ||
 	    CT.kind[t] == CT_ENUM || CT.kind[t] == CT_VEC)
@@ -440,6 +507,7 @@ static struct {
 #define A_ (U->A)
 
 static void perr(const char *fmt, ...);
+static uint32_t sc_find(uint32_t name, int tag);
 
 static void
 perr(const char *fmt, ...)
@@ -474,6 +542,27 @@ is_at(uint32_t i, const char *s)
 {
 	return i < TK.n && !strcmp(tx(i), s) && TK.kind[i] != CK_STR &&
 	    TK.kind[i] != CK_CHAR;
+}
+
+/*
+ * A word that C23 made a keyword and C99 left to programs (bool, nullptr,
+ * typeof ...): token i, unless it is declared in scope.
+ */
+static int
+kw23(uint32_t i, const char *s)
+{
+	return i < TK.n && TK.kind[i] == CK_ID && !strcmp(tx(i), s) &&
+	    sc_find(TK.sym[i], 0) == NOTOK;
+}
+
+static int
+accept23(const char *s)
+{
+	if (!kw23(PS.i, s))
+		return 0;
+	U->c23 = 1;
+	PS.i++;
+	return 1;
 }
 
 static int
@@ -624,7 +713,15 @@ static const char *const tyspec_words[] = {
 	"unsigned", "_Bool", "struct", "union", "enum", "const", "volatile",
 	"restrict", "__restrict", "__restrict__", "typedef", "extern",
 	"static", "auto", "register", "inline", "__inline", "__inline__",
-	"_Noreturn", "__attribute__", "__extension__", "_Complex", NULL
+	"_Noreturn", "__attribute__", "__extension__", "_Complex",
+	"_BitInt", "_Alignas", "_Thread_local", "__typeof__", "__typeof", NULL
+};
+
+/* C23's keywords that start a declaration, where the program does not
+ * declare the word itself */
+static const char *const tyspec_c23[] = {
+	"bool", "typeof", "typeof_unqual", "alignas", "thread_local",
+	"constexpr", NULL
 };
 
 static int
@@ -637,21 +734,51 @@ starts_type(uint32_t i)
 	for (k = 0; tyspec_words[k]; k++)
 		if (!strcmp(tx(i), tyspec_words[k]))
 			return 1;
+	for (k = 0; tyspec_c23[k]; k++)
+		if (kw23(i, tyspec_c23[k]))
+			return 1;
 	return is_typedef_name(i);
 }
 
+/* token i starts a C23 attribute: two "[" */
+static int
+at_attr(uint32_t i)
+{
+	return is_at(i, "[") && is_at(i + 1, "[");
+}
+
+/* attributes, GNU's and C23's [[...]]: accepted and ignored */
 static void
 skip_attribute(void)
 {
 	int depth = 0;
 
-	while (accept("__attribute__") || accept("__attribute")) {
-		expect("(");
-		depth = 1;
-		while (depth && TK.kind[PS.i] != CK_EOF) {
-			if (is("("))
+	for (;;) {
+		if (accept("__attribute__") || accept("__attribute")) {
+			expect("(");
+			depth = 1;
+			while (depth && TK.kind[PS.i] != CK_EOF) {
+				if (is("("))
+					depth++;
+				else if (is(")"))
+					depth--;
+				PS.i++;
+			}
+			continue;
+		}
+		if (!at_attr(PS.i))
+			return;
+		/* up to the matching "]" "]", brackets and parentheses
+		 * inside nesting */
+		U->c23 = 1;
+		PS.i += 2;
+		depth = 2;
+		while (depth) {
+			if (TK.kind[PS.i] == CK_EOF)
+				perr("an attribute that does not end");
+			if (is("[") || is("("))
 				depth++;
-			else if (is(")"))
+			else if (is("]") || is(")"))
 				depth--;
 			PS.i++;
 		}
@@ -793,13 +920,17 @@ num_literal(uint32_t t0)
 	char buf[96];
 	char *end;
 	uint32_t n;
-	int isf = 0, k;
+	int isf = 0, k, bin;
 
-	if (len >= sizeof buf)
-		perr("number too long");
-	memcpy(buf, s, len);
-	buf[len] = 0;
-	if (!(buf[0] == '0' && (buf[1] == 'x' || buf[1] == 'X'))) {
+	if (!cf_num_text(s, len, buf, sizeof buf))
+		perr(len >= sizeof buf ? "number too long" :
+		    "a digit separator that is not between two digits");
+	bin = buf[0] == '0' && (buf[1] == 'b' || buf[1] == 'B');
+	if (bin)
+		U->c23 = 1;
+	if (bin)
+		;	/* no point or exponent */
+	else if (!(buf[0] == '0' && (buf[1] == 'x' || buf[1] == 'X'))) {
 		for (k = 0; buf[k]; k++)
 			if (buf[k] == '.' || buf[k] == 'e' || buf[k] == 'E')
 				isf = 1;
@@ -824,7 +955,7 @@ num_literal(uint32_t t0)
 	}
 	{
 		uint64_t v;
-		int u = 0, l = 0, dec = !(buf[0] == '0' && buf[1]);
+		int u = 0, l = 0, wb = 0, dec = !(buf[0] == '0' && buf[1]);
 		const int *cand;
 		static const int dec_c[][4] = {
 			{CT_INT, CT_LONG, CT_LLONG, -1},	/* no suffix */
@@ -843,14 +974,40 @@ num_literal(uint32_t t0)
 			{CT_ULLONG, -1, -1, -1, -1, -1},
 		};
 		int row, j;
-		v = strtoull(buf, &end, 0);
+		v = cf_num_value(buf, &end);
+		if (bin && (buf[2] != '0' && buf[2] != '1'))
+			perr("bad number '%s'", buf);
 		for (; *end; end++) {
 			if (*end == 'u' || *end == 'U')
 				u = 1;
 			else if (*end == 'l' || *end == 'L')
 				l++;
-			else
+			else if ((!strncmp(end, "wb", 2) || !strncmp(end, "WB", 2))
+			    && !wb) {
+				wb = 1;
+				end++;
+			} else
 				perr("bad number '%s'", buf);
+		}
+		if (wb) {
+			/* C23: the narrowest _BitInt that holds it, unsigned
+			 * with u; a signed one has 2 bits or more */
+			int w = 0, bits;
+			uint64_t x = v;
+			while (x) {
+				w++;
+				x >>= 1;
+			}
+			bits = u ? (w ? w : 1) : (w + 1 > 2 ? w + 1 : 2);
+			if (l)
+				perr("bad number '%s'", buf);
+			if (bits > 64)
+				perr("%s: no _BitInt of more than 64 bits", buf);
+			U->c23 = 1;
+			n = node(CA_NUM, t0);
+			A_.iv[n] = (int64_t)v;
+			A_.ty[n] = ct_bitint(bits, u);
+			return n;
 		}
 		row = l == 0 ? (u ? 1 : 0) : l == 1 ? (u ? 3 : 2) : (u ? 5 : 4);
 		n = node(CA_NUM, t0);
@@ -871,6 +1028,16 @@ num_literal(uint32_t t0)
 		A_.ty[n] = ct_basic(u || !dec ? CT_ULLONG : CT_LLONG);
 		return n;
 	}
+}
+
+/* a u8 prefix (a character constant of type char8_t, as C23 has it) */
+static int
+is_u8(uint32_t t0)
+{
+	size_t len;
+	const char *s = cf_tok_text(U, t0, &len);
+
+	return len > 3 && s[0] == 'u' && s[1] == '8';
 }
 
 static int64_t
@@ -941,13 +1108,22 @@ primary(void)
 		PS.i++;
 		n = node(CA_CHARLIT, t0);
 		A_.iv[n] = char_value(t0);
-		A_.ty[n] = ct_basic(CT_INT);
+		if (is_u8(t0)) {
+			U->c23 = 1;
+			A_.iv[n] &= 0xff;
+			A_.ty[n] = ct_basic(CT_UCHAR);
+		} else
+			A_.ty[n] = ct_basic(CT_INT);
 		return n;
 	}
 	if (TK.kind[t0] == CK_STR) {
 		int64_t len = 0;
 		while (TK.kind[PS.i] == CK_STR) {
-			len += TK.len[PS.i] - 2;	/* escapes: an upper bound */
+			/* escapes: an upper bound; a prefix is not counted */
+			const char *q = memchr(U->ftext[TK.file[PS.i]] +
+			    TK.off[PS.i], '"', TK.len[PS.i]);
+			len += TK.len[PS.i] - 2 - (q ? q - (U->ftext[TK.file[PS.i]] +
+			    TK.off[PS.i]) : 0);
 			PS.i++;
 		}
 		n = node(CA_STR, t0);
@@ -964,6 +1140,17 @@ primary(void)
 	if (TK.kind[t0] == CK_ID) {
 		PS.i++;
 		s = sc_find(TK.sym[t0], 0);
+		if (s == NOTOK && (is_at(t0, "true") || is_at(t0, "false") ||
+		    is_at(t0, "nullptr"))) {
+			/* C23's constants, where no declaration or macro of
+			 * theirs stands */
+			U->c23 = 1;
+			n = node(CA_NUM, t0);
+			A_.iv[n] = is_at(t0, "true");
+			A_.ty[n] = is_at(t0, "nullptr") ?
+			    ct_ptr(ct_basic(CT_VOID)) : ct_basic(CT_BOOL);
+			return n;
+		}
 		if (s == NOTOK) {
 			/* an undeclared function call: implicit int f() */
 			if (is("("))
@@ -976,7 +1163,8 @@ primary(void)
 		if (U->S.kind[s] == CS_ENUMC) {
 			n = node(CA_NUM, t0);
 			A_.iv[n] = U->S.val[s];
-			A_.ty[n] = ct_basic(CT_INT);
+			A_.ty[n] = ct_is_int(U->S.ty[s]) ? ct_unqual(U->S.ty[s]) :
+			    ct_basic(CT_INT);
 			return n;
 		}
 		n = node(CA_ID, t0);
@@ -1177,7 +1365,8 @@ unary(void)
 		A_.ty[n] = ct_basic(CT_ULONG);
 		return n;
 	}
-	if (accept("_Alignof") || accept("__alignof__")) {
+	if (accept("_Alignof") || accept("__alignof__") ||
+	    accept23("alignof")) {
 		uint32_t ty;
 		expect("(");
 		ty = type_name();
@@ -1402,15 +1591,23 @@ struct dspec {
 	uint32_t ty;
 	int stc;	/* 't' typedef, 's' static, 'e' extern */
 	int inl;
+	int cexpr;	/* constexpr */
+	uint32_t align;	/* alignas: 0 none */
 };
 
 static uint32_t struct_spec(int kind);
 static uint32_t enum_spec(void);
+static void align_spec(struct dspec *d);
+static int64_t bitint_width(void);
+static uint32_t typeof_spec(int unqual);
+static int starts_type(uint32_t i);
+static uint32_t expr(void);
 
 static void
 decl_spec(struct dspec *d)
 {
 	int nlong = 0, nsigned = 0, nunsigned = 0, base = -1, q = 0, any = 0;
+	int64_t bitn = 0;
 	uint32_t ty = NOTOK;
 
 	memset(d, 0, sizeof *d);
@@ -1418,6 +1615,21 @@ decl_spec(struct dspec *d)
 		skip_attribute();
 		if (accept("__extension__"))
 			continue;
+		if (accept("_Thread_local") || accept23("thread_local")) {
+			any = 1;
+			continue;
+		}
+		if (accept23("constexpr")) {
+			d->cexpr = 1;
+			q |= CQ_CONST;
+			any = 1;
+			continue;
+		}
+		if (accept("_Alignas") || accept23("alignas")) {
+			align_spec(d);
+			any = 1;
+			continue;
+		}
 		if (accept("typedef")) { d->stc = 't'; any = 1; continue; }
 		if (accept("extern")) { d->stc = 'e'; any = 1; continue; }
 		if (accept("static")) { d->stc = 's'; any = 1; continue; }
@@ -1445,10 +1657,31 @@ decl_spec(struct dspec *d)
 		if (accept("unsigned")) { nunsigned = 1; any = 1; continue; }
 		if (accept("_Complex"))
 			perr("_Complex is not supported");
-		if (base < 0 && ty == NOTOK) {
+		if (base < 0 && ty == NOTOK && bitn == 0) {
 			static const char *const bw[] = {"void", "char", "short",
 			    "int", "float", "double", "_Bool", NULL};
 			int k, hit = 0;
+			if (accept23("bool")) {
+				base = 6;
+				any = 1;
+				continue;
+			}
+			if (accept("_BitInt")) {
+				bitn = bitint_width();
+				any = 1;
+				continue;
+			}
+			if (accept("__typeof__") || accept("__typeof") ||
+			    accept23("typeof")) {
+				ty = typeof_spec(0);
+				any = 1;
+				continue;
+			}
+			if (accept23("typeof_unqual")) {
+				ty = typeof_spec(1);
+				any = 1;
+				continue;
+			}
 			for (k = 0; bw[k]; k++)
 				if (accept(bw[k])) {
 					base = k;
@@ -1491,6 +1724,12 @@ decl_spec(struct dspec *d)
 	}
 	if (!any)
 		perr("expected a declaration");
+	if (bitn > 0) {
+		if (!nunsigned && bitn < 2)
+			perr("_BitInt(%lld): a signed one needs 2 bits or more",
+			    (long long)bitn);
+		ty = ct_bitint((int)bitn, nunsigned);
+	}
 	if (ty == NOTOK) {
 		int k;
 		switch (base) {
@@ -1516,6 +1755,95 @@ decl_spec(struct dspec *d)
 
 static uint32_t declarator(uint32_t base, uint32_t *name, uint32_t *ntok,
     uint32_t *params, uint32_t *nparams);
+static uint32_t type_name(void);
+static int64_t need_const(const char *what);
+
+/* static_assert(expr [, "text"]); (C23 and _Static_assert): 1 where the
+ * next tokens are one, after checking it */
+static int
+static_assert_decl(void)
+{
+	uint32_t t0 = PS.i;
+	int64_t v;
+	char msg[160] = "";
+
+	if (!accept("_Static_assert") && !accept23("static_assert"))
+		return 0;
+	expect("(");
+	v = need_const("static_assert");
+	if (accept(",")) {
+		size_t len;
+		const char *m = cf_tok_text(U, PS.i, &len);
+		if (TK.kind[PS.i] != CK_STR)
+			perr("static_assert's message is a string");
+		snprintf(msg, sizeof msg, ": %.*s", (int)(len < 120 ? len : 120), m);
+		PS.i++;
+	}
+	expect(")");
+	expect(";");
+	if (!v) {
+		PS.i = t0;
+		perr("static_assert failed%s", msg);
+	}
+	return 1;
+}
+
+/* an integer constant expression in the place of "what" */
+static int64_t
+need_const(const char *what)
+{
+	uint32_t e = cond_expr();
+	int64_t v;
+
+	if (!const_int(e, &v))
+		perr("%s needs an integer constant", what);
+	return v;
+}
+
+/* _BitInt(: the width */
+static int64_t
+bitint_width(void)
+{
+	int64_t n;
+
+	U->c23 = 1;
+	expect("(");
+	n = need_const("_BitInt's width");
+	expect(")");
+	if (n < 1 || n > 64)
+		perr("_BitInt(%lld): a width from 1 to 64 is needed", (long long)n);
+	return n;
+}
+
+/* typeof(, typeof_unqual(: a type or an expression that is not evaluated */
+static uint32_t
+typeof_spec(int unqual)
+{
+	uint32_t t;
+
+	expect("(");
+	t = starts_type(PS.i) ? type_name() : A_.ty[expr()];
+	expect(")");
+	return unqual ? ct_unqual(t) : t;
+}
+
+/* alignas(: an alignment or a type, the strictest of several */
+static void
+align_spec(struct dspec *d)
+{
+	int64_t v;
+
+	expect("(");
+	if (starts_type(PS.i))
+		v = CT.align[type_name()];
+	else
+		v = need_const("alignas");
+	expect(")");
+	if (v < 0 || (v & (v - 1)))
+		perr("alignas(%lld): a power of two is needed", (long long)v);
+	if (v > d->align)
+		d->align = (uint32_t)v;
+}
 
 static uint32_t
 struct_spec(int kind)
@@ -1556,15 +1884,17 @@ struct_spec(int kind)
 	{
 		uint32_t fst = CT.nfl, nf = 0, maxsz = 0;
 		/* fields are appended contiguously: collect then copy */
-		uint32_t fn[256], ft[256], k;
+		uint32_t fn[256], ft[256], fa[256], k;
 		while (!accept("}")) {
 			struct dspec d;
+			if (static_assert_decl())
+				continue;
 			decl_spec(&d);
 			if (accept(";"))
 				continue;	/* an anonymous struct member */
 			do {
 				uint32_t name = 0, nt, fty;
-				if (is(":"))
+				if (is(":"))	/* an unnamed bit-field */
 					fty = d.ty;
 				else
 					fty = declarator(d.ty, &name, &nt, NULL, NULL);
@@ -1578,6 +1908,7 @@ struct_spec(int kind)
 					perr("too many fields");
 				fn[nf] = name;
 				ft[nf] = fty;
+				fa[nf] = d.align;
 				nf++;
 				skip_attribute();
 			} while (accept(","));
@@ -1588,6 +1919,8 @@ struct_spec(int kind)
 			uint32_t sz = CT.size[ft[k]], al = CT.align[ft[k]];
 			if (al == 0)
 				al = 1;
+			if (fa[k] > al)
+				al = fa[k];
 			if (kind == CT_STRUCT) {
 				off = (off + al - 1) / al * al;
 				ct_field(fn[k], ft[k], off);
@@ -1617,13 +1950,28 @@ struct_spec(int kind)
 static uint32_t
 enum_spec(void)
 {
-	uint32_t tag = 0, t, s;
+	uint32_t tag = 0, t, s, fixed = NOTOK;
 	int64_t v = 0;
 	int neg = 0;
 
+	skip_attribute();
 	if (TK.kind[PS.i] == CK_ID) {
 		tag = TK.sym[PS.i];
 		PS.i++;
+	}
+	skip_attribute();
+	/* C23's fixed underlying type: a colon and a type (a colon and a
+	 * width is the bit-field of a member with no name) */
+	if (is(":") && starts_type(PS.i + 1)) {
+		struct dspec d;
+		U->c23 = 1;
+		PS.i++;
+		decl_spec(&d);
+		fixed = ct_unqual(d.ty);
+		if (!ct_is_int(fixed) || CT.kind[fixed] == CT_ENUM ||
+		    CT.kind[fixed] == CT_BOOL || ct_is_bitint(fixed))
+			perr("an enumeration's underlying type is a standard "
+			    "integer type");
 	}
 	if (!accept("{")) {
 		s = tag ? sc_find(tag, 1) : NOTOK;
@@ -1632,11 +1980,19 @@ enum_spec(void)
 		t = ct_new(CT_ENUM);
 		CT.size[t] = CT.align[t] = 4;
 		CT.tag[t] = tag;
+		if (fixed != NOTOK) {
+			CT.base[t] = fixed;
+			CT.size[t] = CT.align[t] = CT.size[fixed];
+		}
 		return t;
 	}
 	t = ct_new(CT_ENUM);
 	CT.size[t] = CT.align[t] = 4;
 	CT.tag[t] = tag;
+	if (fixed != NOTOK) {
+		CT.base[t] = fixed;
+		CT.size[t] = CT.align[t] = CT.size[fixed];
+	}
 	if (tag) {
 		s = sym_new(tag, t, CS_TYPEDEF);
 		sc_bind(tag, s, 1);
@@ -1647,6 +2003,7 @@ enum_spec(void)
 			perr("expected an enumerator");
 		name = TK.sym[PS.i];
 		PS.i++;
+		skip_attribute();
 		if (accept("=")) {
 			uint32_t e = cond_expr();
 			if (!const_int(e, &v))
@@ -1654,7 +2011,11 @@ enum_spec(void)
 		}
 		if (v < 0)
 			neg = 1;
-		s = sym_new(name, ct_basic(CT_INT), CS_ENUMC);
+		if (fixed != NOTOK && int_norm(ct_to_ucas(fixed), v) != v)
+			perr("the enumerator's value %lld does not fit its "
+			    "underlying type", (long long)v);
+		s = sym_new(name, fixed != NOTOK ? t : ct_basic(CT_INT),
+		    CS_ENUMC);
 		U->S.val[s] = v;
 		sc_bind(name, s, 0);
 		v++;
@@ -1702,6 +2063,7 @@ param_list(uint32_t ret, uint32_t *params, uint32_t *nparams)
 			variadic = 1;
 			break;
 		}
+		skip_attribute();
 		if (!starts_type(PS.i))
 			perr("expected a parameter type (K&R definitions are not "
 			    "supported)");
@@ -1784,7 +2146,7 @@ declarator(uint32_t base, uint32_t *name, uint32_t *ntok, uint32_t *params,
 			else if (accept("restrict") || accept("__restrict") ||
 			    accept("__restrict__"))
 				q |= CQ_RESTRICT;
-			else if (is("__attribute__"))
+			else if (is("__attribute__") || at_attr(PS.i))
 				skip_attribute();
 			else
 				break;
@@ -1818,6 +2180,7 @@ declarator(uint32_t base, uint32_t *name, uint32_t *ntok, uint32_t *params,
 		if (ntok)
 			*ntok = PS.i;
 		PS.i++;
+		skip_attribute();
 	} else if (TK.kind[PS.i] == CK_ID && is_typedef_name(PS.i) && name &&
 	    !is_at(PS.i + 1, ",") && !is_at(PS.i + 1, ")")) {
 		/* a typedef name redeclared as an object */
@@ -1825,6 +2188,7 @@ declarator(uint32_t base, uint32_t *name, uint32_t *ntok, uint32_t *params,
 		if (ntok)
 			*ntok = PS.i;
 		PS.i++;
+		skip_attribute();
 	}
 	return suffixes(base, params, nparams);
 }
@@ -1851,6 +2215,16 @@ initializer(uint32_t ty)
 			e = mk_cast_node(e, ct_unqual(ty), A_.t0[e]);
 		return e;
 	}
+	if (is("}") && ct_is_scalar(ty)) {
+		/* C23's empty initialiser of a scalar: zero */
+		U->c23 = 1;
+		n = node(CA_NUM, t0);
+		A_.ty[n] = ct_basic(CT_INT);
+		PS.i++;
+		return ct_is_arith(ty) ? mk_cast_node(n, ct_unqual(ty), t0) : n;
+	}
+	if (is("}"))
+		U->c23 = 1;	/* C23's empty initialiser of an aggregate */
 	mk = lmark();
 	while (!accept("}")) {
 		uint32_t et = ty;
@@ -1920,6 +2294,8 @@ declaration(int top)
 	uint32_t t0 = PS.i, mk = lmark(), cnt, n;
 	struct dspec d;
 
+	if (static_assert_decl())
+		return node(CA_EMPTY, t0);
 	decl_spec(&d);
 	if (accept(";")) {
 		n = node(CA_EMPTY, t0);
@@ -1999,9 +2375,17 @@ declaration(int top)
 		dn = node(CA_DECL, dt0);
 		A_.iv[dn] = s;
 		U->S.decl[s] = dn;
+		if (!is("=") && d.cexpr)
+			perr("a constexpr object needs an initialiser");
 		if (accept("=")) {
 			uint32_t in = initializer(ty);
+			int64_t cv;
 			A_.a[dn] = in;
+			/* a constexpr integer is a constant expression */
+			if (d.cexpr && ct_is_int(ty) && const_int(in, &cv)) {
+				U->S.kind[s] = CS_ENUMC;
+				U->S.val[s] = int_norm(ct_to_ucas(ty), cv);
+			}
 			if (CT.kind[ty] == CT_ARRAY && CT.count[ty] < 0 &&
 			    A_.kind[A_.a[dn]] == CA_INIT) {
 				ty = ct_array(CT.base[ty], A_.b[A_.a[dn]]);
@@ -2034,8 +2418,10 @@ declaration(int top)
 static uint32_t
 stmt(void)
 {
-	uint32_t t0 = PS.i, n, a;
+	uint32_t t0, n, a;
 
+	skip_attribute();
+	t0 = PS.i;
 	if (TK.kind[PS.i] == CK_ID && is_at(PS.i + 1, ":") &&
 	    !is("default") && !starts_type(PS.i)) {
 		uint32_t lab = TK.sym[PS.i];
@@ -2182,6 +2568,8 @@ stmt(void)
 	}
 	if (is("asm") || is("__asm__") || is("__asm"))
 		perr("inline assembly is not supported");
+	if (is("_Static_assert") || kw23(PS.i, "static_assert"))
+		return declaration(0);
 	if (starts_type(PS.i) && !(is_typedef_name(PS.i) &&
 	    (is_at(PS.i + 1, "=") || is_at(PS.i + 1, "("))))
 		return declaration(0);

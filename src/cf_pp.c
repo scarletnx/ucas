@@ -15,7 +15,7 @@
  * outermost invocation in the main file, so that an AST node can be
  * mapped back to one contiguous piece of the original text (cf_span).
  *
- * Predefined: __STDC__, __STDC_VERSION__ 199901L, __STDC_HOSTED__,
+ * Predefined: __STDC__, __STDC_VERSION__ 202311L, __STDC_HOSTED__,
  * __x86_64__, __x86_64, __amd64__, __LP64__, _LP64, __CHAR_BIT__,
  * __SIZEOF_{INT,LONG,POINTER,...}__, __ORDER_LITTLE_ENDIAN__,
  * __BYTE_ORDER__, and the target's feature macros (__SSE2__, __AVX2__,
@@ -81,7 +81,7 @@ static struct {
 } PP;
 
 static uint32_t s_define, s_undef, s_include, s_if, s_ifdef, s_ifndef,
-    s_elif, s_else, s_endif, s_defined, s_va, s_pragma, s_line, s_error,
+    s_elif, s_elifdef, s_elifndef, s_embed, s_else, s_endif, s_defined, s_va, s_pragma, s_line, s_error,
     s_warning, s_hash, s_hashhash, s_lp, s_rp, s_comma, s_ellipsis;
 static uint32_t s_curline, s_curfile;
 
@@ -95,6 +95,9 @@ pp_syms(void)
 	s_ifdef = sym_cstr("ifdef");
 	s_ifndef = sym_cstr("ifndef");
 	s_elif = sym_cstr("elif");
+	s_elifdef = sym_cstr("elifdef");
+	s_elifndef = sym_cstr("elifndef");
+	s_embed = sym_cstr("embed");
 	s_else = sym_cstr("else");
 	s_endif = sym_cstr("endif");
 	s_defined = sym_cstr("defined");
@@ -277,8 +280,9 @@ lex_file(int file, struct ptbuf *out)
 		if (isalpha((unsigned char)*p) || *p == '_' ||
 		    ((*p == 'L' || *p == 'u' || *p == 'U') && (p[1] == '\'' ||
 		    p[1] == '"'))) {
-			if ((*p == 'L' || *p == 'u' || *p == 'U') &&
-			    (p[1] == '\'' || p[1] == '"'))
+			if (((*p == 'L' || *p == 'u' || *p == 'U') &&
+			    (p[1] == '\'' || p[1] == '"')) || (*p == 'u' &&
+			    p[1] == '8' && (p[2] == '\'' || p[2] == '"')))
 				goto quoted;
 			while (isalnum((unsigned char)*p) || *p == '_' || *p == '$')
 				p++;
@@ -293,15 +297,22 @@ lex_file(int file, struct ptbuf *out)
 				else if (isalnum((unsigned char)*p) || *p == '.' ||
 				    *p == '_')
 					p++;
-				else
+				else if (*p == '\'' && (isalnum((unsigned char)p[1])
+				    || p[1] == '_')) {
+					/* a digit separator (C23) */
+					p += 2;
+					PP.u->c23 = 1;
+				} else
 					break;
 			}
 			t.kind = CK_NUM;
 		} else if (*p == '\'' || *p == '"') {
 			char q;
 quoted:
-			if (*p != '\'' && *p != '"')
-				p++;
+			if (*p == 'u' && p[1] == '8')
+				PP.u->c23 = 1;
+			while (*p != '\'' && *p != '"')
+				p++;	/* L, u, U, u8 */
 			q = *p++;
 			while (*p && *p != q && *p != '\n') {
 				if (*p == '\\' && p[1])
@@ -799,6 +810,43 @@ cx_is(struct cexp *c, const char *s)
 	return 0;
 }
 
+int
+cf_num_text(const char *s, size_t len, char *buf, size_t sz)
+{
+	size_t i, n = 0;
+	int pre = len > 2 && s[0] == '0' && strchr("xXbB", s[1]) ? 2 : 0;
+
+	if (len + 1 > sz)
+		return 0;
+	for (i = 0; i < len; i++) {
+		if (s[i] != '\'') {
+			buf[n++] = s[i];
+			continue;
+		}
+		if (i == 0 || i + 1 == len || (int)i == pre ||
+		    !isxdigit((unsigned char)s[i - 1]) ||
+		    !isxdigit((unsigned char)s[i + 1]))
+			return 0;
+	}
+	buf[n] = 0;
+	return 1;
+}
+
+uint64_t
+cf_num_value(const char *buf, char **end)
+{
+	char *e;
+	uint64_t v;
+
+	if (buf[0] == '0' && (buf[1] == 'b' || buf[1] == 'B'))
+		v = strtoull(buf + 2, &e, 2);
+	else
+		v = strtoull(buf, &e, 0);
+	if (end)
+		*end = e;
+	return v;
+}
+
 /* the numeric value of a character constant, like the C frontend's lexer */
 static int
 cx_charval(const char *s, size_t len)
@@ -882,12 +930,13 @@ cx_prim(struct cexp *c)
 	}
 	t = &c->t[c->i++];
 	if (t->kind == CK_NUM) {
-		char buf[64], *p;
+		char buf[128], *p;
 		uint64_t x;
 		int u = 0;
 
-		snprintf(buf, sizeof buf, "%.*s", (int)t->len, ptext(t));
-		x = strtoull(buf, NULL, 0);
+		if (!cf_num_text(ptext(t), t->len, buf, sizeof buf) && !c->skip)
+			c->err = 1;
+		x = cf_num_value(buf, NULL);
 		for (p = buf; *p; p++)
 			if (*p == 'u' || *p == 'U')
 				u = 1;
@@ -907,8 +956,8 @@ cx_prim(struct cexp *c)
 			return cvs(q);
 		return cvs((int64_t)(int8_t)(uint8_t)q);
 	}
-	if (t->kind == CK_ID)
-		return cvs(0);	/* an identifier left after expansion */
+	if (t->kind == CK_ID)	/* an identifier left after expansion */
+		return cvs(t->len == 4 && !strncmp(ptext(t), "true", 4));
 	if (!c->skip)
 		c->err = 1;
 	return cvs(0);
@@ -1118,7 +1167,8 @@ static const struct {
 	{"inttypes.h", "#include <stdint.h>\n"},
 	{"stddef.h",
 	    "typedef unsigned long size_t; typedef long ptrdiff_t; "
-	    "typedef int wchar_t;\n#define NULL ((void*)0)\n"
+	    "typedef int wchar_t; typedef void *nullptr_t;\n"
+	    "#define NULL ((void*)0)\n"
 	    "#define offsetof(t, m) ((size_t)&((t*)0)->m)\n"},
 	{"stdbool.h",
 	    "#define bool _Bool\n#define true 1\n#define false 0\n"
@@ -1171,7 +1221,9 @@ static const struct {
 	    "float fmaf(float, float, float); double round(double); "
 	    "float roundf(float); double trunc(double); "
 	    "float truncf(float);\n"},
-	{"assert.h", "#define assert(e) ((void)0)\n"},
+	{"assert.h", "#define assert(e) ((void)0)\n"
+	    "#ifndef static_assert\n#define static_assert _Static_assert\n"
+	    "#endif\n"},
 	{"immintrin.h",
 	    "typedef struct __cf_m128i { long __v[2]; } __m128i; "
 	    "typedef struct __cf_m256i { long __v[4]; } __m256i; "
@@ -1304,6 +1356,169 @@ do_include(struct reader *r, struct ptok *t, uint32_t n, struct ptok *at,
 	}
 }
 
+#define EMBED_MAX 65536	/* bytes of one #embed */
+
+/* a file's bytes, whatever they are (read_file's text stops at a NUL) */
+static char *
+read_bytes(const char *path, size_t *n)
+{
+	FILE *fp = fopen(path, "rb");
+	char *p = NULL;
+	size_t cap = 0, got;
+
+	*n = 0;
+	if (fp == NULL)
+		return NULL;
+	do {
+		if (*n + 4096 > cap) {
+			cap = cap ? cap * 2 : 8192;
+			p = xrealloc(p, cap);
+		}
+		got = fread(p + *n, 1, 4096, fp);
+		*n += got;
+	} while (got == 4096);
+	fclose(fp);
+	return p;
+}
+
+/* t[i] is "(": its closing parenthesis' place, or n */
+static uint32_t
+embed_close(const struct ptok *t, uint32_t i, uint32_t n)
+{
+	int depth = 0;
+
+	for (; i < n; i++) {
+		if (t[i].sym == s_lp)
+			depth++;
+		else if (t[i].sym == s_rp && --depth == 0)
+			return i;
+	}
+	return n;
+}
+
+/*
+ * #embed "file" with C23's parameters: limit(N), prefix(...), suffix(...)
+ * and if_empty(...).  The file is read beside the including one, its bytes
+ * as integer constants with commas between them.
+ */
+static void
+do_embed(struct ptok *t, uint32_t n, struct ptok *at, struct ptbuf *out)
+{
+	char name[256], path[1024], num[16], *bytes;
+	const char *cur = PP.u->fname[at->file], *sl = strrchr(cur, '/'), *s;
+	struct ptok *pre = NULL, *suf = NULL, *emp = NULL, one;
+	uint32_t npre = 0, nsuf = 0, nemp = 0, i, e;
+	size_t len, k;
+	int64_t lim = -1;
+
+	PP.u->c23 = 1;
+	if (n == 0) {
+		pp_error(at, "#embed needs a file%s", "");
+		return;
+	}
+	s = ptext(&t[0]);
+	if (t[0].kind == CK_STR) {
+		snprintf(name, sizeof name, "%.*s", (int)t[0].len - 2, s + 1);
+		i = 1;
+	} else {
+		pp_error(at, "#embed: a \"file\"%s", "");
+		return;
+	}
+	while (i < n) {
+		const char *w = ptext(&t[i]);
+		size_t wl = t[i].len;
+		/* the __limit__ spelling is the same parameter */
+		if (wl > 4 && !strncmp(w, "__", 2) && !strncmp(w + wl - 2, "__", 2)) {
+			w += 2;
+			wl -= 4;
+		}
+		if (t[i].kind != CK_ID || i + 1 >= n || t[i + 1].sym != s_lp ||
+		    (e = embed_close(t, i + 1, n)) == n) {
+			pp_error(at, "#embed: unknown parameter '%s'",
+			    sym_str(t[i].sym));
+			return;
+		}
+		if (wl == 5 && !strncmp(w, "limit", 5)) {
+			struct cexp c;
+			struct cv v;
+			struct ptbuf in = {0}, ex = {0};
+			uint32_t q;
+			for (q = i + 2; q < e; q++)
+				pt_push(&in, &t[q]);
+			expand_into(&in, &ex, 0, 0, 0);
+			c.t = ex.t;
+			c.n = ex.n;
+			c.i = 0;
+			c.err = 0;
+			c.skip = 0;
+			v = cx_cond(&c);
+			if (c.err || c.i != c.n || v.v < 0)
+				pp_error(at, "#embed: limit needs an integer "
+				    "constant, 0 or more%s", "");
+			lim = v.v;
+			free(in.t);
+			free(ex.t);
+		} else if (wl == 6 && !strncmp(w, "prefix", 6)) {
+			pre = &t[i + 2];
+			npre = e - i - 2;
+		} else if (wl == 6 && !strncmp(w, "suffix", 6)) {
+			suf = &t[i + 2];
+			nsuf = e - i - 2;
+		} else if (wl == 8 && !strncmp(w, "if_empty", 8)) {
+			emp = &t[i + 2];
+			nemp = e - i - 2;
+		} else {
+			pp_error(at, "#embed: unknown parameter '%s'",
+			    sym_str(t[i].sym));
+			return;
+		}
+		i = e + 1;
+		if (PP.err)
+			return;
+	}
+	if (name[0] == '/' || sl == NULL)
+		snprintf(path, sizeof path, "%s", name);
+	else
+		snprintf(path, sizeof path, "%.*s/%s", (int)(sl - cur), cur, name);
+	bytes = read_bytes(path, &len);
+	if (bytes == NULL) {
+		pp_error(at, "#embed \"%s\": cannot read it", name);
+		return;
+	}
+	if (lim >= 0 && (uint64_t)lim < len)
+		len = (size_t)lim;
+	if (len > EMBED_MAX) {
+		char m[200];
+		snprintf(m, sizeof m, "%s\": %zu bytes, more than %d", name, len,
+		    EMBED_MAX);
+		pp_error(at, "#embed \"%s", m);
+		free(bytes);
+		return;
+	}
+	if (len == 0) {
+		for (i = 0; i < nemp; i++)
+			pt_push(out, &emp[i]);
+		free(bytes);
+		return;
+	}
+	for (i = 0; i < npre; i++)
+		pt_push(out, &pre[i]);
+	for (k = 0; k < len; k++) {
+		int m = snprintf(num, sizeof num, "%d", (unsigned char)bytes[k]);
+		if (k) {
+			one = synth(",", 1, at);
+			one.fl &= ~CTF_BOL;
+			pt_push(out, &one);
+		}
+		one = synth(num, (size_t)m, at);
+		one.fl &= ~CTF_BOL;
+		pt_push(out, &one);
+	}
+	for (i = 0; i < nsuf; i++)
+		pt_push(out, &suf[i]);
+	free(bytes);
+}
+
 static void
 do_define(struct ptok *t, uint32_t n, struct ptok *at)
 {
@@ -1387,9 +1602,11 @@ process(struct reader *r, struct ptbuf *out)
 				live[nc] = (uint8_t)v;
 				taken[nc] = (uint8_t)(v || !on);
 				nc++;
-			} else if (d == s_elif) {
+			} else if (d == s_elif || d == s_elifdef ||
+			    d == s_elifndef) {
 				if (nc == 0) {
-					pp_error(&at, "#elif without #if%s", "");
+					pp_error(&at, "#%s without #if",
+					    sym_str(d));
 					return;
 				}
 				nc--;
@@ -1398,9 +1615,19 @@ process(struct reader *r, struct ptbuf *out)
 					on &= live[k];
 				if (taken[nc] || !on)
 					live[nc] = 0;
-				else {
+				else if (d == s_elif) {
 					live[nc] = (uint8_t)pp_ifexpr(&f->t[s0 + 1],
 					    e - s0 - 1, &at);
+					taken[nc] = live[nc];
+				} else {
+					PP.u->c23 = 1;
+					live[nc] = 0;
+					if (e == s0 + 1)
+						pp_error(&at, "#%s needs a name",
+						    sym_str(d));
+					else
+						live[nc] = (mac_find(f->t[s0 + 1].sym) !=
+						    NULL) == (d == s_elifdef);
 					taken[nc] = live[nc];
 				}
 				nc++;
@@ -1426,6 +1653,8 @@ process(struct reader *r, struct ptbuf *out)
 					m->undef = 1;
 			} else if (d == s_include)
 				do_include(r, &f->t[s0 + 1], e - s0 - 1, &at, out);
+			else if (d == s_embed)
+				do_embed(&f->t[s0 + 1], e - s0 - 1, &at, out);
 			else if (d == s_error)
 				pp_error(&at, "#error%s", "");
 			else if (d == s_pragma || d == s_line || d == s_warning ||
@@ -1488,7 +1717,7 @@ cf_preprocess(struct cf_unit *u, const char *path, const char *text,
 	uint32_t i;
 	int k;
 	static const char *const pre[][2] = {
-		{"__STDC__", "1"}, {"__STDC_VERSION__", "199901L"},
+		{"__STDC__", "1"}, {"__STDC_VERSION__", "202311L"},
 		{"__STDC_HOSTED__", "1"}, {"__x86_64__", "1"}, {"__x86_64", "1"},
 		{"__amd64__", "1"}, {"__LP64__", "1"}, {"_LP64", "1"},
 		{"__CHAR_BIT__", "8"}, {"__SIZEOF_INT__", "4"},

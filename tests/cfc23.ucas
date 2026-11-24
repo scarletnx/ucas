@@ -1,0 +1,57 @@
+# cfront: the C23 it takes (README "C frontend").  The kernels are in
+# tests/cfront/c23.c.
+c lower cfront/c23.c
+# what it refuses, each with the line and the value given
+c lower nofile
+```c
+#include <stdint.h>
+static_assert(sizeof(int) == 8, "ints are 4 bytes");
+int f(int x) { return x; }
+```
+c lower nofile
+```c
+int f(unsigned _BitInt(65) x) { return 0; }
+```
+c lower nofile
+```c
+int f(_BitInt(1) x) { return 0; }
+```
+c lower nofile
+```c
+int f(int x) { return x + 0x'1000; }
+```
+c lower nofile
+```c
+enum level : unsigned char { LOW = 1, TOP = 256 };
+int f(int x) { return x; }
+```
+c lower nofile
+```c
+struct s { alignas(3) char a; };
+int f(int x) { return x; }
+```
+c lower nofile
+```c
+constexpr int K;
+int f(int x) { return x; }
+```
+c lower nofile
+```c
+static const unsigned char t[] = {
+#embed "no_such_file.bin"
+};
+int f(int x) { return t[0]; }
+```
+c lower nofile
+```c
+static const unsigned char t[] = {
+#embed "embed.txt" gnu::offset(1)
+};
+int f(int x) { return t[0]; }
+```
+c lower nofile
+```c
+int f(int x) { return x +
+#elifdef X
+1; }
+```

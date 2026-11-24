@@ -7773,7 +7773,7 @@ are fine); no Ed448; rho only for orders up to 64 bits; the `ec.h`
 
 ## C frontend
 
-`c optimize` takes C99 (a file or a ```` ```c ```` block) and writes the
+`c optimize` takes C99 or C23 (a file or a ```` ```c ```` block) and writes the
 same file with the functions it could prove faster forms for rewritten,
 for one x86-64 target.  Everything else stays byte for byte.
 
@@ -7863,10 +7863,35 @@ through the C frontend as `c optimize` with its `budget`, `ranges` and
 `nofile` (the result is a `c_optimize` one; a note points to
 `c_optimize` for a target and `check`).
 
+**C23.**  The frontend takes the C23 a program uses as well as C99
+(`tests/cfront/c23.c`); `__STDC_VERSION__` is 202311L.
+
+- Literals: `0b1111'0000`, digit separators, `_BitInt` constants (`12wb`,
+  `12uwb`: the narrowest width that holds them) and `u8'c'`, an unsigned
+  character.
+- Words that are keywords now, where the program does not declare them:
+  `bool`, `true`, `false`, `nullptr`, `static_assert` (and
+  `_Static_assert`), `alignas`, `alignof`, `thread_local`, `typeof`,
+  `typeof_unqual`, `constexpr` (an integer one is a constant expression).
+- `[[...]]` attributes, accepted and ignored, on declarations, parameters,
+  enumerators and statements.
+- `_BitInt(N)` and `unsigned _BitInt(N)` up to 64 bits: never promoted, a
+  standard type of the same width ranks above it.  Lowered exactly; a value
+  of a width other than 8, 16, 32 or 64 is proved like any other but is not
+  rewritten, as the C written would need the type.
+- `enum E : T` with a fixed underlying type, `{}` as an initialiser.
+- `#elifdef`, `#elifndef`, and `#embed "file"` with `limit`, `prefix`,
+  `suffix` and `if_empty` (up to 64 KiB; the file is read beside the one that
+  names it).
+
+Not taken: `auto` type inference, `<stdbit.h>` and the other new headers,
+`_Decimal`, and `#embed <...>`.  `check` and `bench` ask the host compiler
+for C23 when the text uses it (`-std=c23`, else `-std=c2x`).
+
 **Pipeline** (`src/cfront.h`, `cf_*.c`):
 
 1. Preprocess (macros, `#if`, the user's includes; system headers are
-   built-in declarations) and parse C99 with LP64 types.
+   built-in declarations) and parse C99, and C23 (below), with LP64 types.
 2. Lower each function to one node value of its parameters by a
    predicated symbolic execution: promotions and the usual conversions
    explicit, unsigned wrap, signed overflow, division by zero,

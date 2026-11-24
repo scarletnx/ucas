@@ -599,6 +599,39 @@ strip_pfx(struct sbuf *s, const char *pfx)
 	*s = o;
 }
 
+/*
+ * The host compiler's flags for the unit's text: C99, and for a text that
+ * uses C23 the C23 that the compiler names (-std=c23, or -std=c2x before
+ * it had the name; with neither the compile fails, saying so).  std is for
+ * the program's own text, stdg for the harness.
+ */
+static void
+host_std(const struct cf_unit *u, char *std, char *stdg)
+{
+	static int c23 = -1;	/* 0 the name is c23, 1 c2x, 2 neither */
+	struct sbuf o = {0};
+	char *a[] = {"cc", "-std=c23", "-x", "c", "-fsyntax-only", "/dev/null",
+	    NULL};
+
+	strcpy(std, "-std=c99");
+	strcpy(stdg, "-std=gnu99");
+	if (!u->c23)
+		return;
+	if (c23 < 0) {
+		c23 = 2;
+		if (run(a, &o) == 0)
+			c23 = 0;
+		else {
+			a[1] = "-std=c2x";
+			if (run(a, &o) == 0)
+				c23 = 1;
+		}
+		free(o.p);
+	}
+	strcpy(std, c23 == 1 ? "-std=c2x" : "-std=c23");
+	strcpy(stdg, c23 == 1 ? "-std=gnu2x" : "-std=gnu23");
+}
+
 static int
 check(struct cf_unit *u, const char *orig, const char *opt,
     const struct cf_opts *o, struct sbuf *rep, int bench, struct cf_result *r)
@@ -611,11 +644,13 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 	struct sbuf b = {0}, out = {0}, note = {0}, bout = {0};
 	const char *march;
 	char mflag[80];
+	char std[16], stdg[16];
 
 	if (!cf_have_cc()) {
 		sb_puts(rep, "  check: no host cc\n");
 		return -1;
 	}
+	host_std(u, std, stdg);
 	if (mkdtemp(dir) == NULL)
 		return -1;
 	march = host_march(o->t, &note);
@@ -656,27 +691,27 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 	harness(&b, tf, ntf, bench, 20000);
 	write_file(p_h, b.p);
 	{
-		char *a0[] = {"cc", "-std=c99", "-O2", mflag, "-w",
+		char *a0[] = {"cc", std, "-O2", mflag, "-w",
 		    "-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero,"
 		    "float-cast-overflow",
 		    "-fsanitize-minimal-runtime", "-c", p_u0, "-o", o0, NULL};
-		char *a1[] = {"cc", "-std=c99", "-O2", mflag, "-Wall", "-Wextra",
+		char *a1[] = {"cc", std, "-O2", mflag, "-Wall", "-Wextra",
 		    "-Wno-unused-function", "-Wno-unused-parameter", "-c", p_u1,
 		    "-o", o1, NULL};
-		char *ah[] = {"cc", "-std=gnu99", "-O1", mflag, "-w", "-c", p_h,
+		char *ah[] = {"cc", stdg, "-O1", mflag, "-w", "-c", p_h,
 		    "-o", oh, NULL};
 		char *al[] = {"cc", "-o", p_bin, oh, o0, o1, NULL};
 		char *ax[] = {p_bin, NULL};
 		/* bench: the original without the UBSan checks (they would
 		 * slow it and keep clang from vectorising it) */
 		char o0n[310], p_bin2[310];
-		char *a0n[] = {"cc", "-std=c99", "-O2", mflag, "-w", "-c", p_u0,
+		char *a0n[] = {"cc", std, "-O2", mflag, "-w", "-c", p_u0,
 		    "-o", o0n, NULL};
 		char *al2[] = {"cc", "-o", p_bin2, oh, o0n, o1, NULL};
 		char *ax2[] = {p_bin2, NULL};
-		char *as0[] = {"cc", "-std=c99", "-O2", mflag, "-w", "-S", p_u0,
+		char *as0[] = {"cc", std, "-O2", mflag, "-w", "-S", p_u0,
 		    "-o", s0, NULL};
-		char *as1[] = {"cc", "-std=c99", "-O2", mflag, "-w", "-S", p_u1,
+		char *as1[] = {"cc", std, "-O2", mflag, "-w", "-S", p_u1,
 		    "-o", s1, NULL};
 		if (run(a0, &out) != 0) {
 			sb_printf(rep, "  check: the original does not compile:\n%.600s",
@@ -696,7 +731,7 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 			/* the target's own paths are #if'ed out here: compile
 			 * them for the target at least (they cannot run) */
 			char tm[80];
-			char *ac[] = {"cc", "-std=c99", "-O2", tm, "-Wall", "-Wextra",
+			char *ac[] = {"cc", std, "-O2", tm, "-Wall", "-Wextra",
 			    "-Wno-unused-function", "-Wno-unused-parameter",
 			    "-fsyntax-only", p_u1, NULL};
 			struct sbuf co = {0};

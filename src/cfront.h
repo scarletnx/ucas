@@ -287,6 +287,8 @@ enum {
 	CT_INT, CT_UINT, CT_LONG, CT_ULONG, CT_LLONG, CT_ULLONG,
 	CT_FLOAT, CT_DOUBLE, CT_LDOUBLE,
 	CT_PTR, CT_ARRAY, CT_FUNC, CT_STRUCT, CT_UNION, CT_ENUM,
+	/* C23's _BitInt(N) and unsigned _BitInt(N): N in count */
+	CT_SBITINT, CT_UBITINT,
 	CT_VEC,			/* __m128i ... (opaque, by size) */
 	CT_NKIND
 };
@@ -312,6 +314,7 @@ uint32_t ct_qual(uint32_t t, int q);
 uint32_t ct_unqual(uint32_t t);
 uint32_t ct_ptr(uint32_t base);
 uint32_t ct_array(uint32_t base, int64_t n);
+uint32_t ct_bitint(int n, int uns);	/* _BitInt(n), 1..64 */
 int ct_is_int(uint32_t t);	/* integer types incl. bool, char, enum */
 int ct_is_arith(uint32_t t);
 int ct_is_scalar(uint32_t t);
@@ -386,6 +389,8 @@ struct cf_unit {
 	uint32_t *fns;			/* CA_FUNC nodes */
 	int nfn;
 	struct sbuf includes;		/* system #include lines, in order */
+	int c23;			/* the text uses C23: the host cc is asked
+					 * for it (cf_check.c) */
 	struct sbuf err;
 	/* macro names defined anywhere (an emitted identifier must not
 	 * collide with one) */
@@ -405,6 +410,10 @@ int cf_preprocess(struct cf_unit *u, const char *path, const char *text,
     const struct cf_target *t);
 const char *cf_tok_text(const struct cf_unit *u, uint32_t i, size_t *n);
 int cf_is_macro(const struct cf_unit *u, uint32_t sym);
+/* a number's text without C23's digit separators (0: too long, or one is
+ * not between two digits), and its integer value up to *end */
+int cf_num_text(const char *s, size_t len, char *buf, size_t sz);
+uint64_t cf_num_value(const char *buf, char **end);
 
 /* cf_parse.c: the parser and the type checker */
 int cf_parse(struct cf_unit *u);
