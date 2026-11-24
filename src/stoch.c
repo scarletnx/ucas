@@ -505,7 +505,7 @@ ppoly_norm(struct ppoly *p)
 	int i, n = 0;
 
 	if (p->n > 1)
-		qsort(p->m, (size_t)p->n, sizeof *p->m, pmono_cmp);
+		xsort(p->m, (size_t)p->n, sizeof *p->m, pmono_cmp);
 	for (i = 0; i < p->n; i++)
 		if (n && !memcmp(p->m[n - 1].e, p->m[i].e, PI_MAXV))
 			p->m[n - 1].c = (p->m[n - 1].c + p->m[i].c) & PI.mask;
@@ -1344,7 +1344,7 @@ warp_trips(const struct func *f, nid trips, nid lo, nid hi, int warp,
 			free(s.t);
 			return 0;
 		}
-		qsort(s.t, s.n, sizeof *s.t, cmp_dbl);
+		xsort(s.t, s.n, sizeof *s.t, cmp_dbl);
 		*emax = 0;
 		for (i = 0; i < s.n; i = j) {
 			double pt, fa;

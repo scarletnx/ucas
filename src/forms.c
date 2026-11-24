@@ -1156,7 +1156,7 @@ static void
 p_sort(struct poly *p)
 {
 	if (p->n > 1)
-		qsort(p->t, p->n, sizeof *p->t, t_cmp);
+		xsort(p->t, p->n, sizeof *p->t, t_cmp);
 }
 
 static int

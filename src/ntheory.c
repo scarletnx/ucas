@@ -7,6 +7,7 @@
  * the Chinese remainder theorem.
  */
 #include "ring.h"
+#include "ucas.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -458,7 +459,7 @@ nt_sqrt_all(u64 a, u64 n, u64 *roots, int max)
 		if (na == 0)
 			break;
 	}
-	qsort(acc, (size_t)na, sizeof(u64), cmpu64);
+	xsort(acc, (size_t)na, sizeof(u64), cmpu64);
 	memcpy(roots, acc, sizeof(u64) * (size_t)na);
 done:
 	free(acc);

@@ -39,7 +39,7 @@ lperm: the lane map lane & 0x1c | 2 over 32 lanes
 lperm: the lane map 8(lane & 3) + (lane >> 2) over 32 lanes
   map: 0 8 16 24 1 9 17 25 2 10 18 26 3 11 19 27 4 12 20 28 5 13 21 29 6 14 22 30 7 15 23 31
   affine: lane -> A lane xor 0, A's columns (lane bit j goes to) 8 16 1 2 4; rank(I xor A) = 4
-  stages: 4 stages: lane xor 3 where popcount(lane & 12) is odd (sg_shuffle_xor); lane xor 29 where popcount(lane & 20) is odd (sg_shuffle_xor); lane xor 5 where popcount(lane & 29) is odd (sg_shuffle_xor); lane xor 10 where popcount(lane & 27) is odd (sg_shuffle_xor), cost 28 (not the cheapest)
+  stages: 4 stages: lane xor 3 where popcount(lane & 3) is odd (sg_shuffle_xor); lane xor 6 where popcount(lane & 6) is odd (sg_shuffle_xor); lane xor 9 where popcount(lane & 9) is odd (sg_shuffle_xor); lane xor 18 where popcount(lane & 18) is odd (sg_shuffle_xor), cost 28 (not the cheapest)
   one shuffle by the index: cost 9
   chosen under rdna2: one shuffle by an index (sg_shuffle), cost 9
 > lperm (lane | 1) xor ((lane & 4) >> 1) model rdna2

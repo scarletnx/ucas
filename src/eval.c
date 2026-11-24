@@ -2166,7 +2166,7 @@ where_set(nid w, int j, int64_t lo, int64_t hi, int64_t *v)
 	n = or_keys(w, j, v, 0, DI_MAXSET);
 	if (n <= 0)
 		return 0;
-	qsort(v, (size_t)n, sizeof *v, cmp_i64);
+	xsort(v, (size_t)n, sizeof *v, cmp_i64);
 	for (i = m = 0; i < n; i++)
 		if (v[i] >= lo && v[i] <= hi && (m == 0 || v[m - 1] != v[i]))
 			v[m++] = v[i];

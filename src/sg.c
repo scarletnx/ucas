@@ -1140,7 +1140,7 @@ order_stat(const struct func *f, nid e, nid v, nid lanep, int W, int *k)
 			}
 			if (und)
 				continue;
-			qsort(s, (size_t)W, sizeof *s, cmp_lanev);
+			xsort(s, (size_t)W, sizeof *s, cmp_lanev);
 			r = COLI(&p, loc[0])[i];
 			any = 1;
 			for (l = 0; l < W; l++)

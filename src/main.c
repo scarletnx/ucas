@@ -80,6 +80,11 @@ main(int argc, char **argv)
 			printf("sat selftest: %s\n", bad ? "FAILED" : "ok");
 			return bad != 0;
 		}
+		if (!strcmp(argv[i], "--sort-selftest")) {
+			int bad = xsort_selftest();
+			printf("sort selftest: %s\n", bad ? "FAILED" : "ok");
+			return bad != 0;
+		}
 		if (!strcmp(argv[i], "--mcp"))
 			return mcp_main(argc, argv, i);
 		if (!strcmp(argv[i], "--json") ||

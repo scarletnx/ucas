@@ -164,6 +164,84 @@ xrealloc(void *p, size_t n)
 	return realloc(p, n ? n : 1);
 }
 
+void
+xsort(void *base, size_t n, size_t size,
+    int (*cmp)(const void *, const void *))
+{
+	char *a = base, *b, *src, *dst, *t;
+	size_t w, i, l, r, m, e, k;
+
+	if (n < 2)
+		return;
+	b = xmalloc(n * size);
+	src = a;
+	dst = b;
+	/* runs of w merged two by two; the left one first on a tie */
+	for (w = 1; w < n; w *= 2) {
+		for (i = 0; i < n; i = e) {
+			m = n - i < w ? n : i + w;
+			e = n - i < 2 * w ? n : i + 2 * w;
+			l = i;
+			r = m;
+			for (k = i; k < e; k++)
+				if (l < m && (r == e || cmp(src + l * size,
+				    src + r * size) <= 0))
+					memcpy(dst + k * size, src + l++ * size, size);
+				else
+					memcpy(dst + k * size, src + r++ * size, size);
+		}
+		t = src;
+		src = dst;
+		dst = t;
+	}
+	if (src != a)
+		memcpy(a, src, n * size);
+	free(b);
+}
+
+struct st_e {
+	int key, idx;
+};
+
+static int
+st_cmp(const void *a, const void *b)
+{
+	const struct st_e *x = a, *y = b;
+
+	return (x->key > y->key) - (x->key < y->key);
+}
+
+/* xsort on every length up to 300, of few keys and of many: the keys in
+ * order, equal keys in the order they came, nothing lost */
+int
+xsort_selftest(void)
+{
+	static struct st_e v[300];
+	int n, i, kinds, bad = 0;
+
+	for (kinds = 1; kinds <= 301; kinds += 25)
+		for (n = 0; n <= 300; n++) {
+			long sum = 0, got = 0;
+			for (i = 0; i < n; i++) {
+				v[i].key = (int)(((unsigned)i * 2654435761u >> 7) %
+				    (unsigned)kinds);
+				v[i].idx = i;
+				sum += i;
+			}
+			xsort(v, (size_t)n, sizeof v[0], st_cmp);
+			for (i = 0; i < n; i++) {
+				got += v[i].idx;
+				if (i && (v[i - 1].key > v[i].key ||
+				    (v[i - 1].key == v[i].key &&
+				    v[i - 1].idx > v[i].idx)))
+					bad++;
+			}
+			if (got != sum)
+				bad++;
+		}
+	return bad;
+}
+
 uint32_t
 newcap(uint32_t cap, uint32_t need)
 {

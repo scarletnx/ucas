@@ -1540,7 +1540,7 @@ fuse_roots_cost(const struct model *m, const nid *roots, int nroots)
 	}
 	for (i = 0; i < cnt; i++)
 		mark[v[i]] = 0;
-	qsort(v, (size_t)cnt, sizeof *v, cmp_nid);
+	xsort(v, (size_t)cnt, sizeof *v, cmp_nid);
 	c = cover_list(m, v, cnt, roots, nroots, 1, &G);
 	fg_free(&G);
 	free(st);

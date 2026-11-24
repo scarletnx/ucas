@@ -4091,7 +4091,7 @@ sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 		if (!fx_accept(&rw[i], o) && rw[i].kind != FXR_DIVNOTE &&
 		    rw[i].kind != FXR_TABLE && rw[i].refine && rw[i].gain > 0 && rw[i].node <= root)
 			cand[nc++] = &rw[i];
-	qsort(cand, (size_t)nc, sizeof *cand, sink_gain_cmp);
+	xsort(cand, (size_t)nc, sizeof *cand, sink_gain_cmp);
 	for (i = 0; i < nc; i++) {
 		const struct fxrw *x = cand[i], *old = s.at[x->node];
 		double olde = s.E[x->node];

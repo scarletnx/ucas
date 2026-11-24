@@ -187,7 +187,7 @@ cp_norm(struct cp *p)
 {
 	int i, k = 0;
 
-	qsort(p->t, (size_t)p->n, sizeof *p->t, cmcmp);
+	xsort(p->t, (size_t)p->n, sizeof *p->t, cmcmp);
 	for (i = 0; i < p->n; i++) {
 		if (k && !strcmp(p->t[k - 1].m, p->t[i].m)) {
 			p->t[k - 1].c = ovadd(p->t[k - 1].c, p->t[i].c);
@@ -250,7 +250,7 @@ mono_mul(const char *a, const char *b)
 			break;
 		*s++ = 0;
 	}
-	qsort(parts, (size_t)n, sizeof *parts, scmp);
+	xsort(parts, (size_t)n, sizeof *parts, scmp);
 	for (i = 0; i < n; i++) {
 		if (i)
 			sb_putc(&o, '\1');
@@ -441,7 +441,7 @@ cl_norm(struct cl *l)
 {
 	int i, k = 0;
 
-	qsort(l->t, (size_t)l->n, sizeof *l->t, cecmp);
+	xsort(l->t, (size_t)l->n, sizeof *l->t, cecmp);
 	for (i = 0; i < l->n; i++) {
 		if (k && !strcmp(l->t[k - 1].a, l->t[i].a)) {
 			cp_addto(&l->t[k - 1].c, &l->t[i].c, 1);

@@ -167,6 +167,7 @@ TESTPRE=	e="UCAS_NO_TIMES=1 UCAS_SPIRV_CROSS=none"; \
 # `make accept` rewrites the .out files from the current output.
 test: ${PROG}
 	@${.OBJDIR}/${PROG} --sat-selftest || exit 1
+	@${.OBJDIR}/${PROG} --sort-selftest || exit 1
 	@fail=0; for t in ${TESTS}; do \
 		n=$${t%.ucas}; ${TESTPRE:S,DIR,tests,}; \
 		(cd ${.CURDIR}/tests && env $$e ${.OBJDIR}/${PROG} $$t) > $$n.got 2>&1; \

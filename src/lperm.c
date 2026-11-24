@@ -272,7 +272,7 @@ dfs(struct srch *s, const uint8_t *M, double sofar)
 			cs[nc++].p = xp + pred_price(s->m, mk);
 		}
 	}
-	qsort(cs, (size_t)nc, sizeof *cs, cmp_cand);
+	xsort(cs, (size_t)nc, sizeof *cs, cmp_cand);
 	for (i = 0; i < nc && i < BEAM; i++) {
 		unsigned u = apply(M, n, cs[i].k);
 		if (sofar + cs[i].p >= s->bp)

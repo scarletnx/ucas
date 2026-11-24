@@ -1115,7 +1115,7 @@ cls_meet(struct cls *a, const struct cls *b)
 		u128 l = (u128)(a->m / g) * b->m;
 		m = l >> 64 ? 0 : (u64)l;
 	}
-	qsort(c.r, (size_t)c.n, sizeof(u64), cmpu);
+	xsort(c.r, (size_t)c.n, sizeof(u64), cmpu);
 	cls_free(a);
 	a->r = c.r;
 	a->n = c.n;

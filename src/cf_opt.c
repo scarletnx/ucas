@@ -794,7 +794,7 @@ reach(nid root, nid **out)
 			st[sp++] = N.c[x];
 	}
 	/* in id order */
-	qsort(got, nn, sizeof *got, cmp_nid_asc);
+	xsort(got, nn, sizeof *got, cmp_nid_asc);
 	r = got;
 	n = nn;
 	(void)k;
@@ -1625,7 +1625,7 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 		if (R.o->trace)
 			printf("  trace: %s round %d: %d candidates, cost %.1f\n",
 			    R.fname, round, cs.n, ccur);
-		qsort(cs.c, (size_t)cs.n, sizeof *cs.c, cmp_cand);
+		xsort(cs.c, (size_t)cs.n, sizeof *cs.c, cmp_cand);
 		for (k = 0; k < cs.n && !out_of_time(); k++) {
 			struct proof pf;
 			if (cs.c[k].cost >= ccur - 0.01 || (cs.c[k].sem == cur &&
@@ -3182,7 +3182,7 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 	}
 	/* the output: the main file with the replacements, helpers before
 	 * the first rewritten function */
-	qsort(reps, (size_t)nreps, sizeof *reps, cmp_repl);
+	xsort(reps, (size_t)nreps, sizeof *reps, cmp_repl);
 	sb_printf(&r->out, "/* optimised by ucas cfront for %s (%s); every "
 	    "rewrite proved, see the report */\n", o->t->name, o->t->march);
 	if (em.helpers.n || nreps) {

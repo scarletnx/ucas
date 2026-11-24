@@ -3,8 +3,8 @@ mma m16n8k16: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k
   each of D's 128 elements is a sum of 16 products of f16 and its C
    1. 121       output-stationary; A: 12 xor shuffles; B: 16 shuffles; 32 fdot2; k order by lane, depth 16
    2. 132.25    output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major); 32 fdot2, depth 16
-   3. 137       blocked (a lane: 2 rows x 8 columns x 4 of k); B: 16 shuffles; partial sums: 12 xor shuffles; 32 fdot2, depth 6
-   4. 137       A-stationary; B: 16 shuffles; partial sums: 12 xor shuffles; 32 fdot2, depth 6
+   3. 137       A-stationary; B: 16 shuffles; partial sums: 12 xor shuffles; 32 fdot2, depth 6
+   4. 137       blocked (a lane: 2 rows x 8 columns x 4 of k); B: 16 shuffles; partial sums: 12 xor shuffles; 32 fdot2, depth 6
    5. 153.25    output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 8 loads from shared memory (register-major), 8 xor shuffles; 32 fdot2, depth 16
    6. 157.25    output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 8 xor shuffles, 8 shuffles; 32 fdot2, depth 16
   (30 more: mma ... all)
@@ -403,9 +403,9 @@ mma m32n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8
    1. 89        (44.5 an HMMA) output-stationary; A: 12 xor shuffles; B: 8 shuffles; 32 fdot2; k order by lane, depth 8
    2. 105.25    (52.625 an HMMA) output-stationary; A: 16 quad broadcasts; B: 8 loads from shared memory (register-major); 32 fdot2, depth 8
    3. 105.25    (52.625 an HMMA) output-stationary; A: 16 quad broadcasts; B: 8 loads from shared memory (lane-major); 32 fdot2, depth 8
-   4. 133       (66.5 an HMMA) blocked (a lane: 4 rows x 8 columns x 2 of k); B: 8 shuffles; partial sums: 24 xor shuffles; 32 fdot2, depth 4
-   5. 133       (66.5 an HMMA) A-stationary; B: 8 shuffles; partial sums: 24 xor shuffles; 32 fdot2, depth 4
-   6. 134.25    (67.125 an HMMA) output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 4 loads from shared memory (lane-major), 4 xor shuffles; 32 fdot2, depth 8
+   4. 133       (66.5 an HMMA) A-stationary; B: 8 shuffles; partial sums: 24 xor shuffles; 32 fdot2, depth 4
+   5. 133       (66.5 an HMMA) blocked (a lane: 4 rows x 8 columns x 2 of k); B: 8 shuffles; partial sums: 24 xor shuffles; 32 fdot2, depth 4
+   6. 134.25    (67.125 an HMMA) output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 4 loads from shared memory (register-major), 4 xor shuffles; 32 fdot2, depth 8
   (30 more: mma ... all)
   B-stationary: none possible: no assignment of the partial sums to registers (a xor of the lane's bits) lets a butterfly send and read them from the same registers in every lane
   the 2 HMMAs one at a time, each the best alone: 134 (67 each); the tile is 1.51x cheaper

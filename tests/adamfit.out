@@ -93,7 +93,7 @@ adamfit mul8 (x: u8 in 0..255, y: u8 in 0..255) -> u8: 30 fixed-point forms
   measured: front (cost/error) 0/161, 3/128, 10/0
   closest candidates (defined as af1 ...):
   #   score   cost  measured      proved             shape
-  1   0.582   10    0             exact (exhaustive) u8((C1 * i32(x) * i32(y) + B) >> s) (fixed)
+  1   0.582   10    0             exact (exhaustive) u8((C0 * i32(x) * i32(y) + B) >> s) (fixed)
       af1(x, y) = u8((257 * i32(x) * i32(y) + 32871) >> 16)
   168934 integer forms evaluated in the search
 > hyp(x: f32 in 0..1, y: f32 in 0..1) = sqrt(x*x + y*y)

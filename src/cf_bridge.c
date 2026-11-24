@@ -219,7 +219,7 @@ bx_init(struct bx *B, const struct cf_target *t, const struct cf_value *v,
 			st[sp++] = N.c[x];
 	}
 	}
-	qsort(B->rn, B->nr, sizeof *B->rn, cmp_nid);
+	xsort(B->rn, B->nr, sizeof *B->rn, cmp_nid);
 	free(st);
 }
 

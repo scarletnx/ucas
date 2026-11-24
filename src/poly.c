@@ -530,7 +530,7 @@ mp_mul(struct mp a, struct mp b)
 				m->e[k] = (uint16_t)e;
 			}
 		}
-	qsort(r.t, (size_t)n, sizeof *r.t, mcmp_q);
+	xsort(r.t, (size_t)n, sizeof *r.t, mcmp_q);
 	for (i = 0, j = -1; i < n; i++) {
 		if (j >= 0 && !mcmp(&r.t[j], &r.t[i]))
 			r.t[j].c = qadd(r.t[j].c, r.t[i].c);
@@ -622,7 +622,7 @@ mp_coef(struct mp a, int v, int k)
 			r.t[r.n++].e[v] = 0;
 		}
 	/* zeroing a column can break the order when v is not first */
-	qsort(r.t, (size_t)r.n, sizeof *r.t, mcmp_q);
+	xsort(r.t, (size_t)r.n, sizeof *r.t, mcmp_q);
 	return r;
 }
 
@@ -821,7 +821,7 @@ mp_diff(struct mp a, int v)
 			r.t[r.n].c = qmul(a.t[i].c, qi(a.t[i].e[v]));
 			r.t[r.n++].e[v]--;
 		}
-	qsort(r.t, (size_t)r.n, sizeof *r.t, mcmp_q);
+	xsort(r.t, (size_t)r.n, sizeof *r.t, mcmp_q);
 	return r;
 }
 

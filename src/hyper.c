@@ -505,7 +505,7 @@ hp_build(struct hp *P, const nid *roots, int nroot, int d, int np)
 	}
 	free(seen);
 	free(st);
-	qsort(P->g, P->n, sizeof *P->g, nid_cmp);
+	xsort(P->g, P->n, sizeof *P->g, nid_cmp);
 	P->a = xcalloc(P->n, sizeof *P->a);
 	P->b = xcalloc(P->n, sizeof *P->b);
 	P->c = xcalloc(P->n, sizeof *P->c);
@@ -2878,7 +2878,7 @@ newton_zeros(double R, int inv, struct zr *out, int max)
 				out[n++].mult = 1;
 			}
 		}
-	qsort(out, (size_t)n, sizeof *out, zr_cmp);
+	xsort(out, (size_t)n, sizeof *out, zr_cmp);
 	return n;
 }
 
@@ -2945,7 +2945,7 @@ cmd_zeros(struct func *f)
 			r[n].z = snap(s);
 			r[n++].mult = m;
 		}
-		qsort(r, (size_t)n, sizeof *r, zr_cmp);
+		xsort(r, (size_t)n, sizeof *r, zr_cmp);
 		printf("  %d root%s (a polynomial of degree %d):\n", deg,
 		    deg == 1 ? "" : "s", deg);
 		rep_begin("zeros");

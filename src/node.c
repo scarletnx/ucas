@@ -2527,7 +2527,7 @@ shmap_new(nid root)
 	order = xmalloc((m.n + 1) * sizeof *order);
 	for (i = 0; i < m.n; i++)
 		order[i] = m.node[i];
-	qsort(order, m.n, sizeof *order, cmp_nid);
+	xsort(order, m.n, sizeof *order, cmp_nid);
 	for (k = 0; k < m.n; k++) {
 		nid n = order[k];
 		uint32_t s = 1, j, ch[3];

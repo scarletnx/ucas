@@ -99,7 +99,7 @@ pcanon(struct poly *p)
 {
 	int i, k = 0;
 
-	qsort(p->t, (size_t)p->n, sizeof *p->t, mcmp);
+	xsort(p->t, (size_t)p->n, sizeof *p->t, mcmp);
 	for (i = 0; i < p->n; i++) {
 		if (k > 0 && p->t[k - 1].m == p->t[i].m)
 			p->t[k - 1].c = cadd(p->t[k - 1].c, p->t[i].c);
@@ -152,7 +152,7 @@ mbuild(kt *a, int n)
 
 	if (n == 0)
 		return one();
-	qsort(a, (size_t)n, sizeof *a, kcmp);
+	xsort(a, (size_t)n, sizeof *a, kcmp);
 	m = a[0];
 	for (i = 1; i < n; i++)
 		m = kt_mul(m, a[i]);
@@ -359,7 +359,7 @@ lcanon(struct lin *l)
 {
 	int i, k = 0;
 
-	qsort(l->t, (size_t)l->n, sizeof *l->t, lcmp);
+	xsort(l->t, (size_t)l->n, sizeof *l->t, lcmp);
 	for (i = 0; i < l->n; i++) {
 		if (k > 0 && l->t[k - 1].a == l->t[i].a) {
 			paddto(&l->t[k - 1].c, &l->t[i].c, 1);
