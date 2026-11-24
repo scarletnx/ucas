@@ -2294,7 +2294,10 @@ closed_for(uint32_t n)
 	    l0, r0, items[16], ity, syms[17];
 	uint32_t asym[16], aexp[16];
 	int asub[16], amul[16], na = 0, ni, k, j;
-	nid lo, hv, T, iv, gt;
+	nid lo, hv, T, iv, gt, where0 = L.where, env0[16];
+	uint8_t set0[16];
+	size_t closed0 = L.closed.n;
+	char cwhy[sizeof L.closed_why] = "";
 	ty_t it, u64 = TY(K_UINT, 64);
 	double ic = 3;
 
@@ -2411,6 +2414,11 @@ closed_for(uint32_t n)
 		if (reads_any(aexp[k], syms, na))
 			return 0;
 	}
+	/* from here on a give-up puts back what the try wrote */
+	for (k = 0; k < na; k++) {
+		env0[k] = L.env[asym[k]];
+		set0[k] = L.set[asym[k]];
+	}
 	/* bounds and trip count */
 	it = uty(ity, n);
 	lo = mk_cast(it, L.env[isym]);
@@ -2445,7 +2453,7 @@ closed_for(uint32_t n)
 			ty_t pt = uty(at, n), u64t = TY(K_UINT, 64);
 			nid K = conv(ex(aexp[k], L.alive), at, n), KT;
 			if (!is_const(K) || !TY_SIZED(pt) || TYW(pt) > 64)
-				return 0;
+				goto give_up;
 			KT = mk_bin(O_POW, mk_const_i(u64t, N.ki[K]), T);
 			L.env[s] = sel(L.alive, conv(mk_bin(O_MUL, mk_cast(pt, mold[k]),
 			    mk_cast(pt, KT)), at, n), mold[k]);
@@ -2467,11 +2475,11 @@ closed_for(uint32_t n)
 				    n), G, S2, old2;
 				char why[200];
 				if (!is_const(K) || !TY_SIZED(st) || TYW(st) > 64)
-					return 0;
+					goto give_up;
 				G = cf_geom_node(T, (uint64_t)N.ki[K], TYW(st), why,
 				    sizeof why);
 				if (!G)
-					return 0;
+					goto give_up;
 				S2 = mk_bin(O_MUL, mk_cast(st, mold[g]), mk_cast(st, G));
 				if (g < k)
 					S2 = mk_bin(O_MUL, S2, mk_const_i(st, int_norm(st,
@@ -2487,7 +2495,7 @@ closed_for(uint32_t n)
 				sb_printf(&L.closed, "%s%s %s= geometric sum of %s",
 				    L.closed.n ? ", " : "", sym_str(SU.name[s]), asub[k] ?
 				    "-" : "+", sym_str(SU.name[asym[g]]));
-				snprintf(L.closed_why, sizeof L.closed_why, "%s", why);
+				snprintf(cwhy, sizeof cwhy, "%s", why);
 				(void)u64t;
 				continue;
 			}
@@ -2511,7 +2519,7 @@ closed_for(uint32_t n)
 		w = TYW(N.ty[P]) < TYW(uty(at, n)) ? TYW(N.ty[P]) : TYW(uty(at, n));
 		deg = poly_deg(P, iv, w);
 		if (deg < 0 || deg > 7)
-			return 0;
+			goto give_up;
 		ic += cf_cost_default(cf_target_default(), P);
 		p0 = cf_subst(P, iv, lo);
 		p1 = cf_subst(P, iv, mk_bin(O_ADD, lo, mk_const_i(it, 1)));
@@ -2538,7 +2546,7 @@ closed_for(uint32_t n)
 				nid dk = 0, bn = cf_binom_node(T, kk + 1);
 				int64_t c = 1;
 				if (!bn)
-					return 0;
+					goto give_up;
 				for (jj = 0; jj <= kk; jj++) {
 					int64_t cj = c * (((kk - jj) & 1) ? -1 : 1);
 					nid t = mk_bin(O_MUL, pj[jj], mk_const_i(N.ty[P], cj));
@@ -2547,7 +2555,7 @@ closed_for(uint32_t n)
 				}
 				S = mk_bin(O_ADD, S, mk_bin(O_MUL, dk, mk_cast(N.ty[P], bn)));
 			}
-			snprintf(L.closed_why, sizeof L.closed_why, "Newton: P(lo+j) "
+			snprintf(cwhy, sizeof cwhy, "Newton: P(lo+j) "
 			    "= sum_k D^k P(lo) C(j,k) in any commutative ring (degree %d), "
 			    "sum_{j<T} C(j,k) = C(T,k+1); C(T,m) mod 2^64: m consecutive "
 			    "factors less v2(m!) twos (ctz), times odd(m!)^-1", deg);
@@ -2568,6 +2576,21 @@ closed_for(uint32_t n)
 	}
 	L.env[isym] = sel(L.alive, sel(gt, hv, lo), L.env[isym]);
 	L.iter_cost += ic;
+	if (cwhy[0])
+		snprintf(L.closed_why, sizeof L.closed_why, "%s", cwhy);
 	budget();
 	return 1;
+give_up:
+	/* the loop is unrolled from the state it was found in: no sum already
+	 * replaced, no condition on the symbolic index left in the domain */
+	for (k = 0; k < na; k++) {
+		L.env[asym[k]] = env0[k];
+		L.set[asym[k]] = set0[k];
+	}
+	L.where = where0;
+	if (L.closed.n > closed0) {
+		L.closed.n = closed0;
+		L.closed.p[closed0] = 0;
+	}
+	return 0;
 }

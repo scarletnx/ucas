@@ -1,0 +1,161 @@
+> c optimize cfront/pop.c nofile budget 120
+c optimize: 6 functions, 3 rewrites proved (0 exhaustive, 3 by SAT) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 290.0 -> 3.2 cycles
+  pop_loop (line 5): popcount(x)
+    proof: sat (proved by SAT: 2017 AIG nodes, 0 conflicts); cost 94.0 -> 1.0
+  pop_sum (line 14): popcount(x)
+    proof: sat (proved by SAT: 2017 AIG nodes, 0 conflicts); cost 94.0 -> 1.0
+  pop_signed (line 27): popcount(x)
+    proof: sat (proved by SAT: 2017 AIG nodes, 0 conflicts); cost 102.0 -> 1.2
+  pop_wide (line 36): kept the loop: the cheapest proved form is the loop unrolled (125 operations)
+  pop_wide (line 39): not vectorised: a shift by a variable or out-of-range amount
+  pop_two (line 45): no cheaper form: lowered: 1 inputs, cost 4.0
+  pop_two (line 48): not vectorised: a shift by a variable or out-of-range amount
+  pop_until (line 54): kept the loop: the cheapest proved form is the loop unrolled (766 operations)
+optimised C:
+  /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
+  /* Kernels of tests/cfpop.ucas. */
+  #include <stdint.h>
+  
+  /* the bits of x, counted in a loop: popcount(x) */
+  #if defined(__POPCNT__) || defined(__LZCNT__) || defined(__BMI__)
+  #include <immintrin.h>
+  #endif
+  static inline uint32_t cf_popcount32(uint32_t x)
+  {
+  #if defined(__POPCNT__)
+  	return (uint32_t)_mm_popcnt_u32(x);
+  #elif defined(__GNUC__)
+  	return (uint32_t)__builtin_popcount(x);
+  #else
+  	x = x - ((x >> 1) & 0x55555555u);
+  	x = (x & 0x33333333u) + ((x >> 2) & 0x33333333u);
+  	return (((x + (x >> 4)) & 0x0f0f0f0fu) * 0x01010101u) >> 24;
+  #endif
+  }
+  uint32_t pop_loop(uint32_t x)
+  {
+  	return (unsigned int)((uint32_t)(cf_popcount32((uint32_t)((x)))));
+  }
+  
+  /* the same sum written out */
+  uint32_t pop_sum(uint32_t x)
+  {
+  	return (unsigned int)((uint32_t)(cf_popcount32((uint32_t)((x)))));
+  }
+  
+  /* the bits of a signed x: of its pattern, the sign's included */
+  uint32_t pop_signed(int32_t x)
+  {
+  	return (unsigned int)((uint32_t)(cf_popcount32((uint32_t)(((uint32_t)((x)))))));
+  }
+  
+  /* two bits a step, not one: no popcount of x */
+  uint32_t pop_wide(uint32_t x)
+  {
+  	uint32_t c = 0;
+  	for (int i = 0; i < 32; i++)
+  		c += (x >> i) & 3;
+  	return c;
+  }
+  
+  /* the two lowest bits alone */
+  uint32_t pop_two(uint32_t x)
+  {
+  	uint32_t c = 0;
+  	for (int i = 0; i < 2; i++)
+  		c += (x >> i) & 1;
+  	return c;
+  }
+  
+  /* it leaves at the first zero: the ones below it, not all of them */
+  uint32_t pop_until(uint32_t x)
+  {
+  	uint32_t c = 0;
+  	for (int i = 0; i < 8; i++) {
+  		if (!((x >> i) & 1))
+  			break;
+  		c += (x >> i) & 1;
+  	}
+  	return c;
+  }
+> c lower cfront/giveup.c
+  sum_and_bits(x: u32) = (x & 1) + (x >> 1 & 1) + (x >> 2 & 1) + (x >> 3 & 1) + 600
+  power_and_bits(x: u32) = (x & 1) + (x >> 1 & 1) + (x >> 2 & 1) + (x >> 3 & 1) + 8100
+  geometric_and_bits(x: u32) = (x & 1) + (x >> 1 & 1) + (x >> 2 & 1) + (x >> 3 & 1) + 20100
+  sum_then_bits(x: u32, m: u32) = 100(u32(t1 & 1 == 0 ? (t1 >> 1)*(t1 - 1) : t1*(t1 - 1 >> 1)) + 1 + 2 + 3) + ((x & 1) + (x >> 1 & 1) + (x >> 2 & 1) + (x >> 3 & 1)) where t1 = m > 0 ? u64(m) : 0
+  params_and_bits(s: u32, p: u32, x: u32) = 100(s + 1 + 2 + 3) + 3*(3*(3*3p)) + ((x & 1) + (x >> 1 & 1) + (x >> 2 & 1) + (x >> 3 & 1))
+> c optimize cfront/giveup.c nofile budget 120
+c optimize: 5 functions, 1 rewrite proved (0 exhaustive, 0 by SAT, 1 by induction) for x86-64-v3
+  sum_then_bits (line 40): loop in closed form: s += sum of degree 1 in i
+    proof: induction (sum of a polynomial of degree <= 2 by forward differences and C(T,k), exact mod 2^w); cost 3.0 -> 32.5 (before: per iteration of the loop)
+  sum_and_bits (line 6): no cheaper form: lowered: 1 inputs, cost 11.0
+  sum_and_bits (line 9): not vectorised: a shift by a variable or out-of-range amount
+  power_and_bits (line 17): no cheaper form: lowered: 1 inputs, cost 11.0
+  power_and_bits (line 20): not vectorised: a reduction that is not acc op g (op + - ^ | & min max)
+  geometric_and_bits (line 28): no cheaper form: lowered: 1 inputs, cost 11.0
+  geometric_and_bits (line 31): not vectorised: a reduction that is not acc op g (op + - ^ | & min max)
+  params_and_bits (line 53): no cheaper form: lowered: 3 inputs, cost 30.0
+  params_and_bits (line 56): not vectorised: a reduction that is not acc op g (op + - ^ | & min max)
+optimised C:
+  /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
+  /* Kernels of tests/cfpop.ucas: loops with a summand that has a closed form
+   * beside one that has none.  They are unrolled, each sum added once. */
+  #include <stdint.h>
+  
+  /* s is 6 */
+  uint32_t sum_and_bits(uint32_t x)
+  {
+  	uint32_t s = 0, c = 0;
+  	for (int i = 0; i < 4; i++) {
+  		s += i;
+  		c += (x >> i) & 1;
+  	}
+  	return s * 100 + c;
+  }
+  
+  /* p is 81 */
+  uint32_t power_and_bits(uint32_t x)
+  {
+  	uint32_t p = 1, c = 0;
+  	for (int i = 0; i < 4; i++) {
+  		p *= 3;
+  		c += (x >> i) & 1;
+  	}
+  	return p * 100 + c;
+  }
+  
+  /* p is 81, s is 120 */
+  uint32_t geometric_and_bits(uint32_t x)
+  {
+  	uint32_t p = 1, s = 0, c = 0;
+  	for (int i = 0; i < 4; i++) {
+  		p *= 3;
+  		s += p;
+  		c += (x >> i) & 1;
+  	}
+  	return (p + s) * 100 + c;
+  }
+  
+  /* the first loop keeps its closed form, the second is unrolled */
+  uint32_t sum_then_bits(uint32_t x, uint32_t m)
+  {
+  	const uint64_t cf_t0 = ((((uint32_t)((m)) > (uint32_t)(((uint32_t)0u)))) ? (uint64_t)(((uint64_t)((m)))) : (uint64_t)(((uint64_t)0ull)));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)100u)) * (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t1)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((uint64_t)1ull)))))))))))) + (uint32_t)(((uint32_t)1u))))) + (uint32_t)(((uint32_t)2u))))) + (uint32_t)(((uint32_t)3u)))))))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) & (uint32_t)(((uint32_t)1u))))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) >> (((int32_t)1))))) & (uint32_t)(((uint32_t)1u)))))))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) >> (((int32_t)2))))) & (uint32_t)(((uint32_t)1u)))))))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) >> (((int32_t)3))))) & (uint32_t)(((uint32_t)1u))))))))));
+  }
+  
+  /* the sum and the power are parameters, read for the first time there */
+  uint32_t params_and_bits(uint32_t s, uint32_t p, uint32_t x)
+  {
+  	uint32_t c = 0;
+  	for (int i = 0; i < 4; i++) {
+  		s += i;
+  		p *= 3;
+  		c += (x >> i) & 1;
+  	}
+  	return s * 100 + p + c;
+  }
+> c lower
+  div_and_bits(x: u32, d: u32, m: u32) = t1 == 0 || t1 != 0 && t5 == 0 || t6 && t10 == 0 || t11 && t15 == 0 || t16 && t20 == 0 || t21 && t25 == 0 || t26 && t30 == 0 || t31 && t35 == 0 || t36 && t40 == 0 || t41 && t45 == 0 || t46 && t50 == 0 || t51 && t55 == 0 || t56 && t60 == 0 || t61 && t65 == 0 || t66 && t70 == 0 || t71 && t75 == 0 || t76 && t80 == 0 || t81 && t85 == 0 || t86 && t90 == 0 || t91 && t95 == 0 || t96 && t100 == 0 || t101 && t105 == 0 || t106 && t110 == 0 || t111 && t115 == 0 || t116 && t120 == 0 || t121 && t125 == 0 || t126 && t130 == 0 || t131 && t135 == 0 || t136 && t140 == 0 || t141 && t145 == 0 || t146 && t150 == 0 || t151 && t155 == 0 || t156 && t160 == 0 || t161 && t165 == 0 || t166 && t170 == 0 || t171 && t175 == 0 || t176 && t180 == 0 || t181 && t185 == 0 || t186 && t190 == 0 || t191 && t195 == 0 || t196 && t200 == 0 || t201 && t205 == 0 || t206 && t210 == 0 || t211 && t215 == 0 || t216 && t220 == 0 || t221 && t225 == 0 || t226 && t230 == 0 || t231 && t235 == 0 || t236 && t240 == 0 || t241 && t245 == 0 || t246 && t250 == 0 || t251 && t255 == 0 || t256 && t260 == 0 || t261 && t265 == 0 || t266 && t270 == 0 || t271 && t275 == 0 || t276 && t280 == 0 || t281 && t285 == 0 || t286 && t290 == 0 || t291 && t295 == 0 || t296 && t300 == 0 || t301 && t305 == 0 || t306 && t310 == 0 || t311 && t315 == 0 || t316 && t320 == 0 || t321 && t325 == 0 || t326 && i32((t326 ? t324 + 1 : t324) < m & 1) == 0 ? 100(t326 ? t322 + x/d : t322) + (t326 ? t323 + (x >> t324 & 1) : t323) : undefined where t1 = i32(0 < m & 1)… (10055 more characters)
+    defined where (no C UB): (t1 == 0 || d != 0) && (!t3 || d != 0) && (!t3 || t2 >= 0 && t2 < 32) && (!t5 || d != 0) && (!t5 || t4 >= 0 && t4 < 32) && (!t7 || d != 0) && (!t7 || t6 >= 0 && t6 < 32) && (!t9 || d != 0) && (!t9 || t8 >= 0 && t8 < 32) && (!t11 || d != 0) && (!t11 || t10 >= 0 && t10 < 32) && (!t13 || d != 0) && (!t13 || t12 >= 0 && t12 < 32) && (!t15 || d != 0) && (!t15 || t14 >= 0 && t14 < 32) && (!t17 || d != 0) && (!t17 || t16 >= 0 && t16 < 32) && (!t19 || d != 0) && (!t19 || t18 >= 0 && t18 < 32) && (!t21 || d != 0) && (!t21 || t20 >= 0 && t20 < 32) && (!t23 || d != 0) && (!t23 || t22 >= 0 && t22 < 32) &&… (7179 more characters)

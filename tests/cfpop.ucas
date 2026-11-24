@@ -1,0 +1,21 @@
+# cfront: a loop tried as a closed form and given up is unrolled from the
+# state it was found in.  No condition on its index stays in the domain, so
+# a loop that counts bits is popcount (its neighbours are not), and no sum
+# it had replaced is added again.  The kernels are in tests/cfront/pop.c and
+# tests/cfront/giveup.c.
+c optimize cfront/pop.c nofile budget 120
+c lower cfront/giveup.c
+c optimize cfront/giveup.c nofile budget 120
+# the first summand's condition is the unrolled loop's alone, said once
+c lower
+```c
+unsigned div_and_bits(unsigned x, unsigned d, unsigned m)
+{
+	unsigned s = 0, c = 0;
+	for (unsigned i = 0; i < (m & 1); i++) {
+		s += x / d;
+		c += (x >> i) & 1;
+	}
+	return s * 100 + c;
+}
+```

@@ -8012,6 +8012,7 @@ step by 1, so it never wraps; the summand may only use `+ - *` and
 conversions that keep its value mod 2^w (w the accumulator's width).
 Signed overflow inside the sum is not a domain condition there (the
 closed form is defined where the loop is; that is a refinement).
+A loop with a summand that does not fit is unrolled whole, as any other.
 `clang -O2` already turns such simple sums into closed forms itself
 (SCEV), so this mostly matters for what follows it (the closed form is
 then optimised further) and for compilers without it.
