@@ -624,7 +624,22 @@ pe(struct em *E, struct sbuf *b, nid n)
 		nid tab = a;
 		uint32_t cnt = N.b[tab], k;
 		ty_t et = t;
-		int id = E->em->ntab++;
+		int id;
+
+		/* a table written already is read again: the emitter may
+		 * write one value twice, as the operand of a clamp */
+		for (id = 0; id < E->em->ntab && id < CF_NTAB; id++)
+			if (E->em->tabnode[id] == tab && E->em->tabty[id] == et) {
+				sb_printf(b, "cf_tab%d[", id);
+				pe(E, b, c);
+				sb_puts(b, "]");
+				return;
+			}
+		id = E->em->ntab++;
+		if (id < CF_NTAB) {
+			E->em->tabnode[id] = tab;
+			E->em->tabty[id] = et;
+		}
 		sb_printf(&E->em->helpers, "static const %s cf_tab%d[%u] = {",
 		    cty(et), id, cnt);
 		for (k = 0; k < cnt; k++) {

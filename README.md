@@ -7830,8 +7830,9 @@ input's range is trimmed to where the sub-value is defined at some point: an
 index bounded by a C array's size takes only the array's entries, and an
 input past the trimmed range is one the original is undefined at.  The table
 is the sub-value evaluated at every point, a derivation when SAT gives up;
-it is applied under the same policy as a whole value's table ("Engines").
-An IMA ADPCM difference (`tests/cfront/sub.c`) becomes one read of a table
+it is applied under the same policy as a whole value's table ("Engines").  A
+table that is read in more than one place is written once, and the functions
+of a file share it.  An IMA ADPCM difference (`tests/cfront/sub.c`) becomes one read of a table
 of 712:
 
 ```
