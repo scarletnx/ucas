@@ -255,6 +255,7 @@ cf_cand_add(struct cf_cands *cs, nid sem, const char *text,
 	c->cert[0] = 0;
 	c->fixcost = 0;
 	c->table = 0;
+	c->ord = cs->n - 1;
 }
 
 void
@@ -2086,7 +2087,9 @@ cmp_cand(const void *x, const void *y)
 		return a->cost < b->cost ? -1 : 1;
 	if (a->table != b->table)
 		return a->table - b->table;
-	return (int)a->sem - (int)b->sem;
+	if (a->sem != b->sem)
+		return (int)a->sem - (int)b->sem;
+	return a->ord - b->ord;
 }
 
 /*

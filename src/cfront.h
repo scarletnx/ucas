@@ -112,6 +112,8 @@ struct cf_cand {
 	int fixcost;	/* cost is the generator's (intrinsics in text) */
 	int table;	/* added: a table read: after the other forms of its
 			 * cost, as the model prices no cache footprint */
+	int ord;	/* added: the place it was made in, so that forms
+			 * of one node and cost keep the order they came */
 };
 struct cf_cands {
 	struct cf_cand *c;
