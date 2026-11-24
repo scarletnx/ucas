@@ -1,0 +1,6 @@
+# cfront: the closed form of a loop whose summand is undefined in C at some
+# inputs (a division by 0, a shift by the width or more): with no iteration
+# the summand is not evaluated, so neither the domain nor the value may ask
+# for it.  The kernels are in tests/cfront/notrip.c.
+c lower cfront/notrip.c
+c optimize cfront/notrip.c nofile budget 120
