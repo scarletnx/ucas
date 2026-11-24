@@ -17,6 +17,9 @@
  *   - a switch-like value of one input (a chain of x == c tests) as a
  *     range check and a table, a bit mask or a linear function;
  *   - a value of one small input as a table;
+ *   - a sub-value of small inputs (SUBTABLE_MAX points together) read from
+ *     a table of its values wherever it appears, each input's range
+ *     trimmed to where the sub-value is defined (a C array's bound);
  *   - dropping an operation that never bites (a mask, clamp, min, max,
  *     ?: or conversion replaced by an operand);
  *   - divisions: 64-bit ones whose operands fit in 32 bits narrowed,
@@ -246,6 +249,7 @@ cf_cand_add(struct cf_cands *cs, nid sem, const char *text,
 	c->cert_kind[0] = 0;
 	c->cert[0] = 0;
 	c->fixcost = 0;
+	c->table = 0;
 }
 
 void
@@ -872,6 +876,50 @@ eval_line(const struct cf_value *v, nid e, int k, int64_t lo, int64_t hi,
 	return 1;
 }
 
+/* values of e at every point of the grid of slots k[0..ns-1], slot k[j] from
+ * lo[j] over span[j] values, the last slot varying fastest (other inputs
+ * absent); undefined points give 0 (def[point] 0 where def is given) and
+ * *undef counts them */
+static void
+eval_grid(const struct cf_value *v, nid e, int ns, const int *k,
+    const int64_t *lo, const int64_t *span, int64_t total, int64_t *out,
+    unsigned char *def, int *undef)
+{
+	struct plan p;
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	int64_t at = 0;
+	uint32_t i, np, loc;
+	int j;
+
+	plan_build(&p, &e, 1, 0);
+	loc = p.root[0];
+	*undef = 0;
+	while (at < total) {
+		for (np = 0; np < CH && at + np < total; np++) {
+			int64_t rest = at + np;
+			for (j = ns - 1; j >= 0; j--) {
+				ty_t t = ct_to_ucas(v->leaf[k[j]].cty);
+				in_i[(size_t)k[j] * CH + np] = int_norm(t,
+				    lo[j] + rest % span[j]);
+				rest /= span[j];
+			}
+		}
+		plan_run(&p, np, in_i, in_r);
+		for (i = 0; i < np; i++) {
+			int u = (COLF(&p, loc)[i] & F_UNDEF) != 0;
+			out[at + i] = u ? 0 : COLI(&p, loc)[i];
+			if (def)
+				def[at + i] = (unsigned char)!u;
+			*undef += u;
+		}
+		at += np;
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+}
+
 /* ---- candidate generators ---- */
 
 static void
@@ -1307,8 +1355,266 @@ magic(uint64_t d, uint64_t X, uint64_t *M, int *s, int *w32)
 	return 0;
 }
 
+/* ---- sub-values of small inputs; selects of clamps ---- */
+
+static void cand_derived(struct cf_cands *cs, nid sem, const char *what,
+    const char *lemma);
+static void cand_table(struct cf_cands *cs, nid sem, const char *what,
+    const char *lemma);
+
+#define SUBTABLE_MAX 4096	/* points of a sub-value's table */
+
+/* slot k's range where it is small: its known range or an 8-bit type's,
+ * narrowed by its sound interval in e */
+static int
+small_slot(const struct cf_value *v, struct ivals *I, int k, int64_t *lo,
+    int64_t *hi)
+{
+	nid x;
+	ty_t xt;
+	int64_t ilo, ihi;
+
+	if (k < 0 || k >= v->nleaf)
+		return 0;
+	x = leaf_node(v, k);
+	xt = N.ty[x];
+	if (v->leaf[k].ranged) {
+		*lo = v->leaf[k].lo;
+		*hi = v->leaf[k].hi;
+	} else if (TYW(xt) <= 8 && TY_SIZED(xt)) {
+		*lo = TYK(xt) == K_SINT ? -128 : 0;
+		*hi = TYK(xt) == K_SINT ? 127 : (xt == TY_BOOL ? 1 : 255);
+	} else
+		return 0;
+	if (ival_of(I, x, &ilo, &ihi)) {
+		if (ilo > *lo)
+			*lo = ilo;
+		if (ihi < *hi)
+			*hi = ihi;
+	}
+	return *hi >= *lo && (uint64_t)*hi - (uint64_t)*lo < SUBTABLE_MAX;
+}
+
+/* the points of a sub-value with the slots s, or SUBTABLE_MAX + 1 where
+ * one of them is not small */
+static int64_t
+subtable_points(const struct cf_value *v, struct ivals *I, uint64_t s)
+{
+	int64_t pts = 1, lo, hi;
+	int k;
+
+	for (k = 0; k < 64 && pts <= SUBTABLE_MAX; k++)
+		if (s >> k & 1) {
+			if (!small_slot(v, I, k, &lo, &hi))
+				return SUBTABLE_MAX + 1;
+			pts *= hi - lo + 1;
+		}
+	return pts;
+}
+
+/* a sub-value read from a table: its inputs (by name while they fit in a
+ * report's line, else how many), the table's size, and how many of its
+ * points the sub-value is undefined at (0 there) */
+struct subtab {
+	char names[32];
+	int64_t n;
+	int undef;
+};
+
+/*
+ * n read from a table of its values: n's slots all small, the table its
+ * value at each point of their grid, each slot's range trimmed to the
+ * values where n is defined at some point (an index past a C array, which
+ * the domain leaves out).  0 where it does not apply.
+ */
+static nid
+subtable_of(const struct cf_value *v, struct ivals *I, nid n, struct subtab *T)
+{
+	uint64_t s = node_slots(n);
+	int ks[CF_MAXLEAF], nk = 0, undef = 0, k, d, w;
+	int64_t lo[CF_MAXLEAF], span[CF_MAXLEAF], mn[CF_MAXLEAF], mx[CF_MAXLEAF];
+	int64_t total = 1, ntotal = 1, j, l, h, *tab, *ntab;
+	unsigned char *def;
+	ty_t t = N.ty[n], it = TY(K_SINT, 64);
+	size_t len = 0;
+	nid *el, idx = 0;
+
+	if (!s || subtable_points(v, I, s) > SUBTABLE_MAX)
+		return 0;
+	for (k = 0; k < v->nleaf && k < 64; k++)
+		if (s >> k & 1 && small_slot(v, I, k, &l, &h)) {
+			ks[nk] = k;
+			lo[nk] = l;
+			span[nk] = h - l + 1;
+			mn[nk] = INT64_MAX;
+			mx[nk] = INT64_MIN;
+			total *= span[nk];
+			nk++;
+		}
+	T->names[0] = 0;
+	for (d = 0; d < nk; d++) {
+		w = snprintf(T->names + len, sizeof T->names - len, "%s%s",
+		    d ? ", " : "", v->leaf[ks[d]].text);
+		if (w < 0 || (size_t)w >= sizeof T->names - len) {
+			snprintf(T->names, sizeof T->names, "%d inputs", nk);
+			break;
+		}
+		len += (size_t)w;
+	}
+	tab = xmalloc((size_t)total * sizeof *tab);
+	def = xmalloc((size_t)total);
+	eval_grid(v, n, nk, ks, lo, span, total, tab, def, &undef);
+	for (j = 0; j < total; j++) {
+		int64_t rest = j;
+		if (!def[j])
+			continue;
+		for (d = nk - 1; d >= 0; d--) {
+			int64_t x = lo[d] + rest % span[d];
+			rest /= span[d];
+			if (x < mn[d])
+				mn[d] = x;
+			if (x > mx[d])
+				mx[d] = x;
+		}
+	}
+	if (undef == total) {
+		free(tab);
+		free(def);
+		return 0;
+	}
+	for (d = 0; d < nk; d++)
+		ntotal *= mx[d] - mn[d] + 1;
+	ntab = xmalloc((size_t)ntotal * sizeof *ntab);
+	undef = 0;
+	for (j = 0; j < ntotal; j++) {
+		int64_t rest = j, at = 0, stride = 1;
+		for (d = nk - 1; d >= 0; d--) {
+			int64_t nspan = mx[d] - mn[d] + 1, x = mn[d] + rest % nspan;
+			rest /= nspan;
+			at += (x - lo[d]) * stride;
+			stride *= span[d];
+		}
+		ntab[j] = tab[at];
+		undef += !def[at];
+	}
+	el = xmalloc((size_t)ntotal * sizeof *el);
+	for (j = 0; j < ntotal; j++)
+		el[j] = mk_const_i(t, ntab[j]);
+	for (d = 0; d < nk; d++) {
+		int64_t stride = 1;
+		int m;
+		nid term = mk_cast(it, leaf_node(v, ks[d]));
+		for (m = d + 1; m < nk; m++)
+			stride *= mx[m] - mn[m] + 1;
+		if (mn[d])
+			term = mk_bin(O_SUB, term, mk_const_i(it, mn[d]));
+		if (stride > 1)
+			term = mk_bin(O_MUL, term, mk_const_i(it, stride));
+		idx = idx ? mk_bin(O_ADD, idx, term) : term;
+	}
+	T->n = ntotal;
+	T->undef = undef;
+	idx = mk_index(mk_table(el, (uint32_t)ntotal), idx);
+	free(el);
+	free(ntab);
+	free(tab);
+	free(def);
+	return idx;
+}
+
+/* x's place in rn, which reach() gives in id order; nr where it has none */
+static uint32_t
+rn_find(const nid *rn, uint32_t nr, nid x)
+{
+	uint32_t lo = 0, hi = nr;
+
+	while (lo < hi) {
+		uint32_t m = lo + (hi - lo) / 2;
+		if (rn[m] < x)
+			lo = m + 1;
+		else
+			hi = m;
+	}
+	return lo < nr && rn[lo] == x ? lo : nr;
+}
+
+/*
+ * A sub-value whose inputs are all small (SUBTABLE_MAX points together)
+ * read from a table of its values, wherever it appears in e: only the
+ * largest such sub-values (one inside another is left out), not an input,
+ * a constant or the whole value of one input (gen_table's).  The table is
+ * the sub-value evaluated at every point, so each is a derivation.
+ */
 static void
-gen_local(const struct cf_value *v, nid e, struct cf_cands *cs)
+gen_subtable(const struct cf_value *v, nid e, struct cf_cands *cs,
+    struct ivals *I)
+{
+	nid *rn;
+	uint32_t nr = reach(e, &rn), i, j;
+	unsigned char *ok = xcalloc(nr + 1, 1), *inside = xcalloc(nr + 1, 1);
+
+	for (i = 0; i < nr; i++) {
+		nid n = rn[i];
+		uint64_t s = node_slots(n);
+		int op = N.op[n];
+		ty_t t = N.ty[n];
+		if (!s || op == O_VAR || op == O_CONST || op == O_CAST ||
+		    !TY_SIZED(t) || t == TY_BOOL || TY_FP(t))
+			continue;
+		if (n == e && !(s & (s - 1)))
+			continue;
+		if (subtable_points(v, I, s) <= SUBTABLE_MAX)
+			ok[i] = 1;
+	}
+	/* operands come before their users: from the top down, what is under
+	 * one that qualifies is inside it */
+	for (i = nr; i-- > 0; ) {
+		nid n = rn[i];
+		int op = N.op[n];
+		nid ch[3];
+		uint32_t nch = 0;
+		if (!ok[i] && !inside[i])
+			continue;
+		if (op == O_CONST || op == O_VAR || op == O_TABLE)
+			continue;
+		if (op == O_INDEX)
+			ch[nch++] = N.b[n];
+		else {
+			ch[nch++] = N.a[n];
+			ch[nch++] = N.b[n];
+			if (op == O_SEL || op == O_FMA)
+				ch[nch++] = N.c[n];
+		}
+		for (j = 0; j < nch; j++) {
+			uint32_t k = ch[j] ? rn_find(rn, nr, ch[j]) : nr;
+			if (k < nr)
+				inside[k] = 1;
+		}
+	}
+	for (i = 0; i < nr; i++) {
+		char w[96], lem[120];
+		struct subtab T;
+		nid r;
+		if (!ok[i] || inside[i])
+			continue;
+		r = subtable_of(v, I, rn[i], &T);
+		if (!r)
+			continue;
+		snprintf(w, sizeof w, "a sub-value of %s as a table of %lld",
+		    T.names, (long long)T.n);
+		snprintf(lem, sizeof lem, "by construction: the table is the value "
+		    "at each of its %lld points (%d of them undefined, as 0)",
+		    (long long)T.n, T.undef);
+		cand_table(cs, safe_replace(e, rn[i], r), w, lem);
+	}
+	free(ok);
+	free(inside);
+	free(rn);
+}
+
+static void
+gen_local(const struct cf_value *v, nid e, struct cf_cands *cs,
+    int allow_table)
 {
 	nid *rn;
 	uint32_t nr, i;
@@ -1316,6 +1622,8 @@ gen_local(const struct cf_value *v, nid e, struct cf_cands *cs)
 	char w[120];
 
 	ivals_build(&I, v, e);
+	if (allow_table)
+		gen_subtable(v, e, cs, &I);
 	nr = reach(e, &rn);
 	for (i = 0; i < nr; i++) {
 		nid n = rn[i], a = N.a[n], b = N.b[n], r;
@@ -1421,6 +1729,17 @@ cand_derived(struct cf_cands *cs, nid sem, const char *what,
 	snprintf(cs->c[cs->n - 1].lemma, sizeof cs->c[cs->n - 1].lemma, "%s",
 	    lemma);
 	cs->c[cs->n - 1].derived = 1;
+}
+
+/* a derived form that reads a table */
+static void
+cand_table(struct cf_cands *cs, nid sem, const char *what, const char *lemma)
+{
+	int n = cs->n;
+
+	cand_derived(cs, sem, what, lemma);
+	if (cs->n > n)
+		cs->c[n].table = 1;
 }
 
 /* x as an f32 value: x itself (f32), (double)y of an f32 y, or a double
@@ -1551,6 +1870,8 @@ cmp_cand(const void *x, const void *y)
 
 	if (a->cost != b->cost)
 		return a->cost < b->cost ? -1 : 1;
+	if (a->table != b->table)
+		return a->table - b->table;
 	return (int)a->sem - (int)b->sem;
 }
 
@@ -1595,7 +1916,7 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 			for (k = 0; k < nvalue_hooks; k++)
 				value_hooks[k](t, v, cur, &cs);
 		if (!TY_FP(N.ty[cur])) {
-			gen_local(v, cur, &cs);
+			gen_local(v, cur, &cs, allow_table);
 			gen_float(v, cur, &cs);
 		}
 		for (k = 0; k < cs.n; k++)

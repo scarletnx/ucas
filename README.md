@@ -7823,6 +7823,24 @@ synthesis may try per value; default 1000), `approx` (apply
 approximations with a derived error bound; by default they are proposed).  JSON `c_optimize`, `c_lower`, `c_targets` (an input
 range is `range`: `"x 0 1000"`); MCP tool `c`.
 
+**Sub-values as tables.**  A sub-value whose inputs are all small (each
+with a known range, or of 8 bits; at most 4096 points together) is offered
+read from a table of its values wherever it appears in the value.  Each
+input's range is trimmed to where the sub-value is defined at some point: an
+index bounded by a C array's size takes only the array's entries, and an
+input past the trimmed range is one the original is undefined at.  The table
+is the sub-value evaluated at every point, a derivation when SAT gives up;
+it is applied under the same policy as a whole value's table ("Engines").
+An IMA ADPCM difference (`tests/cfront/sub.c`) becomes one read of a table
+of 712:
+
+```
+> c optimize tests/cfront/sub.c nofile target zen4 assume code 0 7
+  step_diff (line 15): a sub-value of i, code as a table of 712
+    proof: sat (proved by SAT: 22775 AIG nodes, 8691 conflicts); cost 22.2 -> 9.5
+    over: code in [0, 7] (assumed)
+```
+
 **In English, and "SAT simplify" on C.**  Any of simplify's phrasings
 before a C block runs `c optimize` on it: "SAT simplify", "simplify
 this", "optimize this C for zen4 and test it", "peephole with smt",

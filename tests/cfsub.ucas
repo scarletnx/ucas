@@ -1,0 +1,3 @@
+# cfront: a sub-value of small inputs as a table (README "C frontend").  The
+# kernels are in tests/cfront/sub.c.
+c optimize cfront/sub.c nofile budget 120 assume code 0 7
