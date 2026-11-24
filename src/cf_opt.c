@@ -20,6 +20,11 @@
  *   - a sub-value of small inputs (SUBTABLE_MAX points together) read from
  *     a table of its values wherever it appears, each input's range
  *     trimmed to where the sub-value is defined (a C array's bound);
+ *   - a ?: inside an arm that the outer ?: decides; two one-sided clamps
+ *     under a ?: as one clamp of the ?: where neither arm misses its other
+ *     side; two sums with a common term as the term plus a ?: of the rest,
+ *     that ?: read from a table in the same step when it is a sub-value of
+ *     small inputs;
  *   - dropping an operation that never bites (a mask, clamp, min, max,
  *     ?: or conversion replaced by an operand);
  *   - divisions: 64-bit ones whose operands fit in 32 bits narrowed,
@@ -1612,6 +1617,213 @@ gen_subtable(const struct cf_value *v, nid e, struct cf_cands *cs,
 	free(rn);
 }
 
+/* c without the i32(b) != 0 a C condition of an int puts around a bool b */
+static nid
+cond_core(nid c)
+{
+	while (N.op[c] == O_NE && const_is(N.b[c], 0) &&
+	    N.op[N.a[c]] == O_CAST && N.ty[N.a[N.a[c]]] == TY_BOOL)
+		c = N.a[N.a[c]];
+	return c;
+}
+
+/* 1 where condition b is c, -1 where it is c's negation, else 0 */
+static int
+cond_rel(nid c, nid b)
+{
+	static const int neg[6][2] = {{O_EQ, O_NE}, {O_NE, O_EQ}, {O_LT, O_GE},
+	    {O_GE, O_LT}, {O_GT, O_LE}, {O_LE, O_GT}};
+	int k;
+
+	c = cond_core(c);
+	b = cond_core(b);
+	if (c == b)
+		return 1;
+	if ((N.op[b] == O_LNOT && cond_core(N.a[b]) == c) ||
+	    (N.op[c] == O_LNOT && cond_core(N.a[c]) == b))
+		return -1;
+	/* a comparison and its complement, of integers: with a NaN both a < b
+	 * and a >= b are false */
+	for (k = 0; k < 6; k++)
+		if (N.op[c] == neg[k][0] && N.op[b] == neg[k][1] &&
+		    N.a[c] == N.a[b] && N.b[c] == N.b[b] &&
+		    TY_ISINT(N.ty[N.a[c]]))
+			return -1;
+	return 0;
+}
+
+/* x with each ?: on c or its negation replaced by the arm c's value
+ * (truth) takes: x is an arm of a ?: on c */
+static nid
+decide_sels(nid x, nid c, int truth)
+{
+	int round;
+
+	for (round = 0; round < 16; round++) {
+		nid *sub, m = 0;
+		uint32_t ns = reach(x, &sub), q;
+		int rel = 0;
+		for (q = 0; q < ns && !m; q++)
+			if (N.op[sub[q]] == O_SEL &&
+			    (rel = cond_rel(c, N.a[sub[q]])) != 0)
+				m = sub[q];
+		free(sub);
+		if (!m)
+			break;
+		{
+			nid t = safe_replace(x, m, (rel == 1) == truth ? N.b[m] :
+			    N.c[m]);
+			if (!t || t == x)
+				break;
+			x = t;
+		}
+	}
+	return x;
+}
+
+/* z as a one-sided clamp of a constant: min(x, k) (*ismax 0) or max(x, k),
+ * as O_MIN/O_MAX or as x < k ? x : k and its kin */
+static int
+clamp_of(nid z, nid *x, int64_t *k, int *ismax)
+{
+	int op = N.op[z];
+
+	if ((op == O_MIN || op == O_MAX) && TY_ISINT(N.ty[z])) {
+		nid a = N.a[z], b = N.b[z];
+		if (is_const(a)) {
+			nid t = a;
+			a = b;
+			b = t;
+		}
+		if (!is_const(b))
+			return 0;
+		*x = a;
+		*k = N.ki[b];
+		*ismax = op == O_MAX;
+		return 1;
+	}
+	if (op == O_SEL && TY_ISINT(N.ty[z])) {
+		nid c = cond_core(N.a[z]), p = N.b[z], q = N.c[z];
+		int co = N.op[c];
+		if (!(co == O_LT || co == O_LE || co == O_GT || co == O_GE))
+			return 0;
+		/* p < k ? p : k, p > k ? p : k (and <=, >=) */
+		if (N.a[c] == p && N.b[c] == q && is_const(q)) {
+			*x = p;
+			*k = N.ki[q];
+			*ismax = co == O_GT || co == O_GE;
+			return 1;
+		}
+		/* p < k ? k : p is max(p, k); p > k ? k : p is min(p, k) */
+		if (N.a[c] == q && N.b[c] == p && is_const(p)) {
+			*x = q;
+			*k = N.ki[p];
+			*ismax = co == O_LT || co == O_LE;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* the rest of x after its term a, sign-applied: x = a + rest */
+static int
+common_rest(nid x, nid a, nid *rest)
+{
+	if (N.op[x] == O_ADD && N.a[x] == a) {
+		*rest = N.b[x];
+		return 1;
+	}
+	if (N.op[x] == O_ADD && N.b[x] == a) {
+		*rest = N.a[x];
+		return 1;
+	}
+	if (N.op[x] == O_SUB && N.a[x] == a) {
+		*rest = mk_un(O_NEG, N.b[x]);
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * A ?: n of e: the ?: inside its arms that its own condition decides; two
+ * one-sided clamps as one clamp of the ?: of what they clamp, where each
+ * arm's missing side never bites; two sums with a common term as that term
+ * plus the ?: of the rest.
+ */
+static void
+gen_sel(const struct cf_value *v, nid e, nid n, struct ivals *I,
+    struct cf_cands *cs, int allow_table)
+{
+	nid c = N.a[n], x = N.b[n], y = N.c[n], x2, y2, X, Y, r, a;
+	int64_t kx, ky, lo, hi;
+	int mx, my, k;
+	char lem[120];
+
+	x2 = decide_sels(x, c, 1);
+	y2 = decide_sels(y, c, 0);
+	if (x2 != x || y2 != y)
+		cand_derived(cs, safe_replace(e, n, mk_sel(c, x2, y2)),
+		    "a ?: in an arm that the outer ?: decides", "in each arm, a ?: "
+		    "on the outer condition or its negation takes the side that "
+		    "arm's condition gives");
+	if (clamp_of(x, &X, &kx, &mx) && clamp_of(y, &Y, &ky, &my) &&
+	    mx != my && N.ty[X] == N.ty[Y]) {
+		int64_t H = mx ? ky : kx, L = mx ? kx : ky;
+		nid hiarm = mx ? Y : X, loarm = mx ? X : Y;	/* min's, max's */
+		ty_t t = N.ty[X];
+		/* constants and intervals as int64_t: not of a u64 */
+		if (H >= L && (TYK(t) == K_SINT || TYW(t) < 64)) {
+			r = mk_bin(O_MAX, mk_bin(O_MIN, mk_sel(c, X, Y),
+			    mk_const_i(t, H)), mk_const_i(t, L));
+			r = safe_replace(e, n, safe_cast(N.ty[n], r));
+			/* a lemma that names the intervals fits its line for types
+			 * up to 32 bits; a wider clamp is proved like any other form */
+			if (TYW(t) <= 32 && ival_of(I, hiarm, &lo, &hi) && lo >= L &&
+			    ival_of(I, loarm, &kx, &ky) && ky <= H) {
+				snprintf(lem, sizeof lem, "the min's operand in [%lld, %lld] >= "
+				    "%lld, the max's in [%lld, %lld] <= %lld",
+				    (long long)lo, (long long)hi, (long long)L,
+				    (long long)kx, (long long)ky, (long long)H);
+				cand_derived(cs, r, "a ?: of two one-sided clamps as one "
+				    "clamp", lem);
+			} else
+				cf_cand_add(cs, r, NULL, NULL, 0, 0,
+				    "a ?: of two one-sided clamps as one clamp");
+		}
+	}
+	for (k = 0; k < 2; k++) {
+		nid rx, ry;
+		if (N.op[x] != O_ADD && N.op[x] != O_SUB)
+			break;
+		a = k ? N.b[x] : N.a[x];
+		if (k && N.op[x] == O_SUB)
+			break;
+		if (common_rest(x, a, &rx) && common_rest(y, a, &ry) &&
+		    N.ty[rx] == N.ty[ry]) {
+			nid sel = mk_sel(c, rx, ry), tab;
+			struct subtab T;
+			r = mk_bin(O_ADD, a, sel);
+			cand_derived(cs, safe_replace(e, n, r), "a ?: of two sums with "
+			    "a common term as the term plus a ?:", "mod 2^w: c ? a + b : "
+			    "a + d = a + (c ? b : d), a - b = a + -b");
+			/* the ?: of the rest of small inputs alone: read from a table
+			 * in the same step, as the factoring alone is no cheaper */
+			if (allow_table && (tab = subtable_of(v, I, sel, &T)) != 0) {
+				char what[96];
+				snprintf(what, sizeof what, "two sums under a ?: as their "
+				    "common term plus a table of %lld (%s)", (long long)T.n,
+				    T.names);
+				snprintf(lem, sizeof lem, "mod 2^w: c ? a + b : a + d = a + "
+				    "(c ? b : d), a - b = a + -b; the rest is the table at its "
+				    "%lld points (%d undefined)", (long long)T.n, T.undef);
+				cand_table(cs, safe_replace(e, n, mk_bin(O_ADD, a, tab)),
+				    what, lem);
+			}
+			break;
+		}
+	}
+}
+
 static void
 gen_local(const struct cf_value *v, nid e, struct cf_cands *cs,
     int allow_table)
@@ -1630,6 +1842,8 @@ gen_local(const struct cf_value *v, nid e, struct cf_cands *cs,
 		int op = N.op[n];
 		ty_t t = N.ty[n];
 		int64_t alo, ahi, blo, bhi;
+		if (op == O_SEL && TY_ISINT(t))
+			gen_sel(v, e, n, &I, cs, allow_table);
 		if (!TY_SIZED(t) || t == TY_BOOL)
 			goto drops;
 		if ((op == O_DIV || op == O_MOD) && ival_of(&I, a, &alo, &ahi) &&

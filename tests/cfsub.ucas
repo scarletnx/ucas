@@ -1,3 +1,4 @@
-# cfront: a sub-value of small inputs as a table (README "C frontend").  The
-# kernels are in tests/cfront/sub.c.
-c optimize cfront/sub.c nofile budget 120 assume code 0 7
+# cfront: a sub-value of small inputs as a table, a table read twice, a ?:
+# that an outer ?: decides, two one-sided clamps as one clamp, a common term
+# out of a ?: (README "C frontend").  The kernels are in tests/cfront/sub.c.
+c optimize cfront/sub.c nofile budget 120 assume code 0 7 assume nibble 0 15 assume ch_predictor 0 32767

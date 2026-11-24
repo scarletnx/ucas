@@ -7859,14 +7859,26 @@ input past the trimmed range is one the original is undefined at.  The table
 is the sub-value evaluated at every point, a derivation when SAT gives up;
 it is applied under the same policy as a whole value's table ("Engines").  A
 table that is read in more than one place is written once, and the functions
-of a file share it.  An IMA ADPCM difference (`tests/cfront/sub.c`) becomes one read of a table
-of 712:
+of a file share it.
+
+**Selects of clamps and of sums.**  Under a `?:`, a `?:` that the outer
+condition decides takes its side (a comparison's complement only between
+integers: with a NaN both are false), two one-sided clamps become one clamp
+of the `?:` where intervals show neither arm misses its other side, and two
+sums with a common term become the term plus a `?:` of the rest, read from a
+table in the same step where it is a sub-value of small inputs.  An IMA
+ADPCM step and the two sums it clamps (`tests/cfront/sub.c`) become a read
+of the signed step and a clamp:
 
 ```
-> c optimize tests/cfront/sub.c nofile target zen4 assume code 0 7
+> c optimize tests/cfront/sub.c nofile target zen4 budget 120 assume code 0 7 assume nibble 0 15 assume ch_predictor 0 32767
   step_diff (line 15): a sub-value of i, code as a table of 712
     proof: sat (proved by SAT: 22775 AIG nodes, 8691 conflicts); cost 22.2 -> 9.5
     over: code in [0, 7] (assumed)
+  ...
+  ima_steps_t (line 34): a sub-value of ch_index, nibble as a table of 1424; a ?: in an arm that the outer ?: decides; a ?: of two one-sided clamps as one clamp; two sums under a ?: as their common term plus a table of 1424 (ch_index, nibble)
+    proof: algebra (derivation: mod 2^w: c ? a + b : a + d = a + (c ? b : d), a - b = a + -b; the rest is the table at its 1424 points (0 undefined)); cost 37.2 -> 14.0
+    over: nibble in [0, 15] (assumed), ch_predictor in [0, 32767] (assumed)
 ```
 
 **In English, and "SAT simplify" on C.**  Any of simplify's phrasings
