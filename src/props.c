@@ -3116,7 +3116,7 @@ range_of(struct func *f, int s, const struct dom *d, struct rngres *R)
 				R->hi = ys[i], R->xhi = xs[i];
 			yi[m++] = yi[i];
 		}
-		qsort(yi, m, sizeof *yi, i64cmp);
+		xsort(yi, m, sizeof *yi, i64cmp);
 		for (i = 0; i < m; i++)
 			if (i == 0 || yi[i] != yi[i - 1])
 				R->distinct++;
@@ -3379,7 +3379,7 @@ inj_analyse(struct func *f, int s, struct inj *r)
 				pp[mm].y = yi[i];
 				pp[mm++].x = xi[i];
 			}
-		qsort(pp, mm, sizeof *pp, i64cmp);   /* by y, then x */
+		xsort(pp, mm, sizeof *pp, i64cmp);   /* by y, then x */
 		r->inj = 1;
 		for (i = 1; i < mm; i++)
 			if (pp[i].y == pp[i - 1].y) {
@@ -3564,7 +3564,7 @@ sur_analyse(struct func *f, int s, int onto, double olo, double ohi,
 			if (ok[i])
 				v[m++] = TYK(rt) == K_UINT ? (int64_t)ival_d(rt, yi[i]) :
 				    yi[i];
-		qsort(v, m, sizeof *v, i64cmp);
+		xsort(v, m, sizeof *v, i64cmp);
 		{
 			int64_t want = (int64_t)olo;
 			r->sur = 1;

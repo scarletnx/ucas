@@ -303,7 +303,7 @@ b_commit(const char *name)
 			idx[i] = i;
 		}
 		sort_t = t;
-		qsort(idx, t->n, sizeof *idx, trip_cmp);
+		xsort(idx, t->n, sizeof *idx, trip_cmp);
 		for (i = 0; i < t->n; i = j) {
 			int64_t v = 0;
 			for (j = i; j < t->n && t->r[idx[j]] == t->r[idx[i]] &&
@@ -398,7 +398,7 @@ hs_simplicial(const char *name, const uint32_t *v, const uint32_t *off,
 	for (f = 0; f < nfacets; f++) {
 		uint32_t m = off[f + 1] - off[f], mask;
 		memcpy(buf, v + off[f], m * sizeof *buf);
-		qsort(buf, m, sizeof *buf, u32_cmp);
+		xsort(buf, m, sizeof *buf, u32_cmp);
 		for (i = 1; i < m; i++)
 			if (buf[i] == buf[i - 1])
 				fail("homalg: facet %u repeats vertex %u",
@@ -422,7 +422,7 @@ hs_simplicial(const char *name, const uint32_t *v, const uint32_t *off,
 	for (k = 0; k <= (int)top; k++) {
 		uint32_t n = 0, st = (uint32_t)k + 1;
 		sx_stride = st;
-		qsort(B.sx[k], B.cnt[k], st * sizeof *B.sx[k], row_cmp);
+		xsort(B.sx[k], B.cnt[k], st * sizeof *B.sx[k], row_cmp);
 		for (i = 0; i < B.cnt[k]; i++)
 			if (n == 0 || row_cmp(B.sx[k] + (n - 1) * st,
 			    B.sx[k] + i * st) != 0) {

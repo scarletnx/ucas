@@ -303,7 +303,7 @@ cmaes(int n, ns_obj f, void *ctx, const struct nsopt *o, int *best,
 				r->accepted++;
 			}
 		}
-		qsort(rk, (size_t)lam, sizeof *rk, cmp_ranked);
+		xsort(rk, (size_t)lam, sizeof *rk, cmp_ranked);
 		for (i = 0; i < n; i++) {
 			yw[i] = 0;
 			for (k = 0; k < mu; k++)

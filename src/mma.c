@@ -2909,7 +2909,7 @@ mma_run(int k16, int f32, int tm, int tn, int tk, const struct model *m,
 		fail("mma: no dataflow is possible under %s (its subgroup "
 		    "operations or its shared memory are missing)",
 		    sym_str(m->name));
-	qsort(list, (size_t)n, sizeof list[0], cmp_plan);
+	xsort(list, (size_t)n, sizeof list[0], cmp_plan);
 	/* the proof of the cheapest that holds (each shown is proved) */
 	for (i = 0; i < n; i++) {
 		sb_clear(&why);

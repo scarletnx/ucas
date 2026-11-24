@@ -2565,7 +2565,7 @@ front_text(struct sbuf *b, struct shape *s, int n, int stage2)
 		pr[np][1] = ei;
 		np++;
 	}
-	qsort(pr, (size_t)np, sizeof *pr, by_pair);
+	xsort(pr, (size_t)np, sizeof *pr, by_pair);
 	for (i = 0; i < np; i++) {
 		efmt(e, sizeof e, pr[i][1]);
 		sb_printf(b, "%s%g/%s", k++ ? ", " : "", pr[i][0], e);
@@ -2738,7 +2738,7 @@ run(void)
 	 * stage 2: the best at every cost, then the best scores; floats are
 	 * trained again and polished; every one measured
 	 */
-	qsort(F.sh, (size_t)F.nsh, sizeof *F.sh, by_cost_err);
+	xsort(F.sh, (size_t)F.nsh, sizeof *F.sh, by_cost_err);
 	m2 = F.count / 4 < 8 ? 8 : F.count / 4 > AF_STAGE2 ? AF_STAGE2 : F.count / 4;
 	if (F.oint)
 		m2 = F.nsh;
@@ -2755,13 +2755,13 @@ run(void)
 		}
 		i = j - 1;
 	}
-	qsort(F.sh, (size_t)F.nsh, sizeof *F.sh, by_score1);
+	xsort(F.sh, (size_t)F.nsh, sizeof *F.sh, by_score1);
 	for (i = 0; i < F.nsh && n2 < m2; i++)
 		if (F.sh[i].ok && !F.sh[i].pick) {
 			F.sh[i].pick = 1;
 			n2++;
 		}
-	qsort(F.sh, (size_t)F.nsh, sizeof *F.sh, by_pick);
+	xsort(F.sh, (size_t)F.nsh, sizeof *F.sh, by_pick);
 	if (!F.oint) {
 		sample(F.nv == 1 ? 257 : AF_T);
 		if (!F.autom)
@@ -2808,7 +2808,7 @@ run(void)
 			best2 = s->score;
 	}
 	forget(TMP);
-	qsort(F.sh, (size_t)n2, sizeof *F.sh, by_score);
+	xsort(F.sh, (size_t)n2, sizeof *F.sh, by_score);
 	{
 		/* shapes that came to the same expression (an integer form's zero
 		 * terms, a constant fitted to 1): once */
@@ -2825,7 +2825,7 @@ run(void)
 				}
 		}
 		free(h);
-		qsort(F.sh, (size_t)n2, sizeof *F.sh, by_score);
+		xsort(F.sh, (size_t)n2, sizeof *F.sh, by_score);
 		for (q = n2; q > 0 && !isfinite(F.sh[q - 1].score); q--)
 			;
 		n2 = q;
@@ -2855,7 +2855,7 @@ run(void)
 			s->score = score_of(s->cost, s->bound >= 0 ? s->bound :
 			    s->merr);
 		}
-		qsort(F.sh, (size_t)nl, sizeof *F.sh, by_score);
+		xsort(F.sh, (size_t)nl, sizeof *F.sh, by_score);
 		printf("  %s candidates (defined as %s1 ...):\n", F.autom ? "closest" :
 		    "best", F.name);
 		printf("  #   score   cost  measured      proved             shape\n");

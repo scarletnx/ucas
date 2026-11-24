@@ -834,7 +834,7 @@ search(struct prob *P, const struct cf_target *t, double bound, long steps,
 		memset(&p, 0, sizeof p);
 		enum_steps(&p, len, t->feat, bound);
 	}
-	qsort(sks, (size_t)nsk, sizeof *sks, cmp_sk);
+	xsort(sks, (size_t)nsk, sizeof *sks, cmp_sk);
 	/* fixed starting counterexamples (a fixed seed: deterministic) */
 	{
 		uint64_t s = 0x9e3779b97f4a7c15ULL;

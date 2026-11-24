@@ -1637,7 +1637,7 @@ find_feats(struct ev *e, const double *base, int s, double lo, double hi,
 			if (ok[i] == 1 && ok[i + 1] == 1)
 				d[m++] = fabs(ys[i + 1] - ys[i]);
 		if (m) {
-			qsort(d, m, sizeof *d, dcmp);
+			xsort(d, m, sizeof *d, dcmp);
 			medd = d[m / 2];
 		}
 		free(d);
@@ -1903,7 +1903,7 @@ auto1(struct ev *e, const double *base, int s, int at_set, double at,
 				double d[MAXFEAT];
 				for (k = 0; k < F.n; k++)
 					d[k] = fabs(F.x[k]);
-				qsort(d, F.n, sizeof d[0], dcmp);
+				xsort(d, F.n, sizeof d[0], dcmp);
 				lim = d[7] * (1 + 1e-9);
 			}
 			for (k = 0; k < F.n; k++) {
@@ -2222,7 +2222,7 @@ vrange(double *v, int n, int haspole, int lg, double *lo, double *hi,
 		*vmin = *vmax = NAN;
 		return 0;
 	}
-	qsort(s, m, sizeof *s, dcmp);
+	xsort(s, m, sizeof *s, dcmp);
 	mn = s[0];
 	mx = s[m - 1];
 	q10 = s[(int)(0.1 * (m - 1))];

@@ -24,6 +24,12 @@
 #define NOTOK UINT32_MAX
 
 /* ---- util.c ---- */
+/* qsort, stable: equal keys keep their order, so what is printed from a
+ * sorted list is the same whichever C library sorts it (qsort leaves the
+ * order of equal keys to the library, and FreeBSD's is not stable) */
+void xsort(void *base, size_t n, size_t size,
+    int (*cmp)(const void *, const void *));
+int xsort_selftest(void);	/* the number of checks that failed */
 void *xmalloc(size_t n);
 void *xcalloc(size_t n, size_t sz);
 void *xrealloc(void *p, size_t n);

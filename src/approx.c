@@ -1183,7 +1183,7 @@ build_sample(void)
 			py = y;
 		}
 	}
-	qsort(xs, n, sizeof *xs, cmpd);
+	xsort(xs, n, sizeof *xs, cmpd);
 	A.ns = 0;
 	for (i = 0; i < n; i++)
 		if ((A.ns == 0 || xs[i] != xs[A.ns - 1]) && xs[i] >= A.lo &&
@@ -3093,7 +3093,7 @@ rank(void)
 		if (c->meets)
 			c->front = 1;
 	}
-	qsort(A.cd, A.nc, sizeof *A.cd, cand_cmp);
+	xsort(A.cd, A.nc, sizeof *A.cd, cand_cmp);
 }
 
 /*

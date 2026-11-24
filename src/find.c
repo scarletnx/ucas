@@ -770,9 +770,7 @@ show_new(int want)
 	int i, shown = 0;
 	struct sbuf w = {0};
 
-	/* qsort with a null base is undefined, even with no elements */
-	if (F.nm > 1)
-		qsort(F.m, (size_t)F.nm, sizeof *F.m, cmp_match);
+	xsort(F.m, (size_t)F.nm, sizeof *F.m, cmp_match);
 	for (i = 0; i < F.nm && shown < want; i++) {
 		int sampled, bad;
 		struct eqproof pr;
@@ -1361,9 +1359,7 @@ peep_cands(nid root, struct pcand **out)
 	free(mark);
 	free(st);
 	notes_drop();
-	/* qsort with a null base is undefined, even with no elements */
-	if (nc > 1)
-		qsort(c, (size_t)nc, sizeof *c, cmp_pcand);
+	xsort(c, (size_t)nc, sizeof *c, cmp_pcand);
 	*out = c;
 	return nc;
 }
@@ -1415,7 +1411,7 @@ with_rewrites(const struct func *f, nid root, struct pcand **c, int nc)
 		nc++;
 	}
 	irw_free(r, nr);
-	qsort(*c, (size_t)nc, sizeof **c, cmp_pcand);
+	xsort(*c, (size_t)nc, sizeof **c, cmp_pcand);
 	return nc;
 }
 
@@ -3849,7 +3845,7 @@ find_cands(struct func *f, int maxcost, double seconds, nid *out,
 	memcpy(fail_jmp, saved, sizeof saved);
 	note_mute--;
 	fquiet = 0;
-	qsort(F.m, (size_t)F.nm, sizeof *F.m, cmp_match);
+	xsort(F.m, (size_t)F.nm, sizeof *F.m, cmp_match);
 	for (i = 0; i < F.nm && n < max; i++) {
 		out[n] = F.m[i].e;
 		snprintf(why[n], sizeof why[n], "%s", F.m[i].why ? F.m[i].why : "");

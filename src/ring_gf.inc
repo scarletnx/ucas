@@ -225,7 +225,7 @@ zn_info(u64 n, int sub)
 			}
 			list[nl++] = r;
 		}
-		qsort(list, (size_t)nl, sizeof(u64), cmpu);
+		xsort(list, (size_t)nl, sizeof(u64), cmpu);
 		{
 			char lab[96];
 			snprintf(lab, sizeof lab, "idempotents: 2^%d (e = 0 or 1 mod "
