@@ -3095,7 +3095,7 @@ model gt1030 { ...,
   atomic_shared_same: 63.75, atomic_shared_f: 24.25,
   atomic_global_f: 138.75, atomic_global_64: 264.625,
   atomic_global_cas: 143.5, atomic_global_stream: 137.5,
-  tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75,
+  tex_fetch: 43.125, tex_sample: 21.625, tex_sample_8: 15, tex_sample_f32: 54.75,
   image_load: 31.875 }
 ```
 
@@ -3107,7 +3107,7 @@ model gt1030 { ...,
 | `load_stream`, `store_stream` | a DRAM-bound stream | `load`, `store` |
 | `atomic_shared_same`, `atomic_shared_f` | every lane on one address; a float add | `atomic_shared` |
 | `atomic_global_f`, `_64`, `_cas`, `_stream` | float add, 64-bit add, compare-and-swap, DRAM | `atomic_global` |
-| `tex_fetch`, `tex_sample`, `tex_sample_f32`, `image_load` | texelFetch, an explicit-LOD sample (rgba8, rgba32f), imageLoad | `load` (`tex_sample_f32`: `tex_sample`) |
+| `tex_fetch`, `tex_sample`, `tex_sample_8`, `tex_sample_f32`, `image_load` | texelFetch, an explicit-LOD sample (rgba8 or any format a shader does not say; of one-byte texels; rgba32f), imageLoad | `load` (`tex_sample_8`, `tex_sample_f32`: `tex_sample`) |
 
 `banks`, `bank_bytes` and `warp` are counts, not prices, as is
 `nan_payload: 1`, a target that keeps a quiet NaN's payload through
@@ -5167,8 +5167,10 @@ a D32_SFLOAT LESS_OR_EQUAL read) (tests/texcompare.ucas).
 
 **Cost classes and parameters.**  `tex_nearest` prices a `fetch_` read
 (its coordinate, (i + 1/2)/n made from the index, costs a `conv` and an
-`fmul` more), `tex_sample` a filtered read of an 8-bit normalised
-texture (every texel k/255), `tex_sample_16` one of a 16-bit
+`fmul` more), `tex_sample_8` a filtered read of an 8-bit normalised
+texture (every texel k/255; `tex_sample` prices it where a model does
+not list that class, and any sampled read of a shader, whose SPIR-V
+does not say the format), `tex_sample_16` one of a 16-bit
 normalised texture (k/65535), `tex_sample_f16` one of a half-float
 texture and `tex_sample_f32` one of a 32-bit float texture (no built-in
 model lists the two 16-bit classes: not measured).  They are memory kinds (above) in a model's list, but a read
@@ -5187,8 +5189,9 @@ gt1030 lists what the 2026-11-11 run measured: `tex_sample: 21.625`
 (x_tex_bilinear, rgba8, explicit LOD: 21.65 and 21.31) and
 `tex_sample_f32: 54.75` (rgba32f: 54.80), and from
 tests/gt1030/probe.py `tex_nearest: 21.625` (the same texture read
-NEAREST, 22.65 with its add beside the bilinear read's 22.42) and
-`subtexel: 8` (the card's subTexelPrecisionBits).  The filter's
+NEAREST, 22.65 with its add beside the bilinear read's 22.42),
+`tex_sample_8: 15` (tex_bilinear_r8, an R8 texture of that size, 16.04
+with its add) and `subtexel: 8` (the card's subTexelPrecisionBits).  The filter's
 exactness is not known (the probe's run could not tell the weight
 grid), so under gt1030 as it stands no filtered read is offered:
 `texalu` says which number is missing.
@@ -5310,7 +5313,7 @@ grid), so under gt1030 as it stands no filtered read is offered:
   says so), a 2-D nearest read that would drop the packed index.
 
 The texture's format is the cheapest the model lists among those that
-hold the table: bytes (R8_UNORM, priced `tex_sample`) when every entry
+hold the table: bytes (R8_UNORM, priced `tex_sample_8`) when every entry
 is k/255, or a whole number 0..255 (stored as k/255, the read scaled by
 255), or one of evenly spaced levels lo + step m with at most 256 of
 them (the bytes are m, spread over 0..255 when the largest m divides
@@ -5365,7 +5368,7 @@ texalu f: reads through the texture unit under cal (cost 20.375 as written):
         one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
 > s4(x: u8 in 0..2, y: u8 in 0..2) = B[y*4 + x] + B[y*4 + x + 1] + B[y*4 + x + 4] + B[y*4 + x + 5]
 > texalu s4 under cal                       (B: 16 bytes)
-  cost 33.625 int(1020tex_bilinear8([...], 4, f32(x) + 1, f32(y) + 1) + 0.5)      (35.5 as written)
+  cost 27  int(1020tex_bilinear8([...], 4, f32(x) + 1, f32(y) + 1) + 0.5)      (35.5 as written)
       4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
       ...
       the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum
@@ -5376,7 +5379,8 @@ texalu f: the texture unit under gt1030 (cost 20.375 as written): nothing taken
 ```
 
 Under `cal`, `T[min(max(i, 0), 6)]` stays (8.875 against 9: "derived,
-but not cheaper"), and with `tex_sample: 40` so does the sum of four.
+but not cheaper"), and with `tex_sample: 40, tex_sample_8: none` so does
+the sum of four.
 A mix `(1 - t) T[i] + t T[i + 1]` is one read at fraction t, within
 2^-8 times the largest step, so it needs `tol`; a fixed pair at
 fraction 3/4 is within the filter's own rounding.  A 3 x 3 kernel is
@@ -6504,11 +6508,11 @@ the filter's own error (tex_within) and an R8 read's fma back to the
 value.  The sink's budget is carried down to the value: the largest
 bound that keeps the stored value within the step with the rewrites
 taken, several reads sharing what those leave.  The smallest table
-within it is taken, the cheaper read first (tex_sample: R8 and two fmas;
-tex_sample_f32: f32 and one), where it costs less than the operations
-it replaces.  A filmic curve of c on [0, 1] into an 8-bit target (31
-at gt1030's prices) is a 33-texel R8 read (23.6) within 0.00338 of the
-0.00392 a step allows, under a model that states tex_within; gt1030
+within it is taken, the cheaper read first (tex_sample_8: R8 and two
+fmas; tex_sample_f32: f32 and one), where it costs less than the
+operations it replaces.  A filmic curve of c on [0, 1] into an 8-bit
+target (31 at gt1030's prices) is a 33-texel R8 read (17) within 0.00338
+of the 0.00392 a step allows, under a model that states tex_within; gt1030
 does not (how far its filter is from the exact weighted sum is not
 measured), so under it the report says so and offers nothing
 (tests/sinktable.ucas).

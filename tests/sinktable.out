@@ -60,7 +60,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %92 = OpFAdd %float %88 %91
-      a function of c on [0, 1] as a table read, cost 23.625 (-7.375)
+      a function of c on [0, 1] as a table read, cost 17 (-14)
         as fma(textureLod(T, fma(c, 32.0, 0.5), 0.0).r, 0.750143588, 0.257203996)
         T: a texture R8_UNORM, 33 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
         a table of 33 texels at x_j = 0 + j h, h = 0.03125, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, O) turns back, read with linear filtering at texel coordinate fma(x, 32, 0.5) (texel j's centre at j + 1/2):
@@ -136,7 +136,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %90 = OpExtInst %v3float %2 Pow %88 %45
-      a function of c on [0, 1] as a table read, cost 23.625 (-0.375)
+      a function of c on [0, 1] as a table read, cost 17 (-7)
         as fma(textureLod(T, fma(c, 16.0, 0.5), 0.0).r, 0.725092649, 0.2831164), component by component
         T: a texture R8_UNORM, 17 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
         a table of 17 texels at x_j = 0 + j h, h = 0.0625, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, O) turns back, read with linear filtering at texel coordinate fma(x, 16, 0.5) (texel j's centre at j + 1/2):
@@ -252,7 +252,7 @@ float simplify: 4 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %124 = OpExtInst %float %2 Pow %123 %float_0_45449999
-      a function of b on [0, 1] as a table read, cost 23.625 (-0.375)
+      a function of b on [0, 1] as a table read, cost 17 (-7)
         as fma(textureLod(T, fma(b, 8.0, 0.5), 0.0).r, 0.554287612, 0.447431296)
         T: a texture R8_UNORM, 9 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
         a table of 9 texels at x_j = 0 + j h, h = 0.125, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, O) turns back, read with linear filtering at texel coordinate fma(x, 8, 0.5) (texel j's centre at j + 1/2):
@@ -263,7 +263,7 @@ float simplify: 4 rewrites of float instructions applied, each with a derivation
           the sink: with the 2 table reads here in place, exact, and the other rewrites taken, the stored value moves by 0; the reads in turn, those before at their bounds, each takes the largest bound that keeps it within one more of 2 equal shares of the rest of the 0.00392 one step allows; with every read's, at most 0.00328
         texels: 0 67 130 179 212 232 244 251 255
     %110 = OpExtInst %float %2 Pow %109 %float_0_45449999
-      a function of a on [0, 1] as a table read, cost 23.625 (-0.375)
+      a function of a on [0, 1] as a table read, cost 17 (-7)
         as fma(textureLod(T, fma(a, 16.0, 0.5), 0.0).r, 0.725092649, 0.2831164)
         T: a texture R8_UNORM, 17 x 1, one level, the texels in table2.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
         a table of 17 texels at x_j = 0 + j h, h = 0.0625, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, O) turns back, read with linear filtering at texel coordinate fma(x, 16, 0.5) (texel j's centre at j + 1/2):
@@ -340,11 +340,19 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %80 = OpExtInst %float %2 Pow %78 %float_0_45449999
-      a function of c on [0, 1] as a table read, cost 23.625 (-0.375)
-        no table of up to 2049 texels is within the 0.000244 its value may move: 1025 texels R8 come to about 0.00143 (sampled)
+      a function of c on [0, 1] as a table read, cost 19 (-5)
+        as fma(textureLod(T, fma(c, 64.0, 0.5), 0.0).r, 0.0487948656, fma(fma(-1.10204959, c, 1.82497633), c, 0.236396506))
+        T: a texture R8_UNORM, 65 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
+        f less the trend R(x) = 0.236396506 + 1.82497633 x + -1.10204959 x^2 (f32 coefficients, fitted by least squares to f at the knots, its constant taking f - R's least value there): a table of 65 texels at x_j = 0 + j h, h = 0.015625, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, R(x)) turns back, R by Horner in f32, read with linear filtering at texel coordinate fma(x, 64, 0.5) (texel j's centre at j + 1/2):
+          the line between texels against the original's f32 value less R, on every float of the range: within 0.000203 (35785 pieces, each bounded by the interval of the original's own operations on it, less R's interval there (its ends, and its vertex inside) against the line's values at its ends and knots; sampled at 9 points a segment, 0.000159)
+          the coordinate: f32 moves it by at most 3.84e-06 texel and the unit snaps a weight by less than 2^-8, times the largest step between neighbouring texels (0.0105): 4.12e-05
+          the filter within 1 ulp of the exact weighted sum (the model's tex_within): 5.82e-09; R by Horner in f32, each fma rounding once (|R| <= 0.992 on the range): 1.68e-07; fma(r, 0.0487948656, R(x)) rounds once: 6.2e-08
+          in all 0.000244, against the 0.000244 its value may move
+          the sink: the most it may move this value is the largest bound that, carried to the stored value with the other rewrites taken (as for them), stays within the step; with this table's, at most 0.000244 of the 0.000244 one step allows
   not applied:
     %80 = OpExtInst %float %2 Pow %78 %float_0_45449999   (pow as exp2(y * log2 x))
         not cheaper under texsink
+  (nofile: table1.bin, 65 bytes, checksum 373267d5)
   (nofile: simplified.spvasm, 2397 bytes, checksum 7b4ccb83)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Curve: called from a compute shader's main(), its arguments read from a buffer
@@ -519,7 +527,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         (line 1: float Curve(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x)
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %80 = OpExtInst %float %2 Pow %78 %float_0_45449999
-      a function of c on [-inf, inf] as a table read, cost 23.625 (-0.375)
+      a function of c on [-inf, inf] as a table read, cost 17 (-7)
         a table needs c's range to be bounded and without NaN (assume one: c in [a, b])
   not applied:
     %80 = OpExtInst %float %2 Pow %78 %float_0_45449999   (pow as exp2(y * log2 x))
@@ -645,7 +653,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
   table reads (a proposal, never applied: a module cannot add the texture's binding):
     %80 = OpExtInst %float %2 Pow %78 %float_0_45449999
-      a function of c on [0, 1] as a table read, cost 23.625 (-0.375)
+      a function of c on [0, 1] as a table read, cost 17 (-7)
         gt1030 does not say how far its filter is from the exact weighted sum (tex_within): no table read is offered
   not applied:
     %80 = OpExtInst %float %2 Pow %78 %float_0_45449999   (pow as exp2(y * log2 x))

@@ -60,7 +60,7 @@ _() = 0.858823538
 > s4(x: u8 in 0..2, y: u8 in 0..2) = R[y*4 + x] + R[y*4 + x + 1] + R[y*4 + x + 4] + R[y*4 + x + 5]
 > texalu s4 under cal
 texalu s4: reads through the texture unit under cal (cost 35.5 as written):
-  cost 33.625 int(1020tex_bilinear8([1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538], 4, f32(x) + 1, f32(y) + 1) + 0.5)
+  cost 27  int(1020tex_bilinear8([1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538], 4, f32(x) + 1, f32(y) + 1) + 0.5)
       4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
       holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
       a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255)
