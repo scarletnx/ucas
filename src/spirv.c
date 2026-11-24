@@ -229,16 +229,6 @@ entry_model(void)
 			return V.in[k].opnd[0];
 	return NULL;
 }
-/*
- * Whether an elapsed time is worth printing: shorter than half a second is
- * noise, not news, and UCAS_NO_TIMES (set by `make test`) leaves times out
- * so that outputs do not depend on the machine's load.
- */
-static int
-show_time(double el)
-{
-	return el >= 0.5 && getenv("UCAS_NO_TIMES") == NULL;
-}
 
 static int fnl_mode;	/* the function level: 0 too, 1 alone, 2 not */
 static char *src_text;	/* OpSource's text, when there is one */

@@ -61,6 +61,7 @@ void note(const char *fmt, ...);
 extern int note_mute;      /* > 0: note() does nothing */
 void notes_flush(void);
 void notes_drop(void);
+int show_time(double el);	/* an elapsed time is worth printing */
 int ilog2u(uint64_t v);       /* floor(log2(v)), -1 for 0 */
 int bits_for(uint64_t v);     /* bits needed to hold v (0 -> 1) */
 
