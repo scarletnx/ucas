@@ -962,6 +962,7 @@ struct ex {
 	int pbprec;
 	int hv;          /* a constant with value v: pi/2, 2^10 */
 	double v;
+	const char *eq;  /* a == b as a - b, zero where they are equal */
 };
 
 static int
@@ -1018,6 +1019,8 @@ mkbin(struct ex a, const char *op, struct ex b, int prec)
 	r.ity = icomb(a.ity, b.ity);
 	r.isbool = prec == P_CMP || ((prec == P_AND || prec == P_OR) &&
 	    a.isbool && b.isbool);
+	if (prec == P_CMP && !strcmp(op, "=="))
+		r.eq = mkbin(a, "-", b, P_ADD).s;
 	r.lit = a.lit && b.lit;
 	if (a.hv && b.hv) {
 		r.hv = 1;
@@ -7984,6 +7987,13 @@ finish(void)
 		return;
 	default:
 		break;
+	}
+	/* the zeros (roots) of an equation: where its two sides are equal */
+	if (Q.cmd == C_PCMD && !strcmp(Q.pcmd, "zeros") && !Q.a.named &&
+	    Q.a.e.eq && Q.a.e.prec == P_CMP) {
+		Q.a.e.s = Q.a.e.eq;
+		Q.a.e.prec = P_ADD;
+		Q.a.e.isbool = 0;
 	}
 	if (Q.cmd == C_PCMD)
 		/* "on [0, 7]": a real interval unless a type was given */

@@ -480,13 +480,15 @@ slerp(1, k, 1/2) = sqrt(2)/2 + k*sqrt(2)/2
   note: on the branch cut of sqrt: the principal value, sqrt z = e^(log(z)/2): i sqrt|z| on the negative reals (the other root is its negative)
 2i
 > roots of z^3 = 1
+  ucas: it(z) = z^3 - 1
+  ucas: zeros it
   note: z is taken as complex (no x or y here; say z: real for a real variable)
-zeros of z^3 - 1 (z complex):
+zeros of it (z complex):
   3 roots (a polynomial of degree 3):
     z = -1/2 - i*sqrt(3)/2
     z = -1/2 + i*sqrt(3)/2
     z = 1
-  check: |z^3 - 1| <= 2e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  check: |it| <= 2e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
   a polynomial of degree 3 has 3 complex roots counted with multiplicity (the fundamental theorem of algebra)
 > is z^2 holomorphic
   ucas: holomorphic z^2
