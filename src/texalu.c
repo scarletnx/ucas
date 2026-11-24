@@ -718,6 +718,14 @@ static struct {
 	struct sbuf nocmp;	/* a sum of compares not taken, and why */
 } X;
 
+/* the class that prices a filtered read of a format's texels: the bytes'
+ * is tex_sample_8 where the model lists it */
+static int
+read_class(int fmt)
+{
+	return fmt == C_TEX_SAMPLE ? tex8_class(X.m) : fmt;
+}
+
 static double
 cval(nid n)
 {
@@ -4988,7 +4996,7 @@ seed_sum1(nid body, nid root)
 				g.ix[g.n++] = i;
 		if (g.n < 2 || !grid_make(s, &g))
 			continue;
-		if (!model_lists(X.m, g.ti.cls)) {
+		if (!model_lists(X.m, read_class(g.ti.cls))) {
 			X.unavail[g.ti.cls] = 1;
 			continue;
 		}
@@ -5045,9 +5053,9 @@ seed_sum1(nid body, nid root)
 		memset(&cv, 0, sizeof cv);
 		cv.s = s;
 		cv.g = &g;
-		cv.ptap = X.m->c[g.ti.cls] + (tri ? 3 : g.H > 1 ? 2 : 1) *
-		    X.m->c[C_FADD] + X.m->c[C_FMUL] + (g.wrap && !tri ? (g.H >
-		    1 ? 2 : 1) * X.m->c[C_FMUL] : 0);
+		cv.ptap = X.m->c[read_class(g.ti.cls)] + (tri ? 3 : g.H > 1 ?
+		    2 : 1) * X.m->c[C_FADD] + X.m->c[C_FMUL] + (g.wrap && !tri ?
+		    (g.H > 1 ? 2 : 1) * X.m->c[C_FMUL] : 0);
 		/* a 3-D read: the third axis, and the coordinates normalised */
 		if (tri)
 			cv.ptap += X.m->c[C_TEX_3D] + 3 * X.m->c[C_FMUL];
@@ -5788,7 +5796,7 @@ func_table(struct fcand *o, double *g, int64_t K, int quant, int isint,
 	free(e);
 	if (!table_info(tabk, &o->ti) || (quant && !o->ti.levels))
 		return 0;
-	if (!model_lists(X.m, o->ti.cls)) {
+	if (!model_lists(X.m, read_class(o->ti.cls))) {
 		X.unavail[o->ti.cls] = 1;
 		return 0;
 	}
@@ -6190,7 +6198,8 @@ func_knots(const struct tabfn *tf, float before, struct fcand *lin)
 	}
 	if (X.ulp == 0) {
 		/* which class it would be, to say what is missing */
-		if (table_info(tf->tab, &ti) && !model_lists(X.m, ti.cls))
+		if (table_info(tf->tab, &ti) &&
+		    !model_lists(X.m, read_class(ti.cls)))
 			X.unavail[ti.cls] = 1;
 		else
 			X.noulp = 1;
@@ -6291,8 +6300,9 @@ seed_func(nid body)
 	for (q = 0; q < 4; q++) {
 		static const int fc[4] = {C_TEX_SAMPLE, C_TEX_SAMPLE_16,
 		    C_TEX_SAMPLE_F16, C_TEX_SAMPLE_F32};
-		if (model_lists(X.m, fc[q]) && X.m->c[fc[q]] < floorp)
-			floorp = X.m->c[fc[q]];
+		int rc = read_class(fc[q]);
+		if (model_lists(X.m, rc) && X.m->c[rc] < floorp)
+			floorp = X.m->c[rc];
 	}
 	if (floorp < INFINITY && !(floorp < before))
 		return;

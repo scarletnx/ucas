@@ -32,3 +32,83 @@ cost model: rx
 > cost g
 cost of g under rx: 40 (1 operations, shared subterms counted once)
   tex_sample       1 x 40    = 40
+> tone(x: u16 in 0..1023) = sqrt(f32(x)/1023)*(f32(x) + 100)/(f32(x) + 400)/(1 + sqrt(f32(x)/2046))/(2 - f32(x)/1023)
+> model near0 : r8 { tex_nearest: none, load: 90 }
+> use near0
+cost model: near0
+> cost tone
+cost of tone under near0: 31 (13 operations, shared subterms counted once)
+  shared subterms (named once, used below):
+    t1 = f32(x)/1023
+  conv             1 x 3     = 3
+  fadd             4 x 1     = 4
+  fmul             1 x 1     = 1
+  fdiv             5 x 3     = 15
+  fsqrt            2 x 4     = 8
+> texalu tone tol 0.01
+texalu tone: reads through the texture unit under near0 (cost 31 as written):
+  cost 20  0.462898076tex_linear8([0, 0.141176477, 0.247058824, 0.349019617, 0.454901963, 0.568627477, 0.690196097, 0.831372559, 1], 0.0078125f32(x) + 0.5)
+      sqrt(t1)*(f32(x) + 100)/(f32(x) + 400)/(sqrt(f32(x)/2046) + 1)/(2 - t1) where t1 = f32(x)/1023 as 9 knots read with the linear filter: the function at every 128th value of x from 0, moved onto 256 evenly spaced levels
+      holds where x is in [0, 1023] (its range)
+      a linear read at fraction u of texels a, b is (1-u) a + u b; at texel coordinate x/128 + 1/2 the texels are knots k and k + 1 with k = x >> 7 and u = (x & 127)/128 (the last knot, past the range, is on the line through the knot before it and the last point)
+        the fraction is a multiple of 2^-7, on the unit's 2^-8 grid, and the coordinate is exact in f32: the weights do not move
+        that line against the function at every one of the 1024 points: the function less the line is in [-0.00178, 0.0082]
+        the filter is within 2 ulp of that sum (the model's tex_within), the texels as k/q, the map back to the values: 1.78e-07
+      against the function's f32 value the read is within 0.0082
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 1024 points: largest difference 0.0082
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 9 x 1, one level: the knots' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, c, 0.0).r at the texel coordinate c = 0.0078125f32(x) + 0.5
+        setup (the descriptor, the upload) is not in the model: not measured
+> P4 = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 0.8, 0.6, 0.4, 0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+> bx(x: u8 in 0..1, y: u8 in 0..2) = (P4[y*4+x] + P4[y*4+x+1] + P4[y*4+x+2] + P4[y*4+x+4] + P4[y*4+x+5] + P4[y*4+x+6])/6
+> model r15 : gt1030 { tex_within: 2, tex_sample: 15, tex_sample_8: none }
+> texalu bx tol 0.01 under r8
+texalu bx: reads through the texture unit under r8 (cost 56.25 as written):
+  cost 51.75 real(0.666666687tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1], 4, f32(x) + 2, f32(y) + 1) + 0.166666672f32([0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1][t1]) + 0.166666672f32([0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1][t1 + 4])) where t1 = 4y + x
+      4 entries of the 4 x 4 table from offset (1, 0), weights' sum 0.666667: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 1], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.666667 with u = 0.5, v = 0.5 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.59e-07; the texels as f32: 1.59e-08; in all 2.54e-07
+      against the exact weighted sum of the entries the reads are within 4.93e-07; as written, the sum's own f32 rounding is within 3.58e-07 (gamma_6 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 6 points: largest difference 3.18e-08
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 4 x 4, one level: the table's entries times 255 as bytes
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        the same texels are exact as BC4_UNORM blocks, 8 bytes against 16 (texenc; a BC4 read is not priced apart)
+        setup (the descriptor, the upload) is not in the model: not measured
+> texalu bx tol 0.01 under r15
+texalu bx: reads through the texture unit under r15 (cost 56.25 as written):
+  cost 51.75 real(0.666666687tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1], 4, f32(x) + 2, f32(y) + 1) + 0.166666672f32([0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1][t1]) + 0.166666672f32([0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1][t1 + 4])) where t1 = 4y + x
+      4 entries of the 4 x 4 table from offset (1, 0), weights' sum 0.666667: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 1], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.666667 with u = 0.5, v = 0.5 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.59e-07; the texels as f32: 1.59e-08; in all 2.54e-07
+      against the exact weighted sum of the entries the reads are within 4.93e-07; as written, the sum's own f32 rounding is within 3.58e-07 (gamma_6 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 6 points: largest difference 3.18e-08
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 4 x 4, one level: the table's entries times 255 as bytes
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        the same texels are exact as BC4_UNORM blocks, 8 bytes against 16 (texenc; a BC4 read is not priced apart)
+        setup (the descriptor, the upload) is not in the model: not measured
+> model only8 : r8 { tex_sample: none, tex_nearest: none }
+> texalu s4 under only8
+texalu s4: reads through the texture unit under only8 (cost 35.5 as written):
+  cost 27  int(1020tex_bilinear8([0.0117647061, 0.0352941193, 0.105882354, 0.31764707, 0.952941179, 0.00392156886, 0.784313738, 0.392156869, 0.196078435, 0.0980392173, 0.0470588244, 0.0235294122, 0, 1, 0.501960814, 0.250980407], 4, f32(x) + 1, f32(y) + 1) + 0.5)
+      4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 0.000243; the texels as f32: 3.03e-05; in all 0.000395
+      the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 4 x 4, one level: the table's entries as bytes (the shader sees k/255)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured

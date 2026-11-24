@@ -109,9 +109,8 @@ texalu s8: the texture unit under gt1030 (cost 74 as written): nothing taken
 > sw(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = 2*B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
 > texalu sw under cal
 texalu sw: the texture unit under cal (cost 75 as written): nothing taken
-  2 entries of the 4 x 4 x 4 table from offset (0, 0, 0), weights' sum 3: one read at fraction 0.333333 along x, 0 along y, 0 along z
-  4 entries of the 4 x 4 x 4 table from offset (0, 1, 0), weights' sum 4: one read at fraction 0.5 along x, 0 along y, 0.5 along z
-  2 entries of the 4 x 4 x 4 table from offset (0, 0, 1), weights' sum 2: one read at fraction 0.5 along x, 0 along y, 0 along z: the reads are within 2.74 of the sum, not below 1/2
+  derived, but not cheaper under cal (cost 83.5, as written 75):
+  4 entries of the 4 x 4 x 4 table from offset (0, 0, 1), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y, 0 along z
 > so(x: u8 in 0..3, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
 > texalu so under cal
 texalu so: the texture unit under cal (cost 74 as written): nothing taken
@@ -120,10 +119,8 @@ texalu so: the texture unit under cal (cost 74 as written): nothing taken
 > s7(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20]
 > texalu s7 under cal
 texalu s7: the texture unit under cal (cost 65.125 as written): nothing taken
-  derived, but not cheaper under cal (cost 115.875, as written 65.125):
-  2 entries of the 4 x 4 x 4 table from offset (1, 0, 0), weights' sum 2: one read at fraction 0 along x, 0.5 along y, 0 along z
-  2 entries of the 4 x 4 x 4 table from offset (0, 1, 0), weights' sum 2: one read at fraction 0 along x, 0 along y, 0.5 along z
-  2 entries of the 4 x 4 x 4 table from offset (0, 0, 1), weights' sum 2: one read at fraction 0.5 along x, 0 along y, 0 along z
+  derived, but not cheaper under cal (cost 73.625, as written 65.125):
+  4 entries of the 4 x 4 x 4 table from offset (0, 0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y, 0 along z
 > sxz(x: u8 in 0..2, z: u8 in 0..2) = B[z*16 + 4 + x] + B[z*16 + 4 + x + 1] + B[z*16 + 4 + x + 16] + B[z*16 + 4 + x + 17]
 > texalu sxz under cal
 texalu sxz: reads through the texture unit under cal (cost 36.5 as written):

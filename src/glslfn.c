@@ -56,6 +56,7 @@
 #include "calc.h"
 #include "fuse.h"
 #include "irw.h"
+#include "memk.h"
 #include "snxglslc/internal.h"
 
 /* ---- the syntax tree ---- */
@@ -7792,7 +7793,7 @@ tex_candidate(int x)
 	if (g->ty != TU && g->ty != TI)
 		return 0;
 	if (!m->par[MP_SUBTEXEL] || !(cclass_available(m, C_TEX_NEAREST) ||
-	    (cclass_available(m, C_TEX_SAMPLE) && m->par[MP_TEX_WITHIN])))
+	    (cclass_available(m, tex8_class(m)) && m->par[MP_TEX_WITHIN])))
 		return 0;
 	if (g->k == X_IDX)
 		return table_read(x);

@@ -88,3 +88,35 @@ simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
   nothing found at the function level
   (nofile: simplified.spvasm, 2865 bytes, checksum 381e37d0)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model only8 : gt1030 { tex_within: 2, tex_nearest: none, tex_sample: none, tex_sample_8: 15 }
+> use only8
+cost model: only8
+> spvsimplify nofile
+simplify: 105 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under only8 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 12 -> 12 (+0.0%)
+  counting the strength reductions any driver also does: 12 -> 12 (+0.0%)
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  subgroup forms that need the subgroup's size fixed, proposed (pipeline state: the module is not changed), under only8:
+    %32, a table of 16 entries read 4 times at a dynamic index (line 5)
+      as a register of the subgroup, lane l holding entry l (one read of the table), each read a shuffle from the lane its index names: cost 27.5 -> 22.875
+      it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  box (line 5), called from main (line 8)
+    line 5: table reads through the texture unit (a proposal: the pipeline changes)
+      Q[y * 4u + x] + Q[y * 4u + x + 1u] + Q[y * 4u + x + 4u] + Q[y * 4u + x + 5u]
+        ->  u32(1020tex_bilinear8([0.0117647061, 0.0352941193, 0.105882354, 0.31764707, 0.952941179, 0.00392156886, 0.784313738, 0.392156869, 0.196078435, 0.0980392173, 0.0470588244, 0.0235294122, 0, 1, 0.501960814, 0.250980407], 4, f32(x) + 1, f32(y) + 1) + 0.5)
+        the pipeline needs:
+          a texture R8_UNORM, 4 x 4, one level: the table's entries as bytes (the shader sees k/255)
+          a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+          one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+          setup (the descriptor, the upload) is not in the model: not measured
+      proof: equal, by the derivation it relies on (texalu), over the values its leaves take where it runs
+      cost under only8: 35.5 -> 27 each time it runs
+      relies on: y in 0..1; x in 0..1 where line 5 runs; holds where x in [0, 1], y in [0, 1] (proved ranges): every texel read is inside the table; a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255);   the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move;   the filter is within 2 ulp of that sum (the model's tex_within): 0.000243; the texels as f32: 3.03e-05; in all 0.000395; the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor); checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 4 points: equal
+  (nofile: simplified.spvasm, 3744 bytes, checksum d1b7c992)
