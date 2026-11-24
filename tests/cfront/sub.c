@@ -20,3 +20,12 @@ int32_t step_diff(uint8_t i, uint8_t code, int32_t p) {
     return p + d;
 }
 
+/* the same d twice in one clamp: one table, two reads */
+int32_t step_sat(uint8_t i, uint8_t code, int32_t p) {
+    int32_t s = IMA_STEPS[i], d = s >> 3;
+    if (code & 1) d += s >> 2;
+    if (code & 2) d += s >> 1;
+    if (code & 4) d += s;
+    return p + d < 32767 ? p + d : 32767;
+}
+

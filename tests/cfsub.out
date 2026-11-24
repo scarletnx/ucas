@@ -1,8 +1,11 @@
 > c optimize cfront/sub.c nofile budget 120 assume code 0 7
-c optimize: 1 function, 1 rewrite proved (0 exhaustive, 1 by SAT) for x86-64-v3
-  estimated cost of the rewritten values on x86-64-v3: 22.2 -> 9.5 cycles
+c optimize: 2 functions, 2 rewrites proved (0 exhaustive, 1 by SAT, 1 by algebra) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 48.2 -> 22.8 cycles
   step_diff (line 15): a sub-value of i, code as a table of 712
     proof: sat (proved by SAT: 22775 AIG nodes, 8691 conflicts); cost 22.2 -> 9.5
+    over: code in [0, 7] (assumed)
+  step_sat (line 24): a sub-value of i, code as a table of 712
+    proof: algebra (derivation: by construction: the table is the value at each of its 712 points (0 of them undefined, as 0)); cost 26.0 -> 13.2
     over: code in [0, 7] (assumed)
 optimised C:
   /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
@@ -87,5 +90,10 @@ optimised C:
   };
   int32_t step_diff(uint8_t i, uint8_t code, int32_t p) {
   	return (int)((int32_t)((uint32_t)((p)) + (uint32_t)(cf_tab0[((int64_t)((uint64_t)(((int64_t)((uint64_t)(((int64_t)8ll)) * (uint64_t)(((int64_t)((i))))))) + (uint64_t)(((int64_t)((code))))))])));
+  }
+  
+  /* the same d twice in one clamp: one table, two reads */
+  int32_t step_sat(uint8_t i, uint8_t code, int32_t p) {
+  	return (int)((((int32_t)(((int32_t)(((int32_t)(((int32_t)((uint32_t)((p)) + (uint32_t)(cf_tab0[((int64_t)((uint64_t)(((int64_t)((uint64_t)(((int64_t)8ll)) * (uint64_t)(((int64_t)((i))))))) + (uint64_t)(((int64_t)((code))))))])))) < (int32_t)(((int32_t)32767)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)((uint32_t)((p)) + (uint32_t)(cf_tab0[((int64_t)((uint64_t)(((int64_t)((uint64_t)(((int64_t)8ll)) * (uint64_t)(((int64_t)((i))))))) + (uint64_t)(((int64_t)((code))))))])))) : (int32_t)(((int32_t)32767)));
   }
   

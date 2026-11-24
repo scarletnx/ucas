@@ -514,6 +514,11 @@ struct cf_emit {
 	struct sbuf helpers;	/* static inline helpers, tables */
 	uint64_t used;		/* helpers already emitted */
 	int ntab;
+	/* added: the table node and element type of cf_tab0..: the arrays a
+	 * later read of the same table uses (the first CF_NTAB of a file) */
+#define CF_NTAB 64
+	nid tabnode[CF_NTAB];
+	ty_t tabty[CF_NTAB];
 	const struct cf_target *t;
 	int need_string;	/* the output calls strlen: <string.h> */
 	int floats;		/* float arithmetic emitted: FP_CONTRACT OFF */
