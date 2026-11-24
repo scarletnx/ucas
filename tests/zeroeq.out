@@ -1,0 +1,137 @@
+> roots of z^3 = 1
+  ucas: it(z) = z^3 - 1
+  ucas: zeros it
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of it (z complex):
+  3 roots (a polynomial of degree 3):
+    z = -1/2 - i*sqrt(3)/2
+    z = -1/2 + i*sqrt(3)/2
+    z = 1
+  check: |it| <= 2e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 3 has 3 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> what are the roots of z^3 = 1?
+  ucas: it(z) = z^3 - 1
+  ucas: zeros it
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of it (z complex):
+  3 roots (a polynomial of degree 3):
+    z = -1/2 - i*sqrt(3)/2
+    z = -1/2 + i*sqrt(3)/2
+    z = 1
+  check: |it| <= 2e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 3 has 3 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> zeros of x^2 = 4
+  ucas: it(x) = x^2 - 4
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = -2
+    x = 2
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> roots of x^2 = x + 1
+  ucas: it(x) = x^2 - (x + 1)
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = (1 - sqrt(5))/2
+    x = (1 + sqrt(5))/2
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> roots of x^2 = -x
+  ucas: it(x) = x^2 - (-x)
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = -1
+    x = 0
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> what are the real roots of x squared equals 4?
+  ucas: it(x) = x^2 - 4
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = -2
+    x = 2
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> find the zeros of sin x = 1/2 on [0, 7]
+  note: x taken as real on [0, 7] (say "integer x" for whole numbers)
+  ucas: it(x: real in 0..7) = sin(x) - 1/2
+  ucas: zeros it
+zeros of it:
+  3 zeros on [0, 7]:
+    x = 0.5235987756 (~pi/6)
+    x = 2.617993878 (~5*pi/6)
+    x = 6.806784083 (~13*pi/6)
+  checked numerically, grid of 20001 points: sign changes refined by bisection, touching zeros at critical points; zeros between grid points that do not change sign can be missed
+> zeros of (x^2 = 4)
+  ucas: it(x) = x^2 - 4
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = -2
+    x = 2
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> zeros of x & 7 = 3 for an unsigned 8-bit x
+  ucas: it(x: u8) = (x & 7) - 3
+  ucas: zeros it
+zeros of it:
+  32 zeros in 0..255: x = 3, 11, ..., 251 (every 8)
+  proved, exhaustive over all 256 points
+> zeros x^2 = 4
+  note: '=' inside an expression read as '=='
+zeros of x^2 - 4:
+  2 zeros:
+    x = -2
+    x = 2
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> zeros (x: u8) & 7 == 3
+  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((x & 7) == 3)
+zeros of (x & 7) - 3:
+  32 zeros in 0..255: x = 3, 11, ..., 251 (every 8)
+  proved, exhaustive over all 256 points
+> zeros of x^2 - 4
+  ucas: it(x) = x^2 - 4
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = -2
+    x = 2
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> zeros of x & 7 < 3 for an unsigned 8-bit x
+  ucas: it(x: u8) = x & 7 < 3
+  ucas: zeros it
+  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((x & 7) < 3)
+zeros of it:
+  160 zeros in 0..255: x = 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 19, 20, 21, 22, 23, 27, ...
+  proved, exhaustive over all 256 points
+> the period of x & 7 = 3 for an unsigned 8-bit x
+  ucas: it(x: u8) = x & 7 == 3
+  ucas: period it
+  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((x & 7) == 3)
+period of it:
+  fundamental period 8
+  proved, exhaustive: f(x + 8) = f(x) for every x with both in 0..255, and no smaller shift works
+  the pattern also continues across the wrap-around of the type (the period divides the domain size)
+> roots z^3 = 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of z^3 - 1 (z complex):
+  3 roots (a polynomial of degree 3):
+    z = -1/2 - i*sqrt(3)/2
+    z = -1/2 + i*sqrt(3)/2
+    z = 1
+  check: |z^3 - 1| <= 2e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 3 has 3 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> wrap of x+1
+  ucas: it(x) = x + 1
+  ucas: wrap it
+wrap analysis of it:
+  no wrapping or rounding operations
+  end to end vs the real-number result: max abs error 0, max rel error 0
+  over all 101 points of the domain
+> f(x) = x^2 - 9
+> what are the roots of f?
+  ucas: zeros f
+zeros of f:
+  2 zeros:
+    x = -3
+    x = 3
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity

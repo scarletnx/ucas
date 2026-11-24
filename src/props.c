@@ -4447,6 +4447,15 @@ props_command(struct P *p)
 		asy_print(f, s, &A);
 	} else if (!strcmp(w, "zeros") || !strcmp(w, "roots")) {
 		struct zer z;
+		struct func eq;
+		/* of an equation: where its two sides are equal */
+		if (f->anon && N.op[f->body] == O_EQ &&
+		    TYK(N.ty[N.a[f->body]]) != K_BOOL &&
+		    TYK(N.ty[N.b[f->body]]) != K_BOOL) {
+			eq = *f;
+			eq.body = mk_bin(O_SUB, N.a[f->body], N.b[f->body]);
+			f = &eq;
+		}
 		printf("zeros of %s:\n", fname(f));
 		if (!one_param(f, w))
 			return 1;
