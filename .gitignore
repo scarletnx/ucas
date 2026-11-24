@@ -21,6 +21,10 @@ libsnxglslc.a
 snx_*.o
 ai_usage.inc
 ai_usage_short.inc
+
+# CMake build directories
+build/
+build-*/
 # the snippet databases tests/snippets.ucas writes
 tests/*.snip
 # grown by make snippets
