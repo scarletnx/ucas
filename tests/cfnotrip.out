@@ -1,0 +1,56 @@
+> c lower cfront/notrip.c
+  div_sum(x: u32, d: u32, m: u32) = m > 0 ? x/d*u32(m > 0 ? u64(m) : 0) + 7 : 7
+    defined where (no C UB): m <= 0 || d != 0
+  shr_sum(x: u32, n: u32, m: u32) = m > 0 ? t2*u32(t1) + ((x >> n) - t2)*u32(t1 & 1 == 0 ? (t1 >> 1)*(t1 - 1) : t1*(t1 - 1 >> 1)) + 7 : 7 where t1 = m > 0 ? u64(m) : 0, t2 = 0(x >> n)
+    defined where (no C UB): m <= 0 || n >= 0 && n < 32
+  plain_sum(x: u32, m: u32) = x*u32(t1 & 1 == 0 ? (t1 >> 1)*(t1 - 1) : t1*(t1 - 1 >> 1)) + 7 where t1 = m > 0 ? u64(m) : 0
+  div_then_sum(x: u32, d: u32, m: u32) = t2*u32(t1) + (x/d - t2)*u32(t1 & 1 == 0 ? (t1 >> 1)*(t1 - 1) : t1*(t1 - 1 >> 1)) + 7 where t1 = m > 0 ? u64(m) : 0, t2 = 0(x/d)
+    defined where (no C UB): d != 0
+> c optimize cfront/notrip.c nofile budget 120
+c optimize: 4 functions, 4 rewrites proved (0 exhaustive, 0 by SAT, 4 by induction) for x86-64-v3
+  engines: alg 2
+  div_sum (line 6): loop in closed form: s += sum of degree 0 in i; a ?: in an arm that the outer ?: decides
+    proof: induction (closed form: forward differences, C(T,k) mod 2^64; then derivation: in each arm, a ?: on the outer condition or its negation takes the side that arm's condi); cost 29.0 -> 33.0 (before: per iteration of the loop)
+  shr_sum (line 15): loop in closed form: s += sum of degree 1 in i; the polynomial expanded; a ?: in an arm that the outer ?: decides
+    proof: induction (closed form: forward differences, C(T,k) mod 2^64; then derivation: in each arm, a ?: on the outer condition or its negation takes the side that arm's condi); cost 7.0 -> 20.5 (before: per iteration of the loop)
+    engine: alg; derivation: u0u2 + 7 over Z; only + - * and constants: the same mod 2^32
+  plain_sum (line 24): loop in closed form: s += sum of degree 1 in i
+    proof: induction (sum of a polynomial of degree <= 2 by forward differences and C(T,k), exact mod 2^w); cost 6.0 -> 19.5 (before: per iteration of the loop)
+  div_then_sum (line 33): loop in closed form: s += sum of degree 1 in i; the polynomial expanded
+    proof: induction (closed form: forward differences, C(T,k) mod 2^64; then proved by SAT: 49272 AIG nodes, 0 conflicts); cost 32.0 -> 45.5 (before: per iteration of the loop)
+    engine: alg; derivation: u0u2 + 7 over Z; only + - * and constants: the same mod 2^32
+optimised C:
+  /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
+  /* Kernels of tests/cfnotrip.ucas: summands that are undefined in C at some
+   * inputs, in loops that may run no iteration. */
+  #include <stdint.h>
+  
+  /* 7 with m = 0, whatever d is */
+  uint32_t div_sum(uint32_t x, uint32_t d, uint32_t m)
+  {
+  	return (unsigned int)((((uint32_t)((m)) > (uint32_t)(((uint32_t)0u)))) ? (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) / (uint32_t)((d))))) * (uint32_t)(((uint32_t)(((uint64_t)((m))))))))) + (uint32_t)(((uint32_t)7u))))) : (uint32_t)(((uint32_t)7u)));
+  }
+  
+  /* 7 with m = 0, whatever n is */
+  uint32_t shr_sum(uint32_t x, uint32_t n, uint32_t m)
+  {
+  	const uint64_t cf_t0 = ((uint64_t)((m)));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
+  	return (unsigned int)((((uint32_t)((m)) > (uint32_t)(((uint32_t)0u)))) ? (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) >> ((n))))) * (uint32_t)(((uint32_t)(((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t1)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((uint64_t)1ull))))))))))))))) + (uint32_t)(((uint32_t)7u))))) : (uint32_t)(((uint32_t)7u)));
+  }
+  
+  /* no condition on the summand: no test of the trip count */
+  uint32_t plain_sum(uint32_t x, uint32_t m)
+  {
+  	const uint64_t cf_t0 = ((((uint32_t)((m)) > (uint32_t)(((uint32_t)0u)))) ? (uint64_t)(((uint64_t)((m)))) : (uint64_t)(((uint64_t)0ull)));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) * (uint32_t)(((uint32_t)(((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t1)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((uint64_t)1ull))))))))))))))) + (uint32_t)(((uint32_t)7u))));
+  }
+  
+  /* the division before the loop is no condition of the summand */
+  uint32_t div_then_sum(uint32_t x, uint32_t d, uint32_t m)
+  {
+  	const uint64_t cf_t0 = ((((uint32_t)((m)) > (uint32_t)(((uint32_t)0u)))) ? (uint64_t)(((uint64_t)((m)))) : (uint64_t)(((uint64_t)0ull)));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) / (uint32_t)((d))))) * (uint32_t)(((uint32_t)(((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t1)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((uint64_t)1ull))))))))))))))) + (uint32_t)(((uint32_t)7u))));
+  }

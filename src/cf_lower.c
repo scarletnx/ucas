@@ -2502,6 +2502,7 @@ closed_for(uint32_t n)
 		}
 		{
 		nid P, p0, p1, p2, d1, d2, S, old, nv, saved_env = L.env[isym];
+		nid wp, where = L.where;
 		int saved_set = L.set[isym], ub = L.ub, deg, w;
 		rt = ct_usual(at, AU.ty[aexp[k]]);
 		/* the summand with the index as a variable; its UB (signed
@@ -2510,10 +2511,18 @@ closed_for(uint32_t n)
 		L.env[isym] = iv;
 		L.set[isym] = 1;
 		L.ub = 0;
+		L.where = 0;
 		P = conv(ex(aexp[k], L.alive), rt, n);
+		wp = L.where;
 		L.ub = ub;
+		L.where = where;
 		L.env[isym] = saved_env;
 		L.set[isym] = (uint8_t)saved_set;
+		/* its other UB (a division by 0, a shift by too much) is that
+		 * of an iteration: with none the summand is not evaluated.
+		 * A condition on the index itself is left out, as overflow */
+		if (wp && !has_slot(wp, IVSLOT))
+			add_cond(gt, wp);
 		/* everything ends mod 2^w, w the narrower of the sum's type
 		 * and s's */
 		w = TYW(N.ty[P]) < TYW(uty(at, n)) ? TYW(N.ty[P]) : TYW(uty(at, n));
@@ -2568,7 +2577,7 @@ closed_for(uint32_t n)
 		old = L.env[s];
 		nv = conv(mk_bin(asub[k] ? O_SUB : O_ADD, mk_cast(N.ty[P], old), S),
 		    at, n);
-		L.env[s] = sel(L.alive, nv, old);
+		L.env[s] = sel(wp ? band(L.alive, gt) : L.alive, nv, old);
 		sb_printf(&L.closed, "%s%s %s= sum of degree %d in %s",
 		    L.closed.n ? ", " : "", sym_str(SU.name[s]), asub[k] ? "-" :
 		    "+", deg, sym_str(SU.name[isym]));
