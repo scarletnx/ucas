@@ -4,18 +4,18 @@ sglanestate.ucas:7:8: error: sg_any reads x in every lane, and x is a loop's val
     range t
            ^
 > cost t
-cost of t under gt1030: 139.625 (0 operations outside loops and 1 loop, shared subterms counted once)
+cost of t under gt1030: 141.625 (0 operations outside loops and 1 loop, shared subterms counted once)
   iadd             2 x 1     = 2
   logic            1 x 1     = 1
   cmp              1 x 2.375 = 2.375
   branch           1 x 6.25  = 6.25
-  sg_vote          1 x 0     = 0
+  sg_vote          1 x 2     = 2
   sg_shuffle       1 x 128   = 128
   loop while sg_any(x != 0):
-    per iteration: body 133.375 + overhead 6.25 (branch; the compare is in the condition) = 139.625
+    per iteration: body 135.375 + overhead 6.25 (branch; the compare is in the condition) = 141.625
     trip count: not known (it reads other lanes' values); priced as one iteration
     once: 0 (initial values and loop-invariant subterms, hoisted)
-    loop total: 139.625
+    loop total: 141.625
 > t2(c: u32 in 0..15) = { a = c; b = 0; k = 0; while sg_any(b != 5) { b = a; a = a + 1; k += 1 }; k }
 > range t2
 sglanestate.ucas:11:9: error: sg_any reads b in every lane, and b is a loop's value that follows c, a value per lane: each lane has its own b, and ucas does not run the loop in every lane at once to know the others', so the value depends on the other lanes and has none here (cost prices it at the worst; declare c uniform for an exact value)

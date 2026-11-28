@@ -35,7 +35,7 @@ simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   subgroup shuffles by a lane map (an affine map of the lane's bits as exchanges by xor and selects), under gt1030:
     %43 = OpGroupNonUniformShuffle %float %uint_3 %30 %41
       (line 9: b.d[i] = subgroupShuffle(x, l ^ ((l & 1u) << 1u)) + 1.0;)
-      the lane map %33 xor (%33 & 1) << 1 is 1 stage: lane xor 2 where lane & 1 is not 0 (sg_shuffle): 10 against 8 under gt1030: left as it is
+      the lane map %33 xor (%33 & 1) << 1 is 1 stage: lane xor 2 where lane & 1 is not 0 (sg_shuffle): 9 against 8 under gt1030: left as it is
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything

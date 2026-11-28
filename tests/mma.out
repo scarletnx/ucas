@@ -201,35 +201,35 @@ mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8
    5. 216       blocked (a lane: 2 rows x 8 columns x 2 of k); B: 16 shuffles (unpacked); partial sums: 12 xor shuffles, depth 4
    6. 216       blocked (a lane: 2 rows x 8 columns x 2 of k); B: 16 shuffles (unpacked); partial sums: 12 xor shuffles, depth 4
    7. 222       output-stationary; A: 6 xor shuffles; B: 8 shuffles; k order by lane, depth 8
-   8. 226       A-stationary; B: 8 shuffles; partial sums: 12 xor shuffles, depth 4
-   9. 226       blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 shuffles; partial sums: 12 xor shuffles, depth 4
-  10. 226       blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 shuffles; partial sums: 12 xor shuffles, depth 4
-  11. 241.25    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (register-major), depth 8
-  12. 241.25    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (lane-major), depth 8
-  13. 242.25    output-stationary; A: 6 loads from shared memory (register-major); B: 16 shuffles (unpacked); k order by lane, depth 8
-  14. 243.25    output-stationary; A: 16 shuffles (unpacked); B: 8 loads from shared memory (register-major), depth 8
-  15. 243.25    output-stationary; A: 16 shuffles (unpacked); B: 8 loads from shared memory (lane-major), depth 8
-  16. 247.25    output-stationary; A: 8 shuffles; B: 8 loads from shared memory (register-major), depth 8
-  17. 247.25    output-stationary; A: 8 shuffles; B: 8 loads from shared memory (lane-major), depth 8
-  18. 252.25    output-stationary; A: 6 loads from shared memory (register-major); B: 8 shuffles; k order by lane, depth 8
-  19. 261.25    A-stationary; B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, depth 4
-  20. 261.25    A-stationary; B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, depth 4
-  21. 261.25    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, depth 4
-  22. 261.25    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, depth 4
-  23. 261.25    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, depth 4
-  24. 261.25    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, depth 4
-  25. 271.25    output-stationary; A: 8 loads from shared memory (lane-major); B: 16 shuffles (unpacked); k order by lane, depth 8
-  26. 281.25    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 shuffles; k order by lane, depth 8
-  27. 281.25    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (register-major); k order by lane, depth 8
-  28. 281.25    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (lane-major); k order by lane, depth 8
-  29. 294.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 16 shuffles (unpacked); partial sums: 12 xor shuffles, 4 shuffles, depth 4
-  30. 304.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 8 shuffles; partial sums: 12 xor shuffles, 4 shuffles, depth 4
-  31. 312.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 16 shuffles (unpacked); partial sums: 12 xor shuffles, 4 shuffles, depth 4
-  32. 322.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 8 shuffles; partial sums: 12 xor shuffles, 4 shuffles, depth 4
-  33. 332.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
-  34. 332.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
-  35. 352.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
-  36. 352.25    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
+   8. 225.75    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (register-major), depth 8
+   9. 225.75    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (lane-major), depth 8
+  10. 226       A-stationary; B: 8 shuffles; partial sums: 12 xor shuffles, depth 4
+  11. 226       blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 shuffles; partial sums: 12 xor shuffles, depth 4
+  12. 226       blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 shuffles; partial sums: 12 xor shuffles, depth 4
+  13. 226.75    output-stationary; A: 6 loads from shared memory (register-major); B: 16 shuffles (unpacked); k order by lane, depth 8
+  14. 227.75    output-stationary; A: 16 shuffles (unpacked); B: 8 loads from shared memory (register-major), depth 8
+  15. 227.75    output-stationary; A: 16 shuffles (unpacked); B: 8 loads from shared memory (lane-major), depth 8
+  16. 231.75    output-stationary; A: 8 shuffles; B: 8 loads from shared memory (register-major), depth 8
+  17. 231.75    output-stationary; A: 8 shuffles; B: 8 loads from shared memory (lane-major), depth 8
+  18. 236.75    output-stationary; A: 6 loads from shared memory (register-major); B: 8 shuffles; k order by lane, depth 8
+  19. 245.75    A-stationary; B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, depth 4
+  20. 245.75    A-stationary; B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, depth 4
+  21. 245.75    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, depth 4
+  22. 245.75    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, depth 4
+  23. 245.75    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, depth 4
+  24. 245.75    blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, depth 4
+  25. 255.75    output-stationary; A: 8 loads from shared memory (lane-major); B: 16 shuffles (unpacked); k order by lane, depth 8
+  26. 265.75    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 shuffles; k order by lane, depth 8
+  27. 265.75    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (register-major); k order by lane, depth 8
+  28. 265.75    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (lane-major); k order by lane, depth 8
+  29. 278.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 16 shuffles (unpacked); partial sums: 12 xor shuffles, 4 shuffles, depth 4
+  30. 288.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 8 shuffles; partial sums: 12 xor shuffles, 4 shuffles, depth 4
+  31. 296.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 16 shuffles (unpacked); partial sums: 12 xor shuffles, 4 shuffles, depth 4
+  32. 306.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 8 shuffles; partial sums: 12 xor shuffles, 4 shuffles, depth 4
+  33. 316.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
+  34. 316.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (register-major); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
+  35. 336.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 8 loads from shared memory (register-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
+  36. 336.75    blocked (a lane: 2 rows x 8 columns x 2 of k); A: 2 loads from shared memory (lane-major); B: 8 loads from shared memory (lane-major); partial sums: 12 xor shuffles, 4 shuffles, depth 4
   B-stationary: none possible: no assignment of the partial sums to registers (a xor of the lane's bits) lets a butterfly send and read them from the same registers in every lane
   reference, each word fetched from the lane that holds it: 233 (output-stationary; A: 8 shuffles; B: 8 shuffles, depth 8); the chosen is 1.17x cheaper
   chosen: output-stationary; A: 12 xor shuffles (unpacked); B: 16 shuffles (unpacked); k order by lane, cost 200
@@ -340,21 +340,21 @@ mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8
     	d[1] = packHalf2x16(vec2(v72, v74));
     }
   (nofile: mma_m16n8k8_f16.glsl, 3655 bytes, checksum b5240339)
+  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which gt1030 does not list): 189.75, 1.05x cheaper (output-stationary; A: 8 loads from shared memory (register-major, in 2 wide accesses); B: 8 loads from shared memory (register-major, in 2 wide accesses))
 > mma model rdna2 nofile
 mma m16n8k16: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k16.row.col lays them out, f16 A and B, f32 C and D, 32 lanes, under rdna2 (8488 dataflows tried)
   each of D's 128 elements is a sum of 16 products of f16 and its C
-   1. 121       output-stationary; A: 12 xor shuffles; B: 16 shuffles; 32 fdot2; k order by lane, depth 16
-   2. 132.25    output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major); 32 fdot2, depth 16
+   1. 116.75    output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major); 32 fdot2, depth 16
+   2. 121       output-stationary; A: 12 xor shuffles; B: 16 shuffles; 32 fdot2; k order by lane, depth 16
    3. 137       A-stationary; B: 16 shuffles; partial sums: 12 xor shuffles; 32 fdot2, depth 6
    4. 137       blocked (a lane: 2 rows x 8 columns x 4 of k); B: 16 shuffles; partial sums: 12 xor shuffles; 32 fdot2, depth 6
-   5. 153.25    output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 8 loads from shared memory (register-major), 8 xor shuffles; 32 fdot2, depth 16
-   6. 157.25    output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 8 xor shuffles, 8 shuffles; 32 fdot2, depth 16
+   5. 137.75    output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 8 loads from shared memory (register-major), 8 xor shuffles; 32 fdot2, depth 16
+   6. 141.75    output-stationary; A: 8 loads from shared memory (register-major), 8 xor shuffles; B: 8 xor shuffles, 8 shuffles; 32 fdot2, depth 16
   (30 more: mma ... all)
   B-stationary: none possible: no assignment of the partial sums to registers (a xor of the lane's bits) lets a butterfly send and read them from the same registers in every lane
-  reference, each word fetched from the lane that holds it: 123 (output-stationary; A: 16 quad broadcasts; B: 16 shuffles; 32 fdot2, depth 16); the chosen is 1.02x cheaper
-  chosen: output-stationary; A: 12 xor shuffles; B: 16 shuffles; 32 fdot2; k order by lane, cost 121
-    28 exchanges, 0 loads and 0 stores of shared memory (bank conflicts at most 1-way), 0 barriers, 0 unpacks, 32 fdot2, 0 adds
-    8 shuffle indices, 12 integer operations
+  reference, each word fetched from the lane that holds it: 123 (output-stationary; A: 16 quad broadcasts; B: 16 shuffles; 32 fdot2, depth 16); the chosen is 1.05x cheaper
+  chosen: output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major); 32 fdot2, cost 116.75
+    16 exchanges, 16 loads and 2 stores of shared memory (bank conflicts at most 1-way), 2 barriers, 0 unpacks, 32 fdot2, 0 adds
   proof: the plan run on symbols in all 32 lanes gives every element of D as exactly its 16 products and its C, each once (exhaustive over the lanes)
   bound: |D - (A B + C)| <= gamma_16 (sum_k |A_ik B_kj| + |C_ij|), gamma_16 = 16 u / (1 - 16 u) = 9.537e-07, u = 2^-24
     a product of two f16 is exact in f32 (22 significant bits, exponents within f32's normals), so only the sums round: each term through at most 16 roundings (an fdot2 counted as two)
@@ -363,106 +363,114 @@ mma m16n8k16: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k
   GLSL (mma_m16n8k16_f32.glsl):
     // D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k16.row.col
     // lays them out (f16 A and B, f32 C and D), for a GPU without a matrix unit.
-    // ucas mma m16n8k16 f32 under rdna2: output-stationary; A: 12 xor shuffles; B: 16 shuffles; 32 fdot2; k order by lane;
-    // cost 121 (each word fetched from its lane: 123).
+    // ucas mma m16n8k16 f32 under rdna2: output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major); 32 fdot2;
+    // cost 116.75 (each word fetched from its lane: 123).
     // Proved over the 32 lanes: each element of D is its 16 products and C, each once;
     // |D - (A B + C)| <= gamma_16 (sum_k |A_ik B_kj| + |C_ij|), u = 2^-24.
     #extension GL_KHR_shader_subgroup_basic : require
     #extension GL_KHR_shader_subgroup_shuffle : require
+    #extension GL_KHR_shader_subgroup_quad : require
     #extension GL_EXT_spirv_intrinsics : require
     #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
     // OpFDot2MixAcc32VALVE: a.x * b.x + a.y * b.y + c in f32
     spirv_instruction(extensions = ["SPV_VALVE_mixed_float_dot_product"], capabilities = [6912], id = 6916)
     float mma_fdot2(f16vec2 a, f16vec2 b, float c);
+    #ifndef MMA_WARPS
+    #define MMA_WARPS 1  // the workgroup's warps of 32
+    #endif
+    shared uint mma_slot[MMA_WARPS * 192u];
     void mma_m16n8k16_f32(uint a[4], uint b[2], float c[4], out float d[4])
     {
     	uint lane = gl_SubgroupInvocationID & 31u;
     	uint base = gl_SubgroupInvocationID & ~31u;
-    	float v0 = c[0];
-    	float v1 = c[1];
-    	float v2 = c[2];
-    	float v3 = c[3];
-    	uint v4 = a[0];
-    	uint v5 = b[0];
-    	uint i0 = base | ((lane & 3u) ^ ((lane & 3u) << 3u));
-    	uint v6 = subgroupShuffle(v5, i0);
-    	float v7 = mma_fdot2(unpackFloat2x16(v4), unpackFloat2x16(v6), v0);
-    	uint i1 = i0 ^ 4u;
-    	uint v8 = subgroupShuffle(v5, i1);
-    	float v9 = mma_fdot2(unpackFloat2x16(v4), unpackFloat2x16(v8), v1);
-    	uint v10 = a[1];
-    	float v11 = mma_fdot2(unpackFloat2x16(v10), unpackFloat2x16(v6), v2);
-    	float v12 = mma_fdot2(unpackFloat2x16(v10), unpackFloat2x16(v8), v3);
-    	uint v13 = subgroupShuffleXor(v4, 1u);
-    	uint i3 = i0 ^ 1u;
-    	uint v14 = subgroupShuffle(v5, i3);
-    	float v15 = mma_fdot2(unpackFloat2x16(v13), unpackFloat2x16(v14), v7);
-    	uint i4 = i0 ^ 5u;
-    	uint v16 = subgroupShuffle(v5, i4);
-    	float v17 = mma_fdot2(unpackFloat2x16(v13), unpackFloat2x16(v16), v9);
-    	uint v18 = subgroupShuffleXor(v10, 1u);
-    	float v19 = mma_fdot2(unpackFloat2x16(v18), unpackFloat2x16(v14), v11);
-    	float v20 = mma_fdot2(unpackFloat2x16(v18), unpackFloat2x16(v16), v12);
-    	uint v21 = subgroupShuffleXor(v4, 2u);
-    	uint i6 = i0 ^ 2u;
-    	uint v22 = subgroupShuffle(v5, i6);
-    	float v23 = mma_fdot2(unpackFloat2x16(v21), unpackFloat2x16(v22), v15);
-    	uint i7 = i0 ^ 6u;
-    	uint v24 = subgroupShuffle(v5, i7);
-    	float v25 = mma_fdot2(unpackFloat2x16(v21), unpackFloat2x16(v24), v17);
-    	uint v26 = subgroupShuffleXor(v10, 2u);
-    	float v27 = mma_fdot2(unpackFloat2x16(v26), unpackFloat2x16(v22), v19);
-    	float v28 = mma_fdot2(unpackFloat2x16(v26), unpackFloat2x16(v24), v20);
-    	uint v29 = subgroupShuffleXor(v4, 3u);
-    	uint i9 = i0 ^ 3u;
-    	uint v30 = subgroupShuffle(v5, i9);
-    	float v31 = mma_fdot2(unpackFloat2x16(v29), unpackFloat2x16(v30), v23);
-    	uint i10 = i0 ^ 7u;
-    	uint v32 = subgroupShuffle(v5, i10);
-    	float v33 = mma_fdot2(unpackFloat2x16(v29), unpackFloat2x16(v32), v25);
-    	uint v34 = subgroupShuffleXor(v10, 3u);
-    	float v35 = mma_fdot2(unpackFloat2x16(v34), unpackFloat2x16(v30), v27);
-    	float v36 = mma_fdot2(unpackFloat2x16(v34), unpackFloat2x16(v32), v28);
-    	uint v37 = a[2];
-    	uint v38 = b[1];
-    	uint v39 = subgroupShuffle(v38, i0);
-    	float v40 = mma_fdot2(unpackFloat2x16(v37), unpackFloat2x16(v39), v31);
-    	uint v41 = subgroupShuffle(v38, i1);
-    	float v42 = mma_fdot2(unpackFloat2x16(v37), unpackFloat2x16(v41), v33);
-    	uint v43 = a[3];
-    	float v44 = mma_fdot2(unpackFloat2x16(v43), unpackFloat2x16(v39), v35);
-    	float v45 = mma_fdot2(unpackFloat2x16(v43), unpackFloat2x16(v41), v36);
-    	uint v46 = subgroupShuffleXor(v37, 1u);
-    	uint v47 = subgroupShuffle(v38, i3);
-    	float v48 = mma_fdot2(unpackFloat2x16(v46), unpackFloat2x16(v47), v40);
-    	uint v49 = subgroupShuffle(v38, i4);
-    	float v50 = mma_fdot2(unpackFloat2x16(v46), unpackFloat2x16(v49), v42);
-    	uint v51 = subgroupShuffleXor(v43, 1u);
-    	float v52 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v47), v44);
-    	float v53 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v49), v45);
-    	uint v54 = subgroupShuffleXor(v37, 2u);
-    	uint v55 = subgroupShuffle(v38, i6);
-    	float v56 = mma_fdot2(unpackFloat2x16(v54), unpackFloat2x16(v55), v48);
-    	uint v57 = subgroupShuffle(v38, i7);
-    	float v58 = mma_fdot2(unpackFloat2x16(v54), unpackFloat2x16(v57), v50);
-    	uint v59 = subgroupShuffleXor(v43, 2u);
+    	uint slot = (gl_LocalInvocationIndex >> 5) * 192u;
+    	subgroupBarrier();
+    	uint v1 = b[0];
+    	uint a0 = slot + (lane ^ 128u);
+    	mma_slot[a0] = v1;
+    	uint v3 = b[1];
+    	mma_slot[a0 + 32u] = v3;
+    	subgroupBarrier();
+    	float v6 = c[0];
+    	float v7 = c[1];
+    	float v8 = c[2];
+    	float v9 = c[3];
+    	uint v10 = a[0];
+    	uint v11 = subgroupQuadBroadcast(v10, 0u);
+    	uint a3 = slot + (((lane & 3u) << 3u) ^ 128u);
+    	uint v12 = mma_slot[a3];
+    	float v13 = mma_fdot2(unpackFloat2x16(v11), unpackFloat2x16(v12), v6);
+    	uint v14 = mma_slot[a3 + 4u];
+    	float v15 = mma_fdot2(unpackFloat2x16(v11), unpackFloat2x16(v14), v7);
+    	uint v16 = a[1];
+    	uint v17 = subgroupQuadBroadcast(v16, 0u);
+    	float v18 = mma_fdot2(unpackFloat2x16(v17), unpackFloat2x16(v12), v8);
+    	float v19 = mma_fdot2(unpackFloat2x16(v17), unpackFloat2x16(v14), v9);
+    	uint v20 = subgroupQuadBroadcast(v10, 1u);
+    	uint v21 = mma_slot[a3 + 1u];
+    	float v22 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v21), v13);
+    	uint v23 = mma_slot[a3 + 5u];
+    	float v24 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v23), v15);
+    	uint v25 = subgroupQuadBroadcast(v16, 1u);
+    	float v26 = mma_fdot2(unpackFloat2x16(v25), unpackFloat2x16(v21), v18);
+    	float v27 = mma_fdot2(unpackFloat2x16(v25), unpackFloat2x16(v23), v19);
+    	uint v28 = subgroupQuadBroadcast(v10, 2u);
+    	uint v29 = mma_slot[a3 + 2u];
+    	float v30 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v29), v22);
+    	uint v31 = mma_slot[a3 + 6u];
+    	float v32 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v31), v24);
+    	uint v33 = subgroupQuadBroadcast(v16, 2u);
+    	float v34 = mma_fdot2(unpackFloat2x16(v33), unpackFloat2x16(v29), v26);
+    	float v35 = mma_fdot2(unpackFloat2x16(v33), unpackFloat2x16(v31), v27);
+    	uint v36 = subgroupQuadBroadcast(v10, 3u);
+    	uint v37 = mma_slot[a3 + 3u];
+    	float v38 = mma_fdot2(unpackFloat2x16(v36), unpackFloat2x16(v37), v30);
+    	uint v39 = mma_slot[a3 + 7u];
+    	float v40 = mma_fdot2(unpackFloat2x16(v36), unpackFloat2x16(v39), v32);
+    	uint v41 = subgroupQuadBroadcast(v16, 3u);
+    	float v42 = mma_fdot2(unpackFloat2x16(v41), unpackFloat2x16(v37), v34);
+    	float v43 = mma_fdot2(unpackFloat2x16(v41), unpackFloat2x16(v39), v35);
+    	uint v44 = a[2];
+    	uint v45 = subgroupQuadBroadcast(v44, 0u);
+    	uint v46 = mma_slot[a3 + 32u];
+    	float v47 = mma_fdot2(unpackFloat2x16(v45), unpackFloat2x16(v46), v38);
+    	uint v48 = mma_slot[a3 + 36u];
+    	float v49 = mma_fdot2(unpackFloat2x16(v45), unpackFloat2x16(v48), v40);
+    	uint v50 = a[3];
+    	uint v51 = subgroupQuadBroadcast(v50, 0u);
+    	float v52 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v46), v42);
+    	float v53 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v48), v43);
+    	uint v54 = subgroupQuadBroadcast(v44, 1u);
+    	uint v55 = mma_slot[a3 + 33u];
+    	float v56 = mma_fdot2(unpackFloat2x16(v54), unpackFloat2x16(v55), v47);
+    	uint v57 = mma_slot[a3 + 37u];
+    	float v58 = mma_fdot2(unpackFloat2x16(v54), unpackFloat2x16(v57), v49);
+    	uint v59 = subgroupQuadBroadcast(v50, 1u);
     	float v60 = mma_fdot2(unpackFloat2x16(v59), unpackFloat2x16(v55), v52);
     	float v61 = mma_fdot2(unpackFloat2x16(v59), unpackFloat2x16(v57), v53);
-    	uint v62 = subgroupShuffleXor(v37, 3u);
-    	uint v63 = subgroupShuffle(v38, i9);
+    	uint v62 = subgroupQuadBroadcast(v44, 2u);
+    	uint v63 = mma_slot[a3 + 34u];
     	float v64 = mma_fdot2(unpackFloat2x16(v62), unpackFloat2x16(v63), v56);
-    	uint v65 = subgroupShuffle(v38, i10);
+    	uint v65 = mma_slot[a3 + 38u];
     	float v66 = mma_fdot2(unpackFloat2x16(v62), unpackFloat2x16(v65), v58);
-    	uint v67 = subgroupShuffleXor(v43, 3u);
+    	uint v67 = subgroupQuadBroadcast(v50, 2u);
     	float v68 = mma_fdot2(unpackFloat2x16(v67), unpackFloat2x16(v63), v60);
     	float v69 = mma_fdot2(unpackFloat2x16(v67), unpackFloat2x16(v65), v61);
-    	d[0] = v64;
-    	d[1] = v66;
-    	d[2] = v68;
-    	d[3] = v69;
+    	uint v70 = subgroupQuadBroadcast(v44, 3u);
+    	uint v71 = mma_slot[a3 + 35u];
+    	float v72 = mma_fdot2(unpackFloat2x16(v70), unpackFloat2x16(v71), v64);
+    	uint v73 = mma_slot[a3 + 39u];
+    	float v74 = mma_fdot2(unpackFloat2x16(v70), unpackFloat2x16(v73), v66);
+    	uint v75 = subgroupQuadBroadcast(v50, 3u);
+    	float v76 = mma_fdot2(unpackFloat2x16(v75), unpackFloat2x16(v71), v68);
+    	float v77 = mma_fdot2(unpackFloat2x16(v75), unpackFloat2x16(v73), v69);
+    	d[0] = v72;
+    	d[1] = v74;
+    	d[2] = v76;
+    	d[3] = v77;
     }
-  (nofile: mma_m16n8k16_f32.glsl, 4914 bytes, checksum c5d50eeb)
-  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which rdna2 does not list): 96.25, 1.26x cheaper (output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major, in 4 wide accesses); 32 fdot2)
+  (nofile: mma_m16n8k16_f32.glsl, 5249 bytes, checksum fffadd53)
+  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which rdna2 does not list): 80.75, 1.45x cheaper (output-stationary; A: 16 quad broadcasts; B: 16 loads from shared memory (register-major, in 4 wide accesses); 32 fdot2)
 > mma m16n8k8 model mali_g715 nofile
 mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8.row.col lays them out, f16 A and B, f32 C and D, 32 lanes, under mali_g715 (1720 dataflows tried)
   each of D's 128 elements is a sum of 8 products of f16 and its C
@@ -721,36 +729,37 @@ mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8
 > mma m16n8k8 model noshuffle nofile
 mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8.row.col lays them out, f16 A and B, f32 C and D, 32 lanes, under noshuffle (1720 dataflows tried)
   each of D's 128 elements is a sum of 8 products of f16 and its C
-   1. 217.25    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (register-major), depth 8
-   2. 217.25    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (lane-major), depth 8
-   3. 257.25    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (register-major); k order by lane, depth 8
-   4. 257.25    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (lane-major); k order by lane, depth 8
+   1. 201.75    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (register-major), depth 8
+   2. 201.75    output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (lane-major), depth 8
+   3. 241.75    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (register-major); k order by lane, depth 8
+   4. 241.75    output-stationary; A: 8 loads from shared memory (lane-major); B: 8 loads from shared memory (lane-major); k order by lane, depth 8
   A-stationary: none possible: its exchanges need subgroup shuffles, which the model does not list (sg_shuffle)
   B-stationary: none possible: no assignment of the partial sums to registers (a xor of the lane's bits) lets a butterfly send and read them from the same registers in every lane
   blocked: none possible: its exchanges need subgroup shuffles, which the model does not list (sg_shuffle)
-  chosen: output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (register-major), cost 217.25
+  chosen: output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (register-major), cost 201.75
     0 exchanges, 16 loads and 3 stores of shared memory (bank conflicts at most 1-way), 2 barriers, 32 unpacks, 32 multiply-adds, 0 adds
   proof: the plan run on symbols in all 32 lanes gives every element of D as exactly its 8 products and its C, each once (exhaustive over the lanes)
   bound: |D - (A B + C)| <= gamma_8 (sum_k |A_ik B_kj| + |C_ij|), gamma_8 = 8 u / (1 - 8 u) = 4.768e-07, u = 2^-24
     a product of two f16 is exact in f32 (22 significant bits, exponents within f32's normals), so only the sums round: each term through at most 8 roundings
-  holds when: every invocation of the workgroup calls it (a workgroup barrier), each warp 32 consecutive invocations; the f32 sums round to nearest
+  holds when: the warp within one subgroup, every lane active; the f32 sums round to nearest
   check: 64 random sets of fragments in f32 against the exact sums: within the bound, the largest error 0.59 of the bound (sampled, not a proof)
   GLSL (mma_m16n8k8_f32.glsl):
     // D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8.row.col
     // lays them out (f16 A and B, f32 C and D), for a GPU without a matrix unit.
     // ucas mma m16n8k8 f32 under noshuffle: output-stationary; A: 8 loads from shared memory (register-major); B: 8 loads from shared memory (register-major);
-    // cost 217.25 (each word fetched from its lane: 0).
+    // cost 201.75 (each word fetched from its lane: 0).
     // Proved over the 32 lanes: each element of D is its 8 products and C, each once;
     // |D - (A B + C)| <= gamma_8 (sum_k |A_ik B_kj| + |C_ij|), u = 2^-24.
+    #extension GL_KHR_shader_subgroup_basic : require
     #ifndef MMA_WARPS
     #define MMA_WARPS 1  // the workgroup's warps of 32
     #endif
     shared uint mma_slot[MMA_WARPS * 96u];
     void mma_m16n8k8_f32(uint a[2], uint b[1], float c[4], out float d[4])
     {
-    	uint lane = gl_LocalInvocationIndex & 31u;
+    	uint lane = gl_SubgroupInvocationID & 31u;
     	uint slot = (gl_LocalInvocationIndex >> 5) * 96u;
-    	barrier();
+    	subgroupBarrier();
     	uint v1 = a[0];
     	uint a0 = slot + (lane);
     	mma_slot[a0] = v1;
@@ -758,7 +767,7 @@ mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8
     	mma_slot[a0 + 32u] = v3;
     	uint v5 = b[0];
     	mma_slot[a0 + 64u] = v5;
-    	barrier();
+    	subgroupBarrier();
     	float v8 = c[0];
     	float v9 = c[1];
     	float v10 = c[2];
@@ -850,24 +859,23 @@ mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8
     	d[2] = v89;
     	d[3] = v91;
     }
-  (nofile: mma_m16n8k8_f32.glsl, 3882 bytes, checksum 4c01e78b)
-  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which noshuffle does not list): 181.25, 1.20x cheaper (output-stationary; A: 8 loads from shared memory (register-major, in 2 wide accesses); B: 8 loads from shared memory (register-major, in 2 wide accesses))
+  (nofile: mma_m16n8k8_f32.glsl, 3948 bytes, checksum b9348247)
+  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which noshuffle does not list): 165.75, 1.22x cheaper (output-stationary; A: 8 loads from shared memory (register-major, in 2 wide accesses); B: 8 loads from shared memory (register-major, in 2 wide accesses))
 > emulate hmma m16n8k8 with f16 accumulators on rdna2 nofile
   ucas: mma m16n8k8 f16 model rdna2 nofile
 mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8.row.col lays them out, f16 A and B, f16 C and D, 32 lanes, under rdna2 (1768 dataflows tried)
   each of D's 128 elements is a sum of 8 products of f16 and its C
-   1. 75        output-stationary; A: 6 xor shuffles; B: 8 shuffles; 16 fdot2; k order by lane, depth 8
-   2. 89.25     output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (register-major); 16 fdot2, depth 8
-   3. 89.25     output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (lane-major); 16 fdot2, depth 8
-   4. 97        A-stationary; B: 8 shuffles; partial sums: 12 xor shuffles; 16 fdot2, depth 4
-   5. 97        blocked (a lane: 2 rows x 8 columns x 2 of k); B: 8 shuffles; partial sums: 12 xor shuffles; 16 fdot2, depth 4
-   6. 104.25    output-stationary; A: 4 loads from shared memory (register-major), 4 xor shuffles; B: 4 loads from shared memory (register-major), 4 xor shuffles; 16 fdot2, depth 8
+   1. 73.75     output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (register-major); 16 fdot2, depth 8
+   2. 73.75     output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (lane-major); 16 fdot2, depth 8
+   3. 75        output-stationary; A: 6 xor shuffles; B: 8 shuffles; 16 fdot2; k order by lane, depth 8
+   4. 88.75     output-stationary; A: 4 loads from shared memory (register-major), 4 xor shuffles; B: 4 loads from shared memory (register-major), 4 xor shuffles; 16 fdot2, depth 8
+   5. 88.75     output-stationary; A: 4 loads from shared memory (register-major), 4 xor shuffles; B: 4 loads from shared memory (lane-major), 4 xor shuffles; 16 fdot2, depth 8
+   6. 91.75     output-stationary; A: 4 loads from shared memory (register-major), 4 xor shuffles; B: 4 xor shuffles, 4 shuffles; 16 fdot2, depth 8
   (30 more: mma ... all)
   B-stationary: none possible: no assignment of the partial sums to registers (a xor of the lane's bits) lets a butterfly send and read them from the same registers in every lane
-  reference, each word fetched from the lane that holds it: 75 (output-stationary; A: 8 quad broadcasts; B: 8 shuffles; 16 fdot2, depth 8); nothing cheaper under rdna2
-  chosen: output-stationary; A: 6 xor shuffles; B: 8 shuffles; 16 fdot2; k order by lane, cost 75
-    14 exchanges, 0 loads and 0 stores of shared memory (bank conflicts at most 1-way), 0 barriers, 4 unpacks, 16 fdot2, 0 adds, 2 packs
-    8 shuffle indices, 12 integer operations
+  reference, each word fetched from the lane that holds it: 75 (output-stationary; A: 8 quad broadcasts; B: 8 shuffles; 16 fdot2, depth 8); the chosen is 1.02x cheaper
+  chosen: output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (register-major); 16 fdot2, cost 73.75
+    8 exchanges, 8 loads and 1 stores of shared memory (bank conflicts at most 1-way), 2 barriers, 4 unpacks, 16 fdot2, 0 adds, 2 packs
   proof: the plan run on symbols in all 32 lanes gives every element of D as exactly its 8 products and its C, each once (exhaustive over the lanes)
   bound: |D - (A B + C)| <= gamma_8 (sum_k |A_ik B_kj| + |C_ij|), gamma_8 = 8 u / (1 - 8 u) = 4.768e-07, u = 2^-24; then D's f16 rounding, 2^-11 |D| (2^-25 below the normals)
     a product of two f16 is exact in f32 (22 significant bits, exponents within f32's normals), so only the sums round: each term through at most 8 roundings (an fdot2 counted as two)
@@ -876,73 +884,78 @@ mma m16n8k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8
   GLSL (mma_m16n8k8_f16.glsl):
     // D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8.row.col
     // lays them out (f16 A and B, f16 C and D), for a GPU without a matrix unit.
-    // ucas mma m16n8k8 f16 under rdna2: output-stationary; A: 6 xor shuffles; B: 8 shuffles; 16 fdot2; k order by lane;
-    // cost 75 (each word fetched from its lane: 75).
+    // ucas mma m16n8k8 f16 under rdna2: output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (register-major); 16 fdot2;
+    // cost 73.75 (each word fetched from its lane: 75).
     // Proved over the 32 lanes: each element of D is its 8 products and C, each once;
     // |D - (A B + C)| <= gamma_8 (sum_k |A_ik B_kj| + |C_ij|), then D's f16 rounding, u = 2^-24.
     #extension GL_KHR_shader_subgroup_basic : require
     #extension GL_KHR_shader_subgroup_shuffle : require
+    #extension GL_KHR_shader_subgroup_quad : require
     #extension GL_EXT_spirv_intrinsics : require
     #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
     // OpFDot2MixAcc32VALVE: a.x * b.x + a.y * b.y + c in f32
     spirv_instruction(extensions = ["SPV_VALVE_mixed_float_dot_product"], capabilities = [6912], id = 6916)
     float mma_fdot2(f16vec2 a, f16vec2 b, float c);
+    #ifndef MMA_WARPS
+    #define MMA_WARPS 1  // the workgroup's warps of 32
+    #endif
+    shared uint mma_slot[MMA_WARPS * 96u];
     void mma_m16n8k8_f16(uint a[2], uint b[1], uint c[2], out uint d[2])
     {
     	uint lane = gl_SubgroupInvocationID & 31u;
     	uint base = gl_SubgroupInvocationID & ~31u;
-    	uint v0 = c[0];
-    	float v1 = unpackHalf2x16(v0).x;
-    	float v2 = unpackHalf2x16(v0).y;
-    	uint v3 = c[1];
-    	float v4 = unpackHalf2x16(v3).x;
-    	float v5 = unpackHalf2x16(v3).y;
-    	uint v6 = a[0];
-    	uint v7 = b[0];
-    	uint i0 = base | ((lane & 3u) ^ ((lane & 3u) << 3u));
-    	uint v8 = subgroupShuffle(v7, i0);
-    	float v9 = mma_fdot2(unpackFloat2x16(v6), unpackFloat2x16(v8), v1);
-    	uint i1 = i0 ^ 4u;
-    	uint v10 = subgroupShuffle(v7, i1);
-    	float v11 = mma_fdot2(unpackFloat2x16(v6), unpackFloat2x16(v10), v2);
-    	uint v12 = a[1];
-    	float v13 = mma_fdot2(unpackFloat2x16(v12), unpackFloat2x16(v8), v4);
-    	float v14 = mma_fdot2(unpackFloat2x16(v12), unpackFloat2x16(v10), v5);
-    	uint v15 = subgroupShuffleXor(v6, 1u);
-    	uint i3 = i0 ^ 1u;
-    	uint v16 = subgroupShuffle(v7, i3);
-    	float v17 = mma_fdot2(unpackFloat2x16(v15), unpackFloat2x16(v16), v9);
-    	uint i4 = i0 ^ 5u;
-    	uint v18 = subgroupShuffle(v7, i4);
-    	float v19 = mma_fdot2(unpackFloat2x16(v15), unpackFloat2x16(v18), v11);
-    	uint v20 = subgroupShuffleXor(v12, 1u);
-    	float v21 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v16), v13);
-    	float v22 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v18), v14);
-    	uint v23 = subgroupShuffleXor(v6, 2u);
-    	uint i6 = i0 ^ 2u;
-    	uint v24 = subgroupShuffle(v7, i6);
-    	float v25 = mma_fdot2(unpackFloat2x16(v23), unpackFloat2x16(v24), v17);
-    	uint i7 = i0 ^ 6u;
-    	uint v26 = subgroupShuffle(v7, i7);
-    	float v27 = mma_fdot2(unpackFloat2x16(v23), unpackFloat2x16(v26), v19);
-    	uint v28 = subgroupShuffleXor(v12, 2u);
-    	float v29 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v24), v21);
-    	float v30 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v26), v22);
-    	uint v31 = subgroupShuffleXor(v6, 3u);
-    	uint i9 = i0 ^ 3u;
-    	uint v32 = subgroupShuffle(v7, i9);
-    	float v33 = mma_fdot2(unpackFloat2x16(v31), unpackFloat2x16(v32), v25);
-    	uint i10 = i0 ^ 7u;
-    	uint v34 = subgroupShuffle(v7, i10);
-    	float v35 = mma_fdot2(unpackFloat2x16(v31), unpackFloat2x16(v34), v27);
-    	uint v36 = subgroupShuffleXor(v12, 3u);
-    	float v37 = mma_fdot2(unpackFloat2x16(v36), unpackFloat2x16(v32), v29);
-    	float v38 = mma_fdot2(unpackFloat2x16(v36), unpackFloat2x16(v34), v30);
-    	d[0] = packHalf2x16(vec2(v33, v35));
-    	d[1] = packHalf2x16(vec2(v37, v38));
+    	uint slot = (gl_LocalInvocationIndex >> 5) * 96u;
+    	subgroupBarrier();
+    	uint v1 = b[0];
+    	uint a0 = slot + (lane ^ 64u);
+    	mma_slot[a0] = v1;
+    	subgroupBarrier();
+    	uint v4 = c[0];
+    	float v5 = unpackHalf2x16(v4).x;
+    	float v6 = unpackHalf2x16(v4).y;
+    	uint v7 = c[1];
+    	float v8 = unpackHalf2x16(v7).x;
+    	float v9 = unpackHalf2x16(v7).y;
+    	uint v10 = a[0];
+    	uint v11 = subgroupQuadBroadcast(v10, 0u);
+    	uint a2 = slot + (((lane & 3u) << 3u) ^ 64u);
+    	uint v12 = mma_slot[a2];
+    	float v13 = mma_fdot2(unpackFloat2x16(v11), unpackFloat2x16(v12), v5);
+    	uint v14 = mma_slot[a2 + 4u];
+    	float v15 = mma_fdot2(unpackFloat2x16(v11), unpackFloat2x16(v14), v6);
+    	uint v16 = a[1];
+    	uint v17 = subgroupQuadBroadcast(v16, 0u);
+    	float v18 = mma_fdot2(unpackFloat2x16(v17), unpackFloat2x16(v12), v8);
+    	float v19 = mma_fdot2(unpackFloat2x16(v17), unpackFloat2x16(v14), v9);
+    	uint v20 = subgroupQuadBroadcast(v10, 1u);
+    	uint v21 = mma_slot[a2 + 1u];
+    	float v22 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v21), v13);
+    	uint v23 = mma_slot[a2 + 5u];
+    	float v24 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v23), v15);
+    	uint v25 = subgroupQuadBroadcast(v16, 1u);
+    	float v26 = mma_fdot2(unpackFloat2x16(v25), unpackFloat2x16(v21), v18);
+    	float v27 = mma_fdot2(unpackFloat2x16(v25), unpackFloat2x16(v23), v19);
+    	uint v28 = subgroupQuadBroadcast(v10, 2u);
+    	uint v29 = mma_slot[a2 + 2u];
+    	float v30 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v29), v22);
+    	uint v31 = mma_slot[a2 + 6u];
+    	float v32 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v31), v24);
+    	uint v33 = subgroupQuadBroadcast(v16, 2u);
+    	float v34 = mma_fdot2(unpackFloat2x16(v33), unpackFloat2x16(v29), v26);
+    	float v35 = mma_fdot2(unpackFloat2x16(v33), unpackFloat2x16(v31), v27);
+    	uint v36 = subgroupQuadBroadcast(v10, 3u);
+    	uint v37 = mma_slot[a2 + 3u];
+    	float v38 = mma_fdot2(unpackFloat2x16(v36), unpackFloat2x16(v37), v30);
+    	uint v39 = mma_slot[a2 + 7u];
+    	float v40 = mma_fdot2(unpackFloat2x16(v36), unpackFloat2x16(v39), v32);
+    	uint v41 = subgroupQuadBroadcast(v16, 3u);
+    	float v42 = mma_fdot2(unpackFloat2x16(v41), unpackFloat2x16(v37), v34);
+    	float v43 = mma_fdot2(unpackFloat2x16(v41), unpackFloat2x16(v39), v35);
+    	d[0] = packHalf2x16(vec2(v38, v40));
+    	d[1] = packHalf2x16(vec2(v42, v43));
     }
-  (nofile: mma_m16n8k8_f16.glsl, 3280 bytes, checksum b2d5503d)
-  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which rdna2 does not list): 71.25, 1.05x cheaper (output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (register-major, in 2 wide accesses); 16 fdot2)
+  (nofile: mma_m16n8k8_f16.glsl, 3524 bytes, checksum 91a57f44)
+  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which rdna2 does not list): 55.75, 1.32x cheaper (output-stationary; A: 8 quad broadcasts; B: 8 loads from shared memory (register-major, in 2 wide accesses); 16 fdot2)
 > mma chain 2 nofile
 mma m16n8k32: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k16.row.col lays them out, f16 A and B, f32 C and D, 32 lanes, under gt1030 (8488 dataflows tried)
   a tile of 1 x 1 x 2 HMMAs (m16n8k16): a chain, each one's D the next one's C; the costs are the tile's, each HMMA's a 2th of them
@@ -1252,187 +1265,199 @@ mma m16n8k32: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k
     	d[3] = v259;
     }
   (nofile: mma_m16n8k32_f32.glsl, 9970 bytes, checksum f351c246)
+  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which gt1030 does not list): 519.75, 1.03x cheaper (A-stationary; B: 32 loads from shared memory (lane-major, in 8 wide accesses); partial sums: 12 xor shuffles)
 > mma tile 2 1 1 model rdna2 nofile
 mma m32n8k16: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k16.row.col lays them out, f16 A and B, f32 C and D, 32 lanes, under rdna2 (8488 dataflows tried)
   a tile of 2 x 1 x 1 HMMAs (m16n8k16): one B fragment times several A ones; the costs are the tile's, each HMMA's a 2th of them
   each of D's 256 elements is a sum of 16 products of f16 and its C
-   1. 165       (82.5 an HMMA) output-stationary; A: 24 xor shuffles; B: 16 shuffles; 64 fdot2; k order by lane, depth 16
-   2. 180.25    (90.125 an HMMA) output-stationary; A: 32 quad broadcasts; B: 16 loads from shared memory (register-major); 64 fdot2, depth 16
-   3. 197       (98.5 an HMMA) A-stationary; B: 16 shuffles; partial sums: 24 xor shuffles; 64 fdot2, depth 6
-   4. 197       (98.5 an HMMA) blocked (a lane: 4 rows x 8 columns x 4 of k); B: 16 shuffles; partial sums: 24 xor shuffles; 64 fdot2, depth 6
-   5. 205.25    (102.625 an HMMA) output-stationary; A: 24 xor shuffles; B: 16 loads from shared memory (lane-major); 64 fdot2; k order by lane, depth 16
-   6. 224.25    (112.125 an HMMA) A-stationary; B: 16 loads from shared memory (register-major); partial sums: 24 xor shuffles; 64 fdot2, depth 6
+   1. 164.75    (82.375 an HMMA) output-stationary; A: 32 quad broadcasts; B: 16 loads from shared memory (register-major); 64 fdot2, depth 16
+   2. 165       (82.5 an HMMA) output-stationary; A: 24 xor shuffles; B: 16 shuffles; 64 fdot2; k order by lane, depth 16
+   3. 189.75    (94.875 an HMMA) output-stationary; A: 24 xor shuffles; B: 16 loads from shared memory (lane-major); 64 fdot2; k order by lane, depth 16
+   4. 197       (98.5 an HMMA) A-stationary; B: 16 shuffles; partial sums: 24 xor shuffles; 64 fdot2, depth 6
+   5. 197       (98.5 an HMMA) blocked (a lane: 4 rows x 8 columns x 4 of k); B: 16 shuffles; partial sums: 24 xor shuffles; 64 fdot2, depth 6
+   6. 208.75    (104.375 an HMMA) A-stationary; B: 16 loads from shared memory (register-major); partial sums: 24 xor shuffles; 64 fdot2, depth 6
   (30 more: mma ... all)
   B-stationary: none possible: no assignment of the partial sums to registers (a xor of the lane's bits) lets a butterfly send and read them from the same registers in every lane
-  the 2 HMMAs one at a time, each the best alone: 242 (121 each); the tile is 1.47x cheaper
+  the 2 HMMAs one at a time, each the best alone: 233.5 (116.75 each); the tile is 1.42x cheaper
   reference, each word fetched from the lane that holds it: 171 (output-stationary; A: 32 quad broadcasts; B: 16 shuffles; 64 fdot2, depth 16); the chosen is 1.04x cheaper
-  chosen: output-stationary; A: 24 xor shuffles; B: 16 shuffles; 64 fdot2; k order by lane, cost 165
-    40 exchanges, 0 loads and 0 stores of shared memory (bank conflicts at most 1-way), 0 barriers, 0 unpacks, 64 fdot2, 0 adds
-    8 shuffle indices, 12 integer operations
+  chosen: output-stationary; A: 32 quad broadcasts; B: 16 loads from shared memory (register-major); 64 fdot2, cost 164.75
+    32 exchanges, 16 loads and 2 stores of shared memory (bank conflicts at most 1-way), 2 barriers, 0 unpacks, 64 fdot2, 0 adds
   proof: the plan run on symbols in all 32 lanes gives every element of D as exactly its 16 products and its C, each once (exhaustive over the lanes)
   bound: |D - (A B + C)| <= gamma_16 (sum_k |A_ik B_kj| + |C_ij|), gamma_16 = 16 u / (1 - 16 u) = 9.537e-07, u = 2^-24
     a product of two f16 is exact in f32 (22 significant bits, exponents within f32's normals), so only the sums round: each term through at most 16 roundings (an fdot2 counted as two)
   holds when: every lane of the warp active, the warp a subgroup of 32 or 32 aligned lanes of a larger one; the f32 sums round to nearest; an fdot2 rounds at most twice (SPV_VALVE_mixed_float_dot_product leaves its rounding to the device)
-  check: 64 random sets of fragments in f32 against the exact sums: within the bound, the largest error 0.309 of the bound (sampled, not a proof)
+  check: 64 random sets of fragments in f32 against the exact sums: within the bound, the largest error 0.339 of the bound (sampled, not a proof)
   GLSL (mma_m32n8k16_f32.glsl):
     // D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m32n8k16.row.col
     // lays them out (f16 A and B, f32 C and D), for a GPU without a matrix unit.
-    // ucas mma m32n8k16 f32 under rdna2: output-stationary; A: 24 xor shuffles; B: 16 shuffles; 64 fdot2; k order by lane;
-    // cost 165 (each word fetched from its lane: 171).
+    // ucas mma m32n8k16 f32 under rdna2: output-stationary; A: 32 quad broadcasts; B: 16 loads from shared memory (register-major); 64 fdot2;
+    // cost 164.75 (each word fetched from its lane: 171).
     // Proved over the 32 lanes: each element of D is its 16 products and C, each once;
     // |D - (A B + C)| <= gamma_16 (sum_k |A_ik B_kj| + |C_ij|), u = 2^-24.
     #extension GL_KHR_shader_subgroup_basic : require
     #extension GL_KHR_shader_subgroup_shuffle : require
+    #extension GL_KHR_shader_subgroup_quad : require
     #extension GL_EXT_spirv_intrinsics : require
     #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
     // OpFDot2MixAcc32VALVE: a.x * b.x + a.y * b.y + c in f32
     spirv_instruction(extensions = ["SPV_VALVE_mixed_float_dot_product"], capabilities = [6912], id = 6916)
     float mma_fdot2(f16vec2 a, f16vec2 b, float c);
+    #ifndef MMA_WARPS
+    #define MMA_WARPS 1  // the workgroup's warps of 32
+    #endif
+    shared uint mma_slot[MMA_WARPS * 320u];
     void mma_m32n8k16_f32(uint a[8], uint b[2], float c[8], out float d[8])
     {
     	uint lane = gl_SubgroupInvocationID & 31u;
     	uint base = gl_SubgroupInvocationID & ~31u;
-    	float v0 = c[0];
-    	float v1 = c[1];
-    	float v2 = c[2];
-    	float v3 = c[3];
-    	float v4 = c[4];
-    	float v5 = c[5];
-    	float v6 = c[6];
-    	float v7 = c[7];
-    	uint v8 = a[0];
-    	uint v9 = b[0];
-    	uint i0 = base | ((lane & 3u) ^ ((lane & 3u) << 3u));
-    	uint v10 = subgroupShuffle(v9, i0);
-    	float v11 = mma_fdot2(unpackFloat2x16(v8), unpackFloat2x16(v10), v0);
-    	uint i1 = i0 ^ 4u;
-    	uint v12 = subgroupShuffle(v9, i1);
-    	float v13 = mma_fdot2(unpackFloat2x16(v8), unpackFloat2x16(v12), v1);
-    	uint v14 = a[1];
-    	float v15 = mma_fdot2(unpackFloat2x16(v14), unpackFloat2x16(v10), v2);
-    	float v16 = mma_fdot2(unpackFloat2x16(v14), unpackFloat2x16(v12), v3);
-    	uint v17 = a[4];
-    	float v18 = mma_fdot2(unpackFloat2x16(v17), unpackFloat2x16(v10), v4);
-    	float v19 = mma_fdot2(unpackFloat2x16(v17), unpackFloat2x16(v12), v5);
-    	uint v20 = a[5];
-    	float v21 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v10), v6);
-    	float v22 = mma_fdot2(unpackFloat2x16(v20), unpackFloat2x16(v12), v7);
-    	uint v23 = subgroupShuffleXor(v8, 1u);
-    	uint i3 = i0 ^ 1u;
-    	uint v24 = subgroupShuffle(v9, i3);
-    	float v25 = mma_fdot2(unpackFloat2x16(v23), unpackFloat2x16(v24), v11);
-    	uint i4 = i0 ^ 5u;
-    	uint v26 = subgroupShuffle(v9, i4);
-    	float v27 = mma_fdot2(unpackFloat2x16(v23), unpackFloat2x16(v26), v13);
-    	uint v28 = subgroupShuffleXor(v14, 1u);
-    	float v29 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v24), v15);
-    	float v30 = mma_fdot2(unpackFloat2x16(v28), unpackFloat2x16(v26), v16);
-    	uint v31 = subgroupShuffleXor(v17, 1u);
-    	float v32 = mma_fdot2(unpackFloat2x16(v31), unpackFloat2x16(v24), v18);
-    	float v33 = mma_fdot2(unpackFloat2x16(v31), unpackFloat2x16(v26), v19);
-    	uint v34 = subgroupShuffleXor(v20, 1u);
-    	float v35 = mma_fdot2(unpackFloat2x16(v34), unpackFloat2x16(v24), v21);
-    	float v36 = mma_fdot2(unpackFloat2x16(v34), unpackFloat2x16(v26), v22);
-    	uint v37 = subgroupShuffleXor(v8, 2u);
-    	uint i6 = i0 ^ 2u;
-    	uint v38 = subgroupShuffle(v9, i6);
-    	float v39 = mma_fdot2(unpackFloat2x16(v37), unpackFloat2x16(v38), v25);
-    	uint i7 = i0 ^ 6u;
-    	uint v40 = subgroupShuffle(v9, i7);
-    	float v41 = mma_fdot2(unpackFloat2x16(v37), unpackFloat2x16(v40), v27);
-    	uint v42 = subgroupShuffleXor(v14, 2u);
-    	float v43 = mma_fdot2(unpackFloat2x16(v42), unpackFloat2x16(v38), v29);
-    	float v44 = mma_fdot2(unpackFloat2x16(v42), unpackFloat2x16(v40), v30);
-    	uint v45 = subgroupShuffleXor(v17, 2u);
-    	float v46 = mma_fdot2(unpackFloat2x16(v45), unpackFloat2x16(v38), v32);
-    	float v47 = mma_fdot2(unpackFloat2x16(v45), unpackFloat2x16(v40), v33);
-    	uint v48 = subgroupShuffleXor(v20, 2u);
-    	float v49 = mma_fdot2(unpackFloat2x16(v48), unpackFloat2x16(v38), v35);
-    	float v50 = mma_fdot2(unpackFloat2x16(v48), unpackFloat2x16(v40), v36);
-    	uint v51 = subgroupShuffleXor(v8, 3u);
-    	uint i9 = i0 ^ 3u;
-    	uint v52 = subgroupShuffle(v9, i9);
-    	float v53 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v52), v39);
-    	uint i10 = i0 ^ 7u;
-    	uint v54 = subgroupShuffle(v9, i10);
-    	float v55 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v54), v41);
-    	uint v56 = subgroupShuffleXor(v14, 3u);
-    	float v57 = mma_fdot2(unpackFloat2x16(v56), unpackFloat2x16(v52), v43);
-    	float v58 = mma_fdot2(unpackFloat2x16(v56), unpackFloat2x16(v54), v44);
-    	uint v59 = subgroupShuffleXor(v17, 3u);
-    	float v60 = mma_fdot2(unpackFloat2x16(v59), unpackFloat2x16(v52), v46);
-    	float v61 = mma_fdot2(unpackFloat2x16(v59), unpackFloat2x16(v54), v47);
-    	uint v62 = subgroupShuffleXor(v20, 3u);
-    	float v63 = mma_fdot2(unpackFloat2x16(v62), unpackFloat2x16(v52), v49);
-    	float v64 = mma_fdot2(unpackFloat2x16(v62), unpackFloat2x16(v54), v50);
-    	uint v65 = a[2];
-    	uint v66 = b[1];
-    	uint v67 = subgroupShuffle(v66, i0);
-    	float v68 = mma_fdot2(unpackFloat2x16(v65), unpackFloat2x16(v67), v53);
-    	uint v69 = subgroupShuffle(v66, i1);
-    	float v70 = mma_fdot2(unpackFloat2x16(v65), unpackFloat2x16(v69), v55);
-    	uint v71 = a[3];
-    	float v72 = mma_fdot2(unpackFloat2x16(v71), unpackFloat2x16(v67), v57);
-    	float v73 = mma_fdot2(unpackFloat2x16(v71), unpackFloat2x16(v69), v58);
-    	uint v74 = a[6];
-    	float v75 = mma_fdot2(unpackFloat2x16(v74), unpackFloat2x16(v67), v60);
-    	float v76 = mma_fdot2(unpackFloat2x16(v74), unpackFloat2x16(v69), v61);
-    	uint v77 = a[7];
-    	float v78 = mma_fdot2(unpackFloat2x16(v77), unpackFloat2x16(v67), v63);
-    	float v79 = mma_fdot2(unpackFloat2x16(v77), unpackFloat2x16(v69), v64);
-    	uint v80 = subgroupShuffleXor(v65, 1u);
-    	uint v81 = subgroupShuffle(v66, i3);
-    	float v82 = mma_fdot2(unpackFloat2x16(v80), unpackFloat2x16(v81), v68);
-    	uint v83 = subgroupShuffle(v66, i4);
-    	float v84 = mma_fdot2(unpackFloat2x16(v80), unpackFloat2x16(v83), v70);
-    	uint v85 = subgroupShuffleXor(v71, 1u);
-    	float v86 = mma_fdot2(unpackFloat2x16(v85), unpackFloat2x16(v81), v72);
-    	float v87 = mma_fdot2(unpackFloat2x16(v85), unpackFloat2x16(v83), v73);
-    	uint v88 = subgroupShuffleXor(v74, 1u);
-    	float v89 = mma_fdot2(unpackFloat2x16(v88), unpackFloat2x16(v81), v75);
-    	float v90 = mma_fdot2(unpackFloat2x16(v88), unpackFloat2x16(v83), v76);
-    	uint v91 = subgroupShuffleXor(v77, 1u);
-    	float v92 = mma_fdot2(unpackFloat2x16(v91), unpackFloat2x16(v81), v78);
-    	float v93 = mma_fdot2(unpackFloat2x16(v91), unpackFloat2x16(v83), v79);
-    	uint v94 = subgroupShuffleXor(v65, 2u);
-    	uint v95 = subgroupShuffle(v66, i6);
-    	float v96 = mma_fdot2(unpackFloat2x16(v94), unpackFloat2x16(v95), v82);
-    	uint v97 = subgroupShuffle(v66, i7);
-    	float v98 = mma_fdot2(unpackFloat2x16(v94), unpackFloat2x16(v97), v84);
-    	uint v99 = subgroupShuffleXor(v71, 2u);
-    	float v100 = mma_fdot2(unpackFloat2x16(v99), unpackFloat2x16(v95), v86);
-    	float v101 = mma_fdot2(unpackFloat2x16(v99), unpackFloat2x16(v97), v87);
-    	uint v102 = subgroupShuffleXor(v74, 2u);
-    	float v103 = mma_fdot2(unpackFloat2x16(v102), unpackFloat2x16(v95), v89);
-    	float v104 = mma_fdot2(unpackFloat2x16(v102), unpackFloat2x16(v97), v90);
-    	uint v105 = subgroupShuffleXor(v77, 2u);
-    	float v106 = mma_fdot2(unpackFloat2x16(v105), unpackFloat2x16(v95), v92);
-    	float v107 = mma_fdot2(unpackFloat2x16(v105), unpackFloat2x16(v97), v93);
-    	uint v108 = subgroupShuffleXor(v65, 3u);
-    	uint v109 = subgroupShuffle(v66, i9);
-    	float v110 = mma_fdot2(unpackFloat2x16(v108), unpackFloat2x16(v109), v96);
-    	uint v111 = subgroupShuffle(v66, i10);
-    	float v112 = mma_fdot2(unpackFloat2x16(v108), unpackFloat2x16(v111), v98);
-    	uint v113 = subgroupShuffleXor(v71, 3u);
-    	float v114 = mma_fdot2(unpackFloat2x16(v113), unpackFloat2x16(v109), v100);
-    	float v115 = mma_fdot2(unpackFloat2x16(v113), unpackFloat2x16(v111), v101);
-    	uint v116 = subgroupShuffleXor(v74, 3u);
-    	float v117 = mma_fdot2(unpackFloat2x16(v116), unpackFloat2x16(v109), v103);
-    	float v118 = mma_fdot2(unpackFloat2x16(v116), unpackFloat2x16(v111), v104);
-    	uint v119 = subgroupShuffleXor(v77, 3u);
-    	float v120 = mma_fdot2(unpackFloat2x16(v119), unpackFloat2x16(v109), v106);
-    	float v121 = mma_fdot2(unpackFloat2x16(v119), unpackFloat2x16(v111), v107);
-    	d[0] = v110;
-    	d[1] = v112;
-    	d[2] = v114;
-    	d[3] = v115;
-    	d[4] = v117;
-    	d[5] = v118;
-    	d[6] = v120;
-    	d[7] = v121;
+    	uint slot = (gl_LocalInvocationIndex >> 5) * 320u;
+    	subgroupBarrier();
+    	uint v1 = b[0];
+    	uint a0 = slot + (lane ^ 256u);
+    	mma_slot[a0] = v1;
+    	uint v3 = b[1];
+    	mma_slot[a0 + 32u] = v3;
+    	subgroupBarrier();
+    	float v6 = c[0];
+    	float v7 = c[1];
+    	float v8 = c[2];
+    	float v9 = c[3];
+    	float v10 = c[4];
+    	float v11 = c[5];
+    	float v12 = c[6];
+    	float v13 = c[7];
+    	uint v14 = a[0];
+    	uint v15 = subgroupQuadBroadcast(v14, 0u);
+    	uint a3 = slot + (((lane & 3u) << 3u) ^ 256u);
+    	uint v16 = mma_slot[a3];
+    	float v17 = mma_fdot2(unpackFloat2x16(v15), unpackFloat2x16(v16), v6);
+    	uint v18 = mma_slot[a3 + 4u];
+    	float v19 = mma_fdot2(unpackFloat2x16(v15), unpackFloat2x16(v18), v7);
+    	uint v20 = a[1];
+    	uint v21 = subgroupQuadBroadcast(v20, 0u);
+    	float v22 = mma_fdot2(unpackFloat2x16(v21), unpackFloat2x16(v16), v8);
+    	float v23 = mma_fdot2(unpackFloat2x16(v21), unpackFloat2x16(v18), v9);
+    	uint v24 = a[4];
+    	uint v25 = subgroupQuadBroadcast(v24, 0u);
+    	float v26 = mma_fdot2(unpackFloat2x16(v25), unpackFloat2x16(v16), v10);
+    	float v27 = mma_fdot2(unpackFloat2x16(v25), unpackFloat2x16(v18), v11);
+    	uint v28 = a[5];
+    	uint v29 = subgroupQuadBroadcast(v28, 0u);
+    	float v30 = mma_fdot2(unpackFloat2x16(v29), unpackFloat2x16(v16), v12);
+    	float v31 = mma_fdot2(unpackFloat2x16(v29), unpackFloat2x16(v18), v13);
+    	uint v32 = subgroupQuadBroadcast(v14, 1u);
+    	uint v33 = mma_slot[a3 + 1u];
+    	float v34 = mma_fdot2(unpackFloat2x16(v32), unpackFloat2x16(v33), v17);
+    	uint v35 = mma_slot[a3 + 5u];
+    	float v36 = mma_fdot2(unpackFloat2x16(v32), unpackFloat2x16(v35), v19);
+    	uint v37 = subgroupQuadBroadcast(v20, 1u);
+    	float v38 = mma_fdot2(unpackFloat2x16(v37), unpackFloat2x16(v33), v22);
+    	float v39 = mma_fdot2(unpackFloat2x16(v37), unpackFloat2x16(v35), v23);
+    	uint v40 = subgroupQuadBroadcast(v24, 1u);
+    	float v41 = mma_fdot2(unpackFloat2x16(v40), unpackFloat2x16(v33), v26);
+    	float v42 = mma_fdot2(unpackFloat2x16(v40), unpackFloat2x16(v35), v27);
+    	uint v43 = subgroupQuadBroadcast(v28, 1u);
+    	float v44 = mma_fdot2(unpackFloat2x16(v43), unpackFloat2x16(v33), v30);
+    	float v45 = mma_fdot2(unpackFloat2x16(v43), unpackFloat2x16(v35), v31);
+    	uint v46 = subgroupQuadBroadcast(v14, 2u);
+    	uint v47 = mma_slot[a3 + 2u];
+    	float v48 = mma_fdot2(unpackFloat2x16(v46), unpackFloat2x16(v47), v34);
+    	uint v49 = mma_slot[a3 + 6u];
+    	float v50 = mma_fdot2(unpackFloat2x16(v46), unpackFloat2x16(v49), v36);
+    	uint v51 = subgroupQuadBroadcast(v20, 2u);
+    	float v52 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v47), v38);
+    	float v53 = mma_fdot2(unpackFloat2x16(v51), unpackFloat2x16(v49), v39);
+    	uint v54 = subgroupQuadBroadcast(v24, 2u);
+    	float v55 = mma_fdot2(unpackFloat2x16(v54), unpackFloat2x16(v47), v41);
+    	float v56 = mma_fdot2(unpackFloat2x16(v54), unpackFloat2x16(v49), v42);
+    	uint v57 = subgroupQuadBroadcast(v28, 2u);
+    	float v58 = mma_fdot2(unpackFloat2x16(v57), unpackFloat2x16(v47), v44);
+    	float v59 = mma_fdot2(unpackFloat2x16(v57), unpackFloat2x16(v49), v45);
+    	uint v60 = subgroupQuadBroadcast(v14, 3u);
+    	uint v61 = mma_slot[a3 + 3u];
+    	float v62 = mma_fdot2(unpackFloat2x16(v60), unpackFloat2x16(v61), v48);
+    	uint v63 = mma_slot[a3 + 7u];
+    	float v64 = mma_fdot2(unpackFloat2x16(v60), unpackFloat2x16(v63), v50);
+    	uint v65 = subgroupQuadBroadcast(v20, 3u);
+    	float v66 = mma_fdot2(unpackFloat2x16(v65), unpackFloat2x16(v61), v52);
+    	float v67 = mma_fdot2(unpackFloat2x16(v65), unpackFloat2x16(v63), v53);
+    	uint v68 = subgroupQuadBroadcast(v24, 3u);
+    	float v69 = mma_fdot2(unpackFloat2x16(v68), unpackFloat2x16(v61), v55);
+    	float v70 = mma_fdot2(unpackFloat2x16(v68), unpackFloat2x16(v63), v56);
+    	uint v71 = subgroupQuadBroadcast(v28, 3u);
+    	float v72 = mma_fdot2(unpackFloat2x16(v71), unpackFloat2x16(v61), v58);
+    	float v73 = mma_fdot2(unpackFloat2x16(v71), unpackFloat2x16(v63), v59);
+    	uint v74 = a[2];
+    	uint v75 = subgroupQuadBroadcast(v74, 0u);
+    	uint v76 = mma_slot[a3 + 32u];
+    	float v77 = mma_fdot2(unpackFloat2x16(v75), unpackFloat2x16(v76), v62);
+    	uint v78 = mma_slot[a3 + 36u];
+    	float v79 = mma_fdot2(unpackFloat2x16(v75), unpackFloat2x16(v78), v64);
+    	uint v80 = a[3];
+    	uint v81 = subgroupQuadBroadcast(v80, 0u);
+    	float v82 = mma_fdot2(unpackFloat2x16(v81), unpackFloat2x16(v76), v66);
+    	float v83 = mma_fdot2(unpackFloat2x16(v81), unpackFloat2x16(v78), v67);
+    	uint v84 = a[6];
+    	uint v85 = subgroupQuadBroadcast(v84, 0u);
+    	float v86 = mma_fdot2(unpackFloat2x16(v85), unpackFloat2x16(v76), v69);
+    	float v87 = mma_fdot2(unpackFloat2x16(v85), unpackFloat2x16(v78), v70);
+    	uint v88 = a[7];
+    	uint v89 = subgroupQuadBroadcast(v88, 0u);
+    	float v90 = mma_fdot2(unpackFloat2x16(v89), unpackFloat2x16(v76), v72);
+    	float v91 = mma_fdot2(unpackFloat2x16(v89), unpackFloat2x16(v78), v73);
+    	uint v92 = subgroupQuadBroadcast(v74, 1u);
+    	uint v93 = mma_slot[a3 + 33u];
+    	float v94 = mma_fdot2(unpackFloat2x16(v92), unpackFloat2x16(v93), v77);
+    	uint v95 = mma_slot[a3 + 37u];
+    	float v96 = mma_fdot2(unpackFloat2x16(v92), unpackFloat2x16(v95), v79);
+    	uint v97 = subgroupQuadBroadcast(v80, 1u);
+    	float v98 = mma_fdot2(unpackFloat2x16(v97), unpackFloat2x16(v93), v82);
+    	float v99 = mma_fdot2(unpackFloat2x16(v97), unpackFloat2x16(v95), v83);
+    	uint v100 = subgroupQuadBroadcast(v84, 1u);
+    	float v101 = mma_fdot2(unpackFloat2x16(v100), unpackFloat2x16(v93), v86);
+    	float v102 = mma_fdot2(unpackFloat2x16(v100), unpackFloat2x16(v95), v87);
+    	uint v103 = subgroupQuadBroadcast(v88, 1u);
+    	float v104 = mma_fdot2(unpackFloat2x16(v103), unpackFloat2x16(v93), v90);
+    	float v105 = mma_fdot2(unpackFloat2x16(v103), unpackFloat2x16(v95), v91);
+    	uint v106 = subgroupQuadBroadcast(v74, 2u);
+    	uint v107 = mma_slot[a3 + 34u];
+    	float v108 = mma_fdot2(unpackFloat2x16(v106), unpackFloat2x16(v107), v94);
+    	uint v109 = mma_slot[a3 + 38u];
+    	float v110 = mma_fdot2(unpackFloat2x16(v106), unpackFloat2x16(v109), v96);
+    	uint v111 = subgroupQuadBroadcast(v80, 2u);
+    	float v112 = mma_fdot2(unpackFloat2x16(v111), unpackFloat2x16(v107), v98);
+    	float v113 = mma_fdot2(unpackFloat2x16(v111), unpackFloat2x16(v109), v99);
+    	uint v114 = subgroupQuadBroadcast(v84, 2u);
+    	float v115 = mma_fdot2(unpackFloat2x16(v114), unpackFloat2x16(v107), v101);
+    	float v116 = mma_fdot2(unpackFloat2x16(v114), unpackFloat2x16(v109), v102);
+    	uint v117 = subgroupQuadBroadcast(v88, 2u);
+    	float v118 = mma_fdot2(unpackFloat2x16(v117), unpackFloat2x16(v107), v104);
+    	float v119 = mma_fdot2(unpackFloat2x16(v117), unpackFloat2x16(v109), v105);
+    	uint v120 = subgroupQuadBroadcast(v74, 3u);
+    	uint v121 = mma_slot[a3 + 35u];
+    	float v122 = mma_fdot2(unpackFloat2x16(v120), unpackFloat2x16(v121), v108);
+    	uint v123 = mma_slot[a3 + 39u];
+    	float v124 = mma_fdot2(unpackFloat2x16(v120), unpackFloat2x16(v123), v110);
+    	uint v125 = subgroupQuadBroadcast(v80, 3u);
+    	float v126 = mma_fdot2(unpackFloat2x16(v125), unpackFloat2x16(v121), v112);
+    	float v127 = mma_fdot2(unpackFloat2x16(v125), unpackFloat2x16(v123), v113);
+    	uint v128 = subgroupQuadBroadcast(v84, 3u);
+    	float v129 = mma_fdot2(unpackFloat2x16(v128), unpackFloat2x16(v121), v115);
+    	float v130 = mma_fdot2(unpackFloat2x16(v128), unpackFloat2x16(v123), v116);
+    	uint v131 = subgroupQuadBroadcast(v88, 3u);
+    	float v132 = mma_fdot2(unpackFloat2x16(v131), unpackFloat2x16(v121), v118);
+    	float v133 = mma_fdot2(unpackFloat2x16(v131), unpackFloat2x16(v123), v119);
+    	d[0] = v122;
+    	d[1] = v124;
+    	d[2] = v126;
+    	d[3] = v127;
+    	d[4] = v129;
+    	d[5] = v130;
+    	d[6] = v132;
+    	d[7] = v133;
     }
-  (nofile: mma_m32n8k16_f32.glsl, 8000 bytes, checksum 8c85781e)
-  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which rdna2 does not list): 144.25, 1.14x cheaper (output-stationary; A: 32 quad broadcasts; B: 16 loads from shared memory (register-major, in 4 wide accesses); 64 fdot2)
+  (nofile: mma_m32n8k16_f32.glsl, 8579 bytes, checksum c0b598a9)
+  what if: were a 64- or 128-bit shared access priced as one 32-bit access (load_shared_x2, load_shared_x4, store_shared_x2, store_shared_x4, which rdna2 does not list): 128.75, 1.28x cheaper (output-stationary; A: 32 quad broadcasts; B: 16 loads from shared memory (register-major, in 4 wide accesses); 64 fdot2)
 > mma tile 1 2 1 m16n8k8 model mali_g715 nofile
 mma m16n16k8: D = A B + C on a warp's fragments as PTX's mma.sync.aligned.m16n8k8.row.col lays them out, f16 A and B, f32 C and D, 32 lanes, under mali_g715 (1720 dataflows tried)
   a tile of 1 x 2 x 1 HMMAs (m16n8k8): one A fragment times several B ones; the costs are the tile's, each HMMA's a 2th of them

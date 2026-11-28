@@ -44,11 +44,10 @@ _() = 40
   -> u32
 > model cl : gt1030 { sg_cluster4: 19.5, sg_partition: 54.5, sg_partadd: 65.125, sg_barrier: 1.375 }
 > cost ca
-cost of ca under gt1030: inf (3 operations, shared subterms counted once)
-  sg_cluster4      1 x inf   = inf
+cost of ca under gt1030: 22.5 (3 operations, shared subterms counted once)
+  sg_cluster4      1 x 19.5  = 19.5
   fused by the model (one instruction for several operations):
     imad             1 x 3     = 3  (a*b + c; saves 1)
-  sg_cluster4 is not available under gt1030 (the model lists no such instruction)
 > cost ca model cl
 cost of ca under cl: 22.5 (3 operations, shared subterms counted once)
   sg_cluster4      1 x 19.5  = 19.5
@@ -63,8 +62,8 @@ cost of pd under cl: 123.625 (5 operations, shared subterms counted once)
     imad             1 x 3     = 3  (a*b + c; saves 1)
 > find ca
 find ca: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
-  cost 15  10lane + t + sg_shuffle(t1, lane xor 1) + sg_shuffle(t1 + sg_shuffle(t1, lane xor 1), lane xor 2) where t1 = 10lane + t
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 22.5 as written):
+  cost 13  10lane + t + sg_shuffle(t1, lane xor 1) + sg_shuffle(t1 + sg_shuffle(t1, lane xor 1), lane xor 2) where t1 = 10lane + t
            sg_clustered_add(10lane + t, 4): a butterfly of 2 shuffles by lane xor 1, 2 and +s: after the step for d a lane holds the sum of the 2d lanes that agree with it from bit d up; proved for any value per lane (with a free word in each lane, every lane's result is the sum of the 4 words of its cluster, each once)
            holds in a full subgroup (all 8 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
            checked by SAT
@@ -73,8 +72,8 @@ find ca: 1024 points (sampled; matches verified on the whole domain), computing 
 > cb(t: u32 uniform, lane: u32 in 0..7) = sg_clustered_add((t >> lane) & 1, 4)
 > find cb
 find cb: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  subgroup forms under gt1030 (each derived, with what it holds under; cost inf as written):
-  cost 12.375 popcount(sg_ballot(t >> lane & 1 != 0) >> (lane & 0xfffffffc) & 15)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 22.5 as written):
+  cost 11.625 popcount(sg_ballot(t >> lane & 1 != 0) >> (lane & 0xfffffffc) & 15)
            sg_clustered_add(t >> lane & 1, 4): t >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its sum over the lane's cluster of 4 is the number of those lanes where it is not 0: the ballot's bits from the cluster's first lane, lane & ~3
            holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT
@@ -129,12 +128,11 @@ exec of SPIR-V (32 instructions), entry %main, 8 lanes in lockstep, cost model c
 exec of SPIR-V (18 instructions), entry %main, 8 lanes in lockstep, cost model gt1030
   buffers start with random values (seed 1)
   subgroup: the 8 lanes run are one subgroup (SubgroupSize 8)
-  note: a barrier of Subgroup execution scope is priced as a workgroup one (barrier, 9.125): gt1030 lists no sg_barrier
   output %y per lane: 0 1 2 3 4 5 6 7
   serial form:
     %l = OpLoad %uint %px                                       0  t = 0..0  -> 0 1 2 3 4 5 6 7
-    OpControlBarrier %uint_3 %uint_3 %uint_264   barrier    9.125  t = 0..9.125
-    OpStore %y %l                                               0  t = 9.125..9.125
-  time 9.125 for every lane; lanes busy 0% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 900x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.5 cost units; 68646 bytes
-  (nofile: GIF checksum bcb8b9f3)
+    OpControlBarrier %uint_3 %uint_3 %uint_264   sg_barrier 1.375  t = 0..1.375
+    OpStore %y %l                                               0  t = 1.375..1.375
+  time 1.375 for every lane; lanes busy 0% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 900x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.2 cost units; 27836 bytes
+  (nofile: GIF checksum 26991e6d)

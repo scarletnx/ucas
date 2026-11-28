@@ -25,7 +25,7 @@ cost of rare under gt1030: 964 (0 operations outside loops and 1 loop, shared su
   ?: on (int(7i) + 13j) % 32 == 0  (arms cost 35 and 1)  [in a loop body: per iteration]
       select: +1.625   uniform branch: +5.25   divergent branch: +20.625
       expected branch: +2.74852   (per iteration: P(true) = 0.03125 over all 65536 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.6379)
-      compacted: -21.9062   (the lanes that take the true arm, 0.03125 of them, packed into the first lanes across the loop's iterations: each lane a ballot, an and with the lanes below and its bit count, a shuffle there and back; the 35 of that arm once for 32 items)
+      compacted: -20.4062   (the lanes that take the true arm, 0.03125 of them, packed into the first lanes across the loop's iterations: each lane a ballot, an and with the lanes below and its bit count, a shuffle there and back; the 35 of that arm once for 32 items)
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not); compacted is cheaper, a restructuring: the loop made persistent, the items it packs carried across iterations
   estimate with the best form per ?: : 964
 > half(i: u32 in 0..4095) = { s: f32 = 0; for j in 0..15 { s = (i + j) % 2 == 0 ? s + sqrt(exp(sin(f32(i + j)) * 3.0)) : s + 1.0 }; s }
@@ -68,8 +68,8 @@ simplify: 111 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal f
     OpBranchConditional %50 %51 %76
       (line 9: if (x > 0.99) {)
       in a loop's body, on a condition that differs from lane to lane; the true arm costs 39, the other 1
-      compacted across the loop's iterations (a persistent loop): each lane a ballot, an and with the lanes below and its bit count, a shuffle there and back (12), the dear arm once for 32 packed items;
-      cheaper than the branch (or both arms and a select, the cheaper) while 0.003906 to 0.7334 of the lanes take that arm (independent lanes): at 0.03223, 14.2568 against 41.625 a lane
+      compacted across the loop's iterations (a persistent loop): each lane a ballot, an and with the lanes below and its bit count, a shuffle there and back (13.5), the dear arm once for 32 packed items;
+      cheaper than the branch (or both arms and a select, the cheaper) while 0.004883 to 0.6953 of the lanes take that arm (independent lanes): at 0.03223, 15.7568 against 41.625 a lane
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 3391 bytes, checksum 7a559f1a)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator

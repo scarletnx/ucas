@@ -60,23 +60,23 @@ polynomial of degree 8 in x:
 > scheme c more
 evaluation schemes for c under gt1030
 polynomial of degree 7 in x:
-  as written cost 90     depth 22    20 ops  50x + 18446744073709551615 + 44x^2 + 15x^3 - 34x^4 + 16x^5 + 49x^6 + 5x^7
-  pow()      cost 90     depth 28    20 ops  5x^7 + 49x^6 + 16x^5 + 18446744073709551582x^4 + 15x^3 + 44x^2 + 50x + 18446744073709551615
+  as written cost 435.5  depth 110.5 20 ops  50x + 18446744073709551615 + 44x^2 + 15x^3 - 34x^4 + 16x^5 + 49x^6 + 5x^7
+  pow()      cost 435.5  depth 122.5 20 ops  5x^7 + 49x^6 + 16x^5 + 18446744073709551582x^4 + 15x^3 + 44x^2 + 50x + 18446744073709551615
              equal at all 4096 points checked
-  products   cost 45     depth 28    20 ops  5(x*x*x*x*x*x*x) + 49(x*x*x*x*x*x) + 16(x*x*x*x*x) + 18446744073709551582(x*x*x*x) + 15(x*x*x) + 44(x*x) + 50x + 18446744073709551615
+  products   cost 203    depth 122.5 20 ops  5(x*x*x*x*x*x*x) + 49(x*x*x*x*x*x) + 16(x*x*x*x*x) + 18446744073709551582(x*x*x*x) + 15(x*x*x) + 44(x*x) + 50x + 18446744073709551615
              equal at all 4096 points checked
-  Horner     cost 28     depth 28    14 ops  ((((((5x + 49)*x + 16)*x + 18446744073709551582)*x + 15)*x + 44)*x + 50)*x + 18446744073709551615
+  Horner     cost 122.5  depth 122.5 14 ops  ((((((5x + 49)*x + 16)*x + 18446744073709551582)*x + 15)*x + 44)*x + 50)*x + 18446744073709551615
              equal at all 4096 points checked
-  Estrin     cost 33     depth 12    16 ops  50x + 18446744073709551615 + (15x + 44)*(x*x) + (16x + 18446744073709551582 + (5x + 49)*(x*x))*(x*x*(x*x))
+  Estrin     cost 141    depth 52.5  16 ops  50x + 18446744073709551615 + (15x + 44)*(x*x) + (16x + 18446744073709551582 + (5x + 49)*(x*x))*(x*x*(x*x))
              equal at all 4096 points checked
   Knuth      not listed: its adapted coefficients are not whole numbers here
-  Eve        cost 23     depth 20    13 ops  5(((x - 1)*(x - 1) + 963670462397660876)*(((x - 1)*(x - 1) + 3619587636300884190)*(((x - 1)*(x - 1) - 4583258098698544983)*(x - 1 + 3689348814741910340) + 3689348814741909120) - 262463922118131543) + 5760889974169314308)
+  Eve        cost 93.5   depth 87.5  13 ops  5(((x - 1)*(x - 1) + 963670462397660876)*(((x - 1)*(x - 1) + 3619587636300884190)*(((x - 1)*(x - 1) - 4583258098698544983)*(x - 1 + 3689348814741910340) + 3689348814741909120) - 262463922118131543) + 5760889974169314308)
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
   P-S split  not listed: the leading coefficient does not divide the others
   (depth is the critical path: Estrin trades operations for parallelism)
   (Eve: at each level (x^2 - t)*q + b, t a root of the odd part modulo the type's width, down to a cubic: about n/2 + 2 multiplications)
-  cheapest with gt1030's fusions counted: Horner 21; products 39, Estrin 26, Eve 21
+  cheapest with gt1030's fusions counted: Eve 93.5; products 203, Horner 122.5, Estrin 141
   differences, for x = 0, 1, ...: start d0 = -9223372036854775808 d1 = 0 d2 = 0 d3 = 0 d4 = 0 d5 = 0 d6 = 0 d7 = 0
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000

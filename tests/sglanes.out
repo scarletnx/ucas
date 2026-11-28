@@ -21,10 +21,9 @@ sglanes.ucas:24:14: error: bl reads a lanes parameter across the lanes: its valu
     show bl(3, 2)
                  ^
 > cost bl
-cost of bl under w8: 3.375 (3 operations, shared subterms counted once)
-  logic            1 x 1     = 1
-  cmp              1 x 2.375 = 2.375
-  sg_ballot        1 x 0     = 0
+cost of bl under w8: 2.625 (3 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    ballot_bit       1 x 2.625 = 2.625  (sg_ballot(a & 1 != 0); saves 2.25)
 > u2(x: u8 uniform lanes) = x
 sglanes.ucas:28:23: error: x is uniform (one value for the lanes) or lanes (a value in each), not both
     u2(x: u8 uniform lanes) = x
@@ -55,28 +54,28 @@ cost of tr under w8: 157 (0 operations outside loops and 1 loop, shared subterms
     once: 0 (initial values and loop-invariant subterms, hoisted)
     loop total: 157
 > cost tb
-cost of tb under w8: 152 (0 operations outside loops and 1 loop, shared subterms counted once)
+cost of tb under w8: 146 (0 operations outside loops and 1 loop, shared subterms counted once)
   iadd             8 x 1     = 8
-  logic            8 x 1     = 8
   shift            8 x 2     = 16
-  cmp             24 x 2.375 = 57
+  cmp             16 x 2.375 = 38
   select           8 x 1.625 = 13
   branch           8 x 6.25  = 50
-  sg_ballot        8 x 0     = 0
+  fused by the model (one instruction for several operations):
+    ballot_bit       8 x 2.625 = 21  (sg_ballot(a & 1 != 0); saves 18)
   loop j in 0..7:
-    per iteration: body 9.375 + overhead 9.625 (index add, compare, branch) = 19
+    per iteration: body 8.625 + overhead 9.625 (index add, compare, branch) = 18.25
     trip count: 8 (constant bounds)
     once: 0 (initial values and loop-invariant subterms, hoisted)
-    loop total: 152
-  ?: on int(lane) == j  (arms cost 5.375 and 0)  [in a loop body: per iteration]
+    loop total: 146
+  ?: on int(lane) == j  (arms cost 4.625 and 0)  [in a loop body: per iteration]
       select: +1.625   uniform branch: +6.25   divergent branch: +20.625
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
-  estimate with the best form per ?: : 152
+  estimate with the best form per ?: : 146
 > wadd(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 { aj = sg_shuffle(a, j); sj = u8(aj + sg_shuffle(b, j) + c); c = j < lane ? (sj < aj || (c != 0 && sj == aj) ? 1 : 0) : c }; u8(a + b + c) }
 > find wadd 1
 find wadd: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from w8
   subgroup forms under w8 (each derived, with what it holds under; cost 226 as written):
-  cost 14.75 a + b + u8(((sg_ballot(a + b < a) << 1) + t1 xor t1) >> lane & 1) where t1 = sg_ballot(a + b == 255)
+  cost 17.75 a + b + u8(((sg_ballot(a + b < a) << 1) + t1 xor t1) >> lane & 1) where t1 = sg_ballot(a + b == 255)
            the function is a + b plus what the lanes below send in, however it works that out; taken as the carry of a sum with a limb in each lane: with g the lanes where the limbs' sum carries out and p those where it is all ones, which pass a carry on, the carries into the lanes are ((g << 1) + p) xor p, one add of two ballots, and each lane adds its bit; a guess from the shape until the check below, which proves the form equal to the function over the 16 words of the lanes
            holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT
@@ -85,7 +84,7 @@ find wadd: a value in each lane (lanes), so there are no points to search; forms
 > find wadd4 1
 find wadd4: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from w8
   subgroup forms under w8 (each derived, with what it holds under; cost 158.75 as written):
-  cost 15.75 a + b + u8(((sg_ballot(a + b > 15) << 1) + t1 xor t1) >> lane & 1) & 15 where t1 = sg_ballot(a + b == 15)
+  cost 18.75 a + b + u8(((sg_ballot(a + b > 15) << 1) + t1 xor t1) >> lane & 1) & 15 where t1 = sg_ballot(a + b == 15)
            the function is a + b plus what the lanes below send in, however it works that out; taken as the carry of a sum with a limb in each lane: with g the lanes where the limbs' sum carries out and p those where it is all ones, which pass a carry on, the carries into the lanes are ((g << 1) + p) xor p, one add of two ballots, and each lane adds its bit; a guess from the shape until the check below, which proves the form equal to the function over the 16 words of the lanes
            holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT
@@ -108,7 +107,7 @@ cost model: gt1030
 > find big 1
 find big: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from gt1030
   subgroup forms under gt1030 (each derived, with what it holds under; cost 963 as written):
-  cost 13.75 a + b + (((sg_ballot(a + b < a) << 1) + t1 xor t1) >> lane & 1) where t1 = sg_ballot(a + b == 4294967295)
+  cost 16.75 a + b + (((sg_ballot(a + b < a) << 1) + t1 xor t1) >> lane & 1) where t1 = sg_ballot(a + b == 4294967295)
            the function is a + b plus what the lanes below send in, however it works that out; taken as the carry of a sum with a limb in each lane: with g the lanes where the limbs' sum carries out and p those where it is all ones, which pass a carry on, the carries into the lanes are ((g << 1) + p) xor p, one add of two ballots, and each lane adds its bit; a guess from the shape until the check below, which proves the form equal to the function over the 64 words of the lanes
            holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT

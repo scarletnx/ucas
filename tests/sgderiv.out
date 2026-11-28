@@ -64,12 +64,12 @@ find n1: a float value per lane: the subgroup forms of floats (derivatives), cos
 > find n2 1
 find n2: a float value per lane: the subgroup forms of floats (derivatives), costs from gt1030
   no fine derivative here is cheaper under gt1030 (cost 19 as written)
-  subgroup forms: derived, but not cheaper under gt1030 (cost 24, as written 19): a shuffle's lane map as exchanges by xor
+  subgroup forms: derived, but not cheaper under gt1030 (cost 23, as written 19): a shuffle's lane map as exchanges by xor
 > n3(lane: u32 in 0..31, s: f32 uniform) = sg_shuffle(f32(lane) * s, lane | 1) - sg_shuffle(f32(lane) * s, lane & 0xfffffffd)
 > find n3 1
 find n3: a float value per lane: the subgroup forms of floats (derivatives), costs from gt1030
   no fine derivative here is cheaper under gt1030 (cost 15 as written)
-  subgroup forms: derived, but not cheaper under gt1030 (cost 20, as written 15): a shuffle's lane map as exchanges by xor
+  subgroup forms: derived, but not cheaper under gt1030 (cost 19, as written 15): a shuffle's lane map as exchanges by xor
 > k1(lane: u32 in 0..31) = sg_dfdx(lane)
 sgderiv.ucas:32:39: error: sg_dfdx takes a float (f16, f32, f64) per lane, not u32
     k1(lane: u32 in 0..31) = sg_dfdx(lane)

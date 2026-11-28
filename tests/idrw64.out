@@ -43,16 +43,18 @@ cost model: gt1030
 > find m3 1
 find m3: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   rewrites the model prices lower (each derived, with what it holds under):
-  cost 6   u32(0x6b0200d4090 >> (u64(x) << 2) & 15) + y the map u32(x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x =… (27 more characters) of x as a table in one u64 constant (12 entries of 4 bits) (derived; checked by SAT)
+  cost 8   u32(0x6b0200d4090 >> (u64(x) << 2) & 15) + y the map u32(x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x =… (27 more characters) of x as a table in one u64 constant (12 entries of 4 bits) (derived; checked by SAT)
       holds where x in [0, 11] (its range)
       u32(x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x =… (27 more characters) at x = 0..11 is [0, 9, 0, 4, 13, 0, 0, 2, 0, 11, 6, 0] (evaluated at each of the 12)
       bits [4*i, 4*i + 4) of 0x6b0200d4090 hold the value at x = i: shifting right by that many bits times x and masking reads it
+  cost 7   u32(0x6b0200d4090 >> (x << 2) & 15) + y  all of them: the map u32(x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x =… (27 more characters) of x as a table in one u64 constant (12 entries of 4 bits), then drops the conversion u64(...) (derived; the drops proved by SAT)
+  instructions under gt1030: byteperm(x, y, 0x7654) (cost 1) does not hold: x=1, y=1: 10 vs 1
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > find m4 1
 find m4: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   rewrites the model prices lower (each derived, with what it holds under):
-  cost 5   bool(0x10200020028 >> u64(x)) ? y : 0    the map x == 3 || x == 17 || x == 33 || x == 40 || x == 5 of x as a table in one u64 constant (41 entries of 1 bit) (derived; checked by SAT)
+  cost 6   bool(0x10200020028 >> u64(x)) ? y : 0    the map x == 3 || x == 17 || x == 33 || x == 40 || x == 5 of x as a table in one u64 constant (41 entries of 1 bit) (derived; checked by SAT)
       holds where x in [0, 40] (its range)
       x == 3 || x == 17 || x == 33 || x == 40 || x == 5 at x = 0..40 is [0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ... (25 more)] (evaluated at each of the 41)
       bits [1*i, 1*i + 1) of 0x10200020028 hold the value at x = i: shifting right by x and taking the low bit reads it
@@ -61,5 +63,6 @@ find m4: 1024 points (sampled; matches verified on the whole domain), computing 
 > m5(x: u32 in 0..16, y: u32) = (x == 1 ? 9 : x == 3 ? 4 : x == 16 ? 13 : 0) + y
 > find m5 1
 find m5: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  instructions under gt1030: byteperm(x, y, 0x7654) (cost 1) does not hold: x=16, y=0: 13 vs 0
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

@@ -170,7 +170,7 @@ find ss: 1024 points (sampled; matches verified on the whole domain), computing 
 > si(a: i32, b: i32) = i32(max(min(i64(a) + i64(b), 2147483647), -2147483648))
 > find si 1
 find si: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from vid
-  instructions under vid (each for the pattern it is; cost 3 as written):
+  instructions under vid (each for the pattern it is; cost 4 as written):
   cost 1   addsat(a, b)
            i32(max(min(i64(a) + i64(b), 2147483647), -2147483648)): addsat(a, b), the sum clamped to the range of i32, told at 48 random points
            checked by SAT
