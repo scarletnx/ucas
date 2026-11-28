@@ -735,7 +735,7 @@ periodic it:
   no: not periodic
   a polynomial of degree 2 is not periodic (proved: f(x) - f(0) is a non-zero polynomial, so it has finitely many zeros)
 > is x squared even?
-  note: "even": read as an even function, f(-x) = f(x), not an even number for every input (say "an odd function" or "always odd")
+  note: "even": read as an even function, f(-x) = f(x), not an even number for every input (say "an even function" or "always even")
   ucas: it(x) = x^2
   ucas: parity it
 parity of it:

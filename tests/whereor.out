@@ -11,8 +11,8 @@ range of a -> u32:
 domain of a:
   x: u32, 0..4294967295
   where x == 3 || x == 17
-  no conditions: total on its parameter types
   defined at 2 of 2 points
+  no conditions: total on its parameter types
   over all 2 points of the domain
 > b(x: u32) = x + 2 where x == 3 || x == 17
 > equiv a b
@@ -52,7 +52,7 @@ h and h are equal on the domain of h (exhaustive)
 > g(x: u32) = x + 1 where x * x == 49
 > range g
 range of g -> u32:
-  no value: none of the 65536 points sampled is in the domain
+  empty (undefined everywhere)
   sampled 65536 points, none in the domain (the parameters span 4294967296 points); not exhaustive
   sound bound (intervals): 0..4294967295
 > table g

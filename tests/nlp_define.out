@@ -182,7 +182,7 @@ wrap analysis of it:
   ucas: it(x: i32) = x/2
   ucas: range it
 range of it -> i32:
-  -1073741824..1073741823
+  -1073741824..1073741823  (sampled min/max; not a sound bound)
   fits in i31
   sampled 65536 points (domain has 4294967296 points); not exhaustive
   sound bound (intervals): -2147483648..2147483647

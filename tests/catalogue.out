@@ -57,13 +57,13 @@ _() = 4294049791
   -> u32
 > range bfe(x: u32, 4, 8)
 range of bfe(x, 4, 8) -> u32:
-  0..255
+  0..255  (sampled min/max; not a sound bound)
   fits in u8
   sampled 65536 points (domain has 4294967296 points); not exhaustive
   sound bound (intervals): 0..255
 > range med3(x: i32, -3, 7)
 range of med3(x, -3, 7) -> i32:
-  -3..7
+  -3..7  (sampled min/max; not a sound bound)
   fits in i4
   sampled 65536 points (domain has 4294967296 points); not exhaustive
   sound bound (intervals): -3..7
@@ -264,7 +264,7 @@ _() = 18446744065119617024
   -> u64
 > range bfi(x: u32, 3, 4, 2)
 range of bfi(x, 3, 4, 2) -> u32:
-  48..4294967295
+  48..4294967295  (sampled min/max; not a sound bound)
   fits in u32
   sampled 65536 points (domain has 4294967296 points); not exhaustive
   sound bound (intervals): 48..4294967295

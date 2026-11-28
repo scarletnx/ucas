@@ -1,6 +1,7 @@
 > acc(s: u32 in 0..255, d: u32 in 0..1000000) = d + s
 > rop acc
 rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  word-level ring identity: no AIG built, no SAT search (3 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: acc(s2, acc(s1, d)) = acc(s1, acc(s2, d)) (proved by SAT)
   fixed-function states that compute it (each a proposal: the pipeline changes):
   blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): s + d
@@ -12,12 +13,14 @@ rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the
 > big(s: u32, d: u32) = d + s
 > rop big
 rop big: big = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  word-level ring identity: no AIG built, no SAT search (3 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: big(s2, big(s1, d)) = big(s1, big(s2, d)) (proved by SAT)
   blending: VK_BLEND_OP_ADD with ONE and ONE would compute it (s + d), but is not exact on this domain: its values reach 8589934590 in magnitude and its result [0, 8589934590]; f32 holds integers below 2^24 = 16777216, and the result must stay inside u32
   no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query, a fill)
 > wsum(s: u32 in 0..255, w: u32 in 0..16, d: u32 in 0..100000) = d + s*w
 > rop wsum
 rop wsum: wsum = d + s*w, applied once per fragment (s what a fragment brings, w its second value, d the cell's value)
+  word-level ring identity: no AIG built, no SAT search (5 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: wsum(s2, wsum(s1, d)) = wsum(s1, wsum(s2, d)) (proved by SAT)
   fixed-function states that compute it (each a proposal: the pipeline changes):
   blending: VK_BLEND_OP_ADD, source factor SRC1_COLOR, destination factor ONE on a float target (R32_SFLOAT): s*w + d
@@ -29,6 +32,7 @@ rop wsum: wsum = d + s*w, applied once per fragment (s what a fragment brings, w
 > wk(s: u32 in 0..255, k: u32 in 0..16 uniform, d: u32 in 0..100000) = d + s*k
 > rop wk
 rop wk: wk = d + s*k, applied once per fragment (s what a fragment brings, d the cell's value, k a pipeline constant)
+  word-level ring identity: no AIG built, no SAT search (4 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: wk(s2, wk(s1, d)) = wk(s1, wk(s2, d)) (proved by SAT)
   fixed-function states that compute it (each a proposal: the pipeline changes):
   blending: VK_BLEND_OP_ADD, source factor CONSTANT_COLOR, destination factor ONE on a float target (R32_SFLOAT): s*k + d
@@ -259,6 +263,7 @@ rop nope: nope = 3d + s, applied once per fragment (s what a fragment brings, d 
 > model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
 > rop acc model fixed
 rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  word-level ring identity: no AIG built, no SAT search (3 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: acc(s2, acc(s1, d)) = acc(s1, acc(s2, d)) (proved by SAT)
   fixed-function states that compute it (each a proposal: the pipeline changes):
   blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): s + d
@@ -315,6 +320,7 @@ cost model: gt1030
 > the blend state for acc
   ucas: rop acc
 rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  word-level ring identity: no AIG built, no SAT search (3 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: acc(s2, acc(s1, d)) = acc(s1, acc(s2, d)) (proved by SAT)
   fixed-function states that compute it (each a proposal: the pipeline changes):
   blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): s + d
@@ -366,6 +372,7 @@ rop.ucas:100:8: error: rop takes one uniform parameter (the blend constant or th
 > sg(s: i32, d: i32) = d + s
 > rop sg
 rop sg: sg = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  word-level ring identity: no AIG built, no SAT search (3 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: sg(s2, sg(s1, d)) = sg(s1, sg(s2, d)) (proved by SAT)
   blending: VK_BLEND_OP_ADD with ONE and ONE would compute it (s + d), but is not exact on this domain: its values reach 4294967296 in magnitude and its result [-4294967296, 4294967294]; f32 holds integers below 2^24 = 16777216, and the result must stay inside i32
   no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query, a fill)
@@ -541,6 +548,7 @@ rop smax: smax = max(a, max(b, max(c, e))), a resolve of a pixel's 4 samples (a 
 > z8(a: u32 in 0..1000, b: u32 in 0..1000, c: u32 in 0..1000, e: u32 in 0..1000, g: u32 in 0..1000, h: u32 in 0..1000, i: u32 in 0..1000, j: u32 in 0..1000) = a
 > rop z8
 rop z8: z8 = a, a resolve of a pixel's 8 samples (a to j)
+  word-level ring identity: no AIG built, no SAT search (1 parameter(s), polynomial normal form over Z agrees mod 2^32)
   fixed-function states that compute it (each a proposal: the pipeline changes):
   depth resolve: VK_RESOLVE_MODE_SAMPLE_ZERO_BIT on an 8-sample D32_SFLOAT depth attachment: a
       holds where the samples stay below 0x3F000000 (at most 1000, from the parameters' ranges)
@@ -616,6 +624,7 @@ rop z: z = 7, applied once per fragment (d the cell's value)
 > sgb(s: i32 in -100..100, d: i32 in -1000000..1000000) = d + s
 > rop sgb
 rop sgb: sgb = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  word-level ring identity: no AIG built, no SAT search (3 parameter(s), polynomial normal form over Z agrees mod 2^32)
   order: the result does not depend on the order of the fragments: sgb(s2, sgb(s1, d)) = sgb(s1, sgb(s2, d)) (proved by SAT)
   fixed-function states that compute it (each a proposal: the pipeline changes):
   blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): s + d

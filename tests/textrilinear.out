@@ -65,7 +65,7 @@ q(v: f32 in 0..1, w: f32 in 0..1) = t1 + 2*t1 where t1 = tex_trilinear8([0, 1, 2
 > equiv k1 k2
 k1 and k2 differ at 2006 points of the sample, e.g. v=0.686065912, w=0.00429373281: 2.2421875 vs 3.984375
 > equiv k1 k3
-k1 and k3 are equal on the domain of k1 (sampled, not proved; no SAT proof: a filtered texture read)
+k1 and k3 are equal on the domain of k1 (proved by SAT: 750 AIG nodes, 0 conflicts)
 > cost k1
 cost of k1 under gt1030: inf (1 operations, shared subterms counted once)
   tex_3d           1 x inf   = inf

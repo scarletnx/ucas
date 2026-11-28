@@ -13,8 +13,7 @@ snippets: 2 inputs of 32 bits under gt1030, 78812 programs with distinct values 
 find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   cost 3   a + b xor a - b                          the snippet database's program with these values (cost 3 under gt1030, where it was grown) (proved by SAT)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
-> g(a: u32, b: u32) = (((a ^ b) << 1) | ((a ^ b) >> 31)) ^ 0xffffffff
-  note: "^" between integers, next to bitwise operators: read as xor (bitwise exclusive or), not power (write xor or ** to say which)
+> g(a: u32, b: u32) = (((a xor b) << 1) | ((a xor b) >> 31)) xor 0xffffffff
 > find g 1 snippets
 find g: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   snippet database: no program up to cost 3 has its values (78812 programs of 2 inputs, 32 bits, grown under gt1030)

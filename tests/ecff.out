@@ -60,9 +60,8 @@ P + Q = (80, 87)
   how: Schoof: t mod l from the Frobenius on E[l] (division polynomials), CRT
   residues: t = 1 mod 2, 1 mod 3, 1 mod 5, 4 mod 7, 8 mod 11, 8 mod 13
   per prime: l = 3: degree 1; l = 5: degree 12; l = 7: degree 3; l = 11: degree 60; l = 13: degree 84
-  finish: the residues fix t mod 30030; a baby-step giant-step match on random points picked #E among the candidates
   check: Hasse: |t| <= 2 sqrt(p)
-  check: (27054, 618622) has order 999853 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: (164329, 245074) has order 999853 (N P = O, and (N/q) P != O stepwise for each prime q of N)
   check: N = 999853 is the only multiple of 999853 in the Hasse interval [998004, 1002004]
 > ecorder [5, 11] mod 2^61 - 1 using schoof
 #E = 2305843008470236846
@@ -71,10 +70,9 @@ P + Q = (80, 87)
   how: Schoof: t mod l from the Frobenius on E[l] (division polynomials), CRT
   residues: t = 0 mod 2, 1 mod 3, 1 mod 5, 0 mod 7, 7 mod 11, 2 mod 13, 16 mod 17, 7 mod 19, 0 mod 23, 27 mod 29
   per prime: l = 3: degree 1; l = 5: degree 12; l = 7: degree 24; l = 11: degree 60; l = 13: degree 6; l = 17: degree 144; l = 19: degree 180; l = 23: degree 264; l = 29: degree 420
-  finish: the residues fix t mod 6469693230; a baby-step giant-step match on random points picked #E among the candidates
   check: Hasse: |t| <= 2 sqrt(p)
-  check: (945108776672395986, 119546246948517245) has order 1152921504235118423 (N P = O, and (N/q) P != O stepwise for each prime q of N)
-  check: N = 2305843008470236846 is the only multiple of 1152921504235118423 in the Hasse interval [2305843006176693453, 2305843012250694451]
+  check: (693545992594031305, 1231629203942436462) has order 2305843008470236846 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 2305843008470236846 is the only multiple of 2305843008470236846 in the Hasse interval [2305843006176693453, 2305843012250694451]
 > ecorder y^2 = x^3 + 7 mod 2^127 - 1 using cm
 #E = 170141183460469231756807104314664985063
   curve: y^2 = x^3 + 7 over F_0x7fffffffffffffffffffffffffffffff

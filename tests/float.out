@@ -30,16 +30,16 @@ error of quake against rsqrt:
 > sum(x: f32 in 1..2) = x + 1e-8 - x
 > range sum
 range of sum -> f32:
-  [0, 0]
+  [0, 0]  (sampled min/max; not a sound bound)
   sampled 65536 points (domain has 8388609 points); not exhaustive
 > wrap rsqrt
 wrap analysis of rsqrt:
   sqrt(x)   (f32)
-      nnan holds (no NaN from non-NaN inputs)
-      ninf holds
+      nnan not proved: no NaN in the sampled points only; sqrt of a negative value gives NaN
+      ninf not proved: no inf in the sampled points only; sqrt of a negative value gives NaN
   1/sqrt(x)   (f32)
-      nnan holds (no NaN from non-NaN inputs)
-      ninf holds
+      nnan not proved: no NaN in the sampled points only; a zero divisor gives inf (0/0 gives NaN)
+      ninf not proved: no inf in the sampled points only; a zero divisor gives inf (0/0 gives NaN)
   end to end vs the real-number result: max abs error 7.97e-07, max rel error 8.89e-08, max 1 ulp
       worst relative error at x=3.99985194
   sampled 65536 points (domain has 111421686 points); not exhaustive
@@ -47,7 +47,7 @@ wrap analysis of rsqrt:
 > wrap d
 wrap analysis of d:
   1/x   (f32)
-      nnan holds (no NaN from non-NaN inputs)
+      nnan not proved: no NaN in the sampled points only; a zero divisor gives inf (0/0 gives NaN)
       ninf fails: inf at 144 points, e.g. x=-2.5064325e-39
   end to end vs the real-number result: max abs error 1.01e+31, max rel error 5.96e-08, max 0 ulp (correctly rounded)
       worst relative error at x=-1.03397521e-25
@@ -58,7 +58,7 @@ wrap analysis of d:
 wrap analysis of z:
   sqrt(x)   (f32)
       nnan fails: NaN at 32652 points, e.g. x=-1
-      ninf holds
+      ninf not proved: no inf in the sampled points only; sqrt of a negative value gives NaN
   end to end vs the real-number result: max abs error 2.98e-08, max rel error 5.91e-08, max 0 ulp (correctly rounded)
       worst relative error at x=3.09170296e-33
   sampled 65536 points (domain has 2130706433 points); not exhaustive
